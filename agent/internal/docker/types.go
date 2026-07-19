@@ -9,6 +9,7 @@ type DockerClient interface {
 	StopContainer(ctx context.Context, containerID string) error
 	RemoveContainer(ctx context.Context, containerID string) error
 	EnsureVolume(ctx context.Context, name string) error
+	RemoveVolume(ctx context.Context, name string) error
 	ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error)
 }
 

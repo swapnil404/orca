@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -15,6 +16,23 @@ type DockerClient = orcadocker.DockerClient
 type ApplyResult struct {
 	Action Action
 	Err    error
+}
+
+// MarshalJSON encodes an apply error as a readable string or null.
+func (r ApplyResult) MarshalJSON() ([]byte, error) {
+	var applyError *string
+	if r.Err != nil {
+		message := r.Err.Error()
+		applyError = &message
+	}
+
+	return json.Marshal(struct {
+		Action Action
+		Err    *string
+	}{
+		Action: r.Action,
+		Err:    applyError,
+	})
 }
 
 // Apply executes every action against Docker and reports each result.
@@ -46,11 +64,18 @@ func applyAction(ctx context.Context, docker DockerClient, action Action) error 
 		spec, err := pgBouncerContainerSpec(action)
 		return createAndStart(ctx, docker, spec, err)
 	case ActionDeletePrimary:
+		cluster, ok := action.Spec.(ActualCluster)
+		if !ok {
+			return errors.New("delete_primary action requires ActualCluster")
+		}
 		containerID, err := primaryContainerID(action)
 		if err != nil {
 			return err
 		}
-		return stopAndRemove(ctx, docker, containerID)
+		if err := stopAndRemove(ctx, docker, containerID); err != nil {
+			return err
+		}
+		return docker.RemoveVolume(ctx, orcadocker.VolumeName(cluster.ID))
 	case ActionDeleteReplica:
 		containerID, err := replicaContainerID(action)
 		if err != nil {
@@ -106,6 +131,10 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		ClusterID: cluster.ID,
 		Kind:      orcadocker.ContainerKindPrimary,
 		Image:     postgresImage(cluster.Version),
+		Env: []string{
+			"POSTGRES_HOST_AUTH_METHOD=trust",
+			"PGDATA=" + orcadocker.VolumeMountPath(cluster.ID) + "/primary",
+		},
 		UseVolume: true,
 	}, nil
 }
@@ -125,6 +154,10 @@ func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		Kind:      orcadocker.ContainerKindReplica,
 		ReplicaID: replica.ID,
 		Image:     postgresImage(""),
+		Env: []string{
+			"POSTGRES_HOST_AUTH_METHOD=trust",
+			"PGDATA=" + orcadocker.VolumeMountPath(action.ClusterID) + "/replicas/" + replica.ID,
+		},
 		UseVolume: true,
 	}, nil
 }

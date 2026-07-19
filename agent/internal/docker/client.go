@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	dockertypes "github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	imagetypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -27,7 +30,9 @@ type sdkClient interface {
 	ContainerStop(ctx context.Context, containerID string, options containertypes.StopOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options containertypes.RemoveOptions) error
 	ContainerList(ctx context.Context, options containertypes.ListOptions) ([]dockertypes.Container, error)
+	ImagePull(ctx context.Context, ref string, options imagetypes.PullOptions) (io.ReadCloser, error)
 	VolumeCreate(ctx context.Context, options volumetypes.CreateOptions) (volumetypes.Volume, error)
+	VolumeRemove(ctx context.Context, volumeID string, force bool) error
 }
 
 // Client implements DockerClient using the official Docker SDK for Go.
@@ -64,15 +69,14 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 		return "", errors.New("container image is required")
 	}
 
-	labels := map[string]string{
-		"orca.cluster_id": spec.ClusterID,
-		"orca.kind":       string(spec.Kind),
-	}
-	if spec.ReplicaID != "" {
-		labels["orca.replica_id"] = spec.ReplicaID
-	}
+	labels := make(map[string]string, len(spec.Labels)+3)
 	for key, value := range spec.Labels {
 		labels[key] = value
+	}
+	labels["orca.cluster_id"] = spec.ClusterID
+	labels["orca.kind"] = string(spec.Kind)
+	if spec.ReplicaID != "" {
+		labels["orca.replica_id"] = spec.ReplicaID
 	}
 
 	hostConfig := &containertypes.HostConfig{}
@@ -89,17 +93,38 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 		}}
 	}
 
-	created, err := c.sdk.ContainerCreate(ctx, &containertypes.Config{
+	config := &containertypes.Config{
 		Image:  spec.Image,
 		Env:    spec.Env,
 		Cmd:    spec.Command,
 		Labels: labels,
-	}, hostConfig, nil, nil, name)
+	}
+	created, err := c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
+	if errdefs.IsNotFound(err) {
+		if err := c.pullImage(ctx, spec.Image); err != nil {
+			return "", err
+		}
+		created, err = c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
+	}
 	if err != nil {
 		return "", err
 	}
 
 	return created.ID, nil
+}
+
+func (c *Client) pullImage(ctx context.Context, image string) error {
+	stream, err := c.sdk.ImagePull(ctx, image, imagetypes.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull image %q: %w", image, err)
+	}
+	defer stream.Close()
+
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		return fmt.Errorf("read image pull response for %q: %w", image, err)
+	}
+
+	return nil
 }
 
 // StartContainer starts a Docker container by ID.
@@ -140,6 +165,18 @@ func (c *Client) EnsureVolume(ctx context.Context, name string) error {
 
 	_, err := c.sdk.VolumeCreate(ctx, volumetypes.CreateOptions{Name: name})
 	return err
+}
+
+// RemoveVolume removes a named Docker volume.
+func (c *Client) RemoveVolume(ctx context.Context, name string) error {
+	if c.sdk == nil {
+		return errors.New("docker client is nil")
+	}
+	if name == "" {
+		return errors.New("volume name is required")
+	}
+
+	return c.sdk.VolumeRemove(ctx, name, false)
 }
 
 // ListOrcaContainers lists Docker containers with the orca- prefix and parses their names.
@@ -201,9 +238,16 @@ func VolumeMountPath(clusterID string) string {
 func parseContainerSummary(container dockertypes.Container) (ContainerInfo, bool) {
 	for _, rawName := range container.Names {
 		name := strings.TrimPrefix(rawName, "/")
-		parsed, ok := parseContainerName(name)
-		if !ok {
+		if !strings.HasPrefix(name, orcaNamePrefix) {
 			continue
+		}
+
+		parsed, ok := parseContainerLabels(container.Labels)
+		if !ok {
+			parsed, ok = parseContainerName(name)
+			if !ok {
+				continue
+			}
 		}
 
 		parsed.ID = container.ID
@@ -215,6 +259,27 @@ func parseContainerSummary(container dockertypes.Container) (ContainerInfo, bool
 	}
 
 	return ContainerInfo{}, false
+}
+
+func parseContainerLabels(labels map[string]string) (ContainerInfo, bool) {
+	clusterID := labels["orca.cluster_id"]
+	kind := ContainerKind(labels["orca.kind"])
+	if clusterID == "" {
+		return ContainerInfo{}, false
+	}
+
+	switch kind {
+	case ContainerKindPrimary, ContainerKindPgBouncer:
+		return ContainerInfo{ClusterID: clusterID, Kind: kind}, true
+	case ContainerKindReplica:
+		replicaID := labels["orca.replica_id"]
+		if replicaID == "" {
+			return ContainerInfo{}, false
+		}
+		return ContainerInfo{ClusterID: clusterID, Kind: kind, ReplicaID: replicaID}, true
+	default:
+		return ContainerInfo{}, false
+	}
 }
 
 func parseContainerName(name string) (ContainerInfo, bool) {
