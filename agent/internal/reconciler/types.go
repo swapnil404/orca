@@ -1,29 +1,18 @@
 package reconciler
 
+import "github.com/betterorca/betterorca/agent/internal/state"
+
 // DesiredState is the desired set of clusters managed by the agent.
-type DesiredState struct {
-	ClusterID string
-	Clusters  []ClusterSpec
-}
+type DesiredState = state.DesiredState
 
 // ClusterSpec describes a desired Postgres cluster.
-type ClusterSpec struct {
-	ID        string
-	Version   string            // e.g. "16"
-	Params    map[string]string // postgresql.conf overrides
-	Replicas  []ReplicaSpec
-	PgBouncer *PgBouncerSpec // nil if not wanted
-}
+type ClusterSpec = state.ClusterSpec
 
 // ReplicaSpec describes a desired Postgres replica.
-type ReplicaSpec struct {
-	ID string
-}
+type ReplicaSpec = state.ReplicaSpec
 
 // PgBouncerSpec describes a desired PgBouncer sidecar.
-type PgBouncerSpec struct {
-	PoolMode string
-}
+type PgBouncerSpec = state.PgBouncerSpec
 
 // ActualState is the set of clusters currently observed by the agent.
 type ActualState struct {

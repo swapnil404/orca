@@ -1,2 +1,2 @@
-// Package state will contain the local desired-state cache.
+// Package state stores the agent's desired state locally.
 package state
