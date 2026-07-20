@@ -79,6 +79,66 @@ The server is stateless with respect to its own process, all durable state lives
 
 The WebSocket hub maintains a map from host ID to the active session for that host. It must be safe under concurrent reads and writes, since sessions connect, disconnect, and receive pushes from different goroutines simultaneously.
 
+### Metadata database
+
+The server metadata schema is defined by ordered, plain SQL migrations in `server/migrations/`. Run them with:
+
+```sh
+DATABASE_URL=postgres://... ./scripts/migrate.sh
+```
+
+The script records applied filenames in `schema_migrations` and applies each new migration in a transaction. sqlc does not apply or otherwise manage migrations.
+
+sqlc is configured in `server/sqlc.yaml`. Its source queries are grouped by resource:
+
+- `server/internal/store/queries/hosts.sql`
+- `server/internal/store/queries/projects.sql`
+- `server/internal/store/queries/clusters.sql`
+- `server/internal/store/queries/desired_states.sql`
+
+Run generation from the server module:
+
+```sh
+cd server
+sqlc generate
+```
+
+Generated typed functions and models are written to `server/internal/store/sqlcdb/`. The handwritten store in `server/internal/store/hosts.go`, `projects.go`, and `clusters.go` only calls those generated functions. Multi-write operations use the generated `WithTx` support; the store does not contain handwritten row scanning.
+
+Projects are owned by a user. Clusters belong to a project and one of that same user's hosts. Ownership is included in the SQL predicates for reads and mutations so an ID from another user behaves as not found.
+
+Projects and clusters use soft deletion. Every cluster create or update appends an `upsert` row to `desired_states` in the same transaction. Every cluster delete appends a `delete` row containing an explicit `exists: false` tombstone. Deleting a project performs the same operation for each active cluster before soft-deleting the project. The latest record per cluster determines the current full desired state for a host; clusters whose latest record is a tombstone are omitted. Historical rows are retained for diagnostics, but agents receive current state rather than event replay.
+
+### Resource API
+
+`server/internal/api/resources.go` registers these authenticated routes:
+
+| Method | Path | Operation |
+|---|---|---|
+| `POST` | `/projects` | Create a project |
+| `GET` | `/projects` | List owned projects |
+| `GET` | `/projects/{projectID}` | Get an owned project |
+| `PUT` | `/projects/{projectID}` | Update an owned project |
+| `DELETE` | `/projects/{projectID}` | Delete an owned project and tombstone its clusters |
+| `POST` | `/projects/{projectID}/clusters` | Create a cluster on an owned host |
+| `GET` | `/projects/{projectID}/clusters` | List clusters in an owned project |
+| `GET` | `/clusters/{clusterID}` | Get an owned cluster |
+| `PUT` | `/clusters/{clusterID}` | Update an owned cluster and desired state |
+| `DELETE` | `/clusters/{clusterID}` | Delete an owned cluster and write a tombstone |
+
+Authentication middleware supplies the verified identity with `api.WithUserID`; handlers never accept a user ID from JSON or a path. Host registration uses the same context identity so host ownership can be checked when a cluster is created.
+
+### Database tests
+
+Store integration tests use an isolated schema in a real Postgres database and apply the migration files before exercising the generated queries. They are opt-in so ordinary unit tests do not require Docker or a database:
+
+```sh
+cd server
+TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/store -v
+```
+
+The configured database user must be able to create and drop schemas. API tests use a fake store and cover authentication, user scoping, successful mutation, and not-found behavior.
+
 ## Frontend
 
 The web UI holds its own WebSocket connection to the server, separate from the agent-server tunnel, used to receive real-time topology and health updates and reflect them in the canvas. All outbound requests from the frontend, configuration changes, host registration, and so on, go through the REST API, not through this connection.

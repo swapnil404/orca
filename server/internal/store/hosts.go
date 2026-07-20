@@ -42,12 +42,13 @@ type CreateHostParams struct {
 
 // Postgres stores host records in the server metadata database.
 type Postgres struct {
+	db      *sql.DB
 	queries *sqlcdb.Queries
 }
 
 // NewPostgres creates a host store backed by db.
 func NewPostgres(db *sql.DB) *Postgres {
-	return &Postgres{queries: sqlcdb.New(db)}
+	return &Postgres{db: db, queries: sqlcdb.New(db)}
 }
 
 // CreateHost persists a new host record.

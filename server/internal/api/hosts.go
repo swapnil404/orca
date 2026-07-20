@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	placeholderUserID = "placeholder-user"
-	hostIDBytes       = 18
-	tokenLifetime     = 24 * time.Hour
+	hostIDBytes   = 18
+	tokenLifetime = 24 * time.Hour
 )
 
 type hostCreator interface {
@@ -49,6 +48,10 @@ func (h *HostRegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
 
 	hostID, err := randomID(h.random)
 	if err != nil {
@@ -64,7 +67,7 @@ func (h *HostRegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	now := h.now().UTC()
 	host, err := h.hosts.CreateHost(r.Context(), store.CreateHostParams{
 		ID:             hostID,
-		UserID:         placeholderUserID,
+		UserID:         userID,
 		TokenHash:      auth.HashAgentToken(token),
 		TokenExpiresAt: now.Add(tokenLifetime),
 		Status:         store.HostStatusNeverConnected,
