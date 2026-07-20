@@ -13,10 +13,13 @@ type Querier interface {
 	CreateDesiredState(ctx context.Context, arg CreateDesiredStateParams) (DesiredState, error)
 	CreateHost(ctx context.Context, arg CreateHostParams) (Host, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
+	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
+	GetAgentReport(ctx context.Context, hostID string) (AgentReport, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
 	GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Host, error)
 	GetProject(ctx context.Context, arg GetProjectParams) (Project, error)
 	ListActiveClustersForProject(ctx context.Context, arg ListActiveClustersForProjectParams) ([]Cluster, error)
+	ListClusterReportsForHost(ctx context.Context, hostID string) ([]ClusterReport, error)
 	ListClusters(ctx context.Context, arg ListClustersParams) ([]Cluster, error)
 	ListCurrentDesiredStatesForHost(ctx context.Context, hostID string) ([]DesiredState, error)
 	ListDesiredStateHistory(ctx context.Context, arg ListDesiredStateHistoryParams) ([]DesiredState, error)
@@ -27,6 +30,8 @@ type Querier interface {
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
+	UpsertAgentReport(ctx context.Context, arg UpsertAgentReportParams) error
+	UpsertClusterReport(ctx context.Context, arg UpsertClusterReportParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

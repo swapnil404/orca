@@ -66,6 +66,8 @@ This avoids split-brain scenarios where the agent and server disagree about hist
 
 The server never assumes actual state without a report from the agent confirming it. An endpoint that would otherwise need to guess or fake a status must instead reflect only what has actually been confirmed.
 
+The server considers an agent report current for two minutes. Status reads compute staleness from the report's `reported_at` timestamp; after that window host reports are marked stale and per-cluster health is returned as `unknown`. This is deliberately a read-time check, so no background expiry job is required and a last known report remains available for diagnostics without being presented as current health.
+
 ## Container and volume conventions
 
 Postgres-related containers run as siblings to the agent container, not nested inside it, communicating through the Docker socket mounted from the host.
@@ -95,6 +97,7 @@ sqlc is configured in `server/sqlc.yaml`. Its source queries are grouped by reso
 - `server/internal/store/queries/projects.sql`
 - `server/internal/store/queries/clusters.sql`
 - `server/internal/store/queries/desired_states.sql`
+- `server/internal/store/queries/reports.sql`
 
 Run generation from the server module:
 
