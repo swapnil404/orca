@@ -36,6 +36,10 @@ type agentReportStore interface {
 	StoreAgentReport(context.Context, string, *types.AgentReportMessage, time.Time) error
 }
 
+type agentReportNotifier interface {
+	NotifyHostReport(context.Context, string) error
+}
+
 // AgentHandler upgrades and authenticates agent WebSocket connections.
 type AgentHandler struct {
 	hub         *Hub
@@ -45,7 +49,13 @@ type AgentHandler struct {
 	upgrader    websocket.Upgrader
 	pusher      desiredStatePusher
 	reports     agentReportStore
+	notifier    agentReportNotifier
 	logger      *slog.Logger
+}
+
+// SetReportNotifier configures a callback invoked after an agent report is committed.
+func (h *AgentHandler) SetReportNotifier(notifier agentReportNotifier) {
+	h.notifier = notifier
 }
 
 // NewAgentHandler creates an authenticated agent WebSocket endpoint.
@@ -135,6 +145,12 @@ func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload
 	defer cancel()
 	if err := h.reports.StoreAgentReport(ctx, hostID, report, h.now().UTC()); err != nil {
 		h.logger.Error("failed to store agent report", "host_id", hostID, "error", err)
+		return
+	}
+	if h.notifier != nil {
+		if err := h.notifier.NotifyHostReport(ctx, hostID); err != nil {
+			h.logger.Error("failed to notify frontend clients of agent report", "host_id", hostID, "error", err)
+		}
 	}
 }
 

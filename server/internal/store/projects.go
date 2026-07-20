@@ -55,6 +55,11 @@ func (s *Postgres) ListProjects(ctx context.Context, userID string) ([]Project, 
 	return projects, nil
 }
 
+// ListProjectIDsForHost returns active projects containing clusters assigned to hostID.
+func (s *Postgres) ListProjectIDsForHost(ctx context.Context, hostID string) ([]string, error) {
+	return s.queries.ListProjectIDsForHost(ctx, hostID)
+}
+
 // GetProject returns an active project owned by userID.
 func (s *Postgres) GetProject(ctx context.Context, userID, projectID string) (Project, error) {
 	project, err := s.queries.GetProject(ctx, sqlcdb.GetProjectParams{ID: projectID, UserID: userID})

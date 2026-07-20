@@ -128,8 +128,42 @@ Projects and clusters use soft deletion. Every cluster create or update appends 
 | `GET` | `/clusters/{clusterID}` | Get an owned cluster |
 | `PUT` | `/clusters/{clusterID}` | Update an owned cluster and desired state |
 | `DELETE` | `/clusters/{clusterID}` | Delete an owned cluster and write a tombstone |
+| `GET` | `/projects/{projectID}/events` | Upgrade to a project-scoped frontend WebSocket |
 
 Authentication middleware supplies the verified identity with `api.WithUserID`; handlers never accept a user ID from JSON or a path. Host registration uses the same context identity so host ownership can be checked when a cluster is created.
+
+### Frontend project events
+
+`server/internal/api/project_events.go` owns the frontend WebSocket endpoint. It is separate from the protobuf agent tunnel: browser clients connect to `GET /projects/{projectID}/events`, and the server verifies that the authenticated user owns that project before upgrading the connection. A connection subscribes to exactly the project in its URL.
+
+Every message is a full JSON snapshot rather than a delta:
+
+```json
+{
+  "type": "project_state",
+  "project_id": "project-id",
+  "clusters": [
+    {
+      "cluster_id": "cluster-id",
+      "host_id": "host-id",
+      "actual_state": {},
+      "health": "healthy",
+      "last_seen": "2026-07-21T12:00:00Z",
+      "stale": false
+    }
+  ]
+}
+```
+
+The handler sends a fresh snapshot as part of registering every connection. Snapshot loading and subscription registration are serialized with report publication, so a reconnect either includes a concurrently committed report in its initial snapshot or receives a subsequent snapshot for it. No missed-event queue or replay is used.
+
+After `StoreAgentReport` commits, the agent WebSocket handler calls the configured report notifier. `ProjectEventHandler.NotifyHostReport` resolves the active projects assigned to that host and publishes only to clients subscribed to those project IDs. Server construction wires the two handlers explicitly:
+
+```go
+projectEvents := api.NewProjectEventHandler(metadataStore)
+projectEvents.RegisterRoutes(mux)
+agentHandler.SetReportNotifier(projectEvents)
+```
 
 ### Database tests
 

@@ -9,6 +9,14 @@ FROM projects
 WHERE user_id = $1 AND deleted_at IS NULL
 ORDER BY created_at, id;
 
+-- name: ListProjectIDsForHost :many
+SELECT DISTINCT p.id
+FROM projects p
+JOIN clusters c ON c.project_id = p.id
+WHERE c.host_id = $1
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY p.id;
+
 -- name: GetProject :one
 SELECT id, user_id, name, created_at, updated_at, deleted_at
 FROM projects
