@@ -32,7 +32,7 @@ func (h *Hub) Register(hostID string, session *Session) {
 
 	go func() {
 		<-session.Done()
-		h.unregisterSession(hostID, session)
+		h.UnregisterSession(hostID, session)
 	}()
 }
 
@@ -51,10 +51,14 @@ func (h *Hub) Get(hostID string) (*Session, bool) {
 	return session, ok
 }
 
-func (h *Hub) unregisterSession(hostID string, session *Session) {
+// UnregisterSession removes session only if it is still active for hostID.
+func (h *Hub) UnregisterSession(hostID string, session *Session) bool {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.sessions[hostID] == session {
 		delete(h.sessions, hostID)
+		return true
 	}
-	h.mu.Unlock()
+	return false
 }

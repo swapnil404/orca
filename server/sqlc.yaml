@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "internal/store/queries"
+    schema: "migrations"
+    gen:
+      go:
+        package: "sqlcdb"
+        out: "internal/store/sqlcdb"
+        sql_package: "database/sql"
+        emit_json_tags: true
