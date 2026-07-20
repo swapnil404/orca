@@ -22,6 +22,10 @@ type agentHostStore interface {
 	UpdateHostStatus(context.Context, string, store.HostStatus) error
 }
 
+type desiredStatePusher interface {
+	PushDesiredState(context.Context, string) error
+}
+
 // AgentHandler upgrades and authenticates agent WebSocket connections.
 type AgentHandler struct {
 	hub         *Hub
@@ -29,16 +33,21 @@ type AgentHandler struct {
 	now         func() time.Time
 	authTimeout time.Duration
 	upgrader    websocket.Upgrader
+	pusher      desiredStatePusher
 }
 
 // NewAgentHandler creates an authenticated agent WebSocket endpoint.
-func NewAgentHandler(hub *Hub, hosts agentHostStore) *AgentHandler {
-	return &AgentHandler{
+func NewAgentHandler(hub *Hub, hosts agentHostStore, pushers ...desiredStatePusher) *AgentHandler {
+	handler := &AgentHandler{
 		hub:         hub,
 		hosts:       hosts,
 		now:         time.Now,
 		authTimeout: defaultAuthenticationTimeout,
 	}
+	if len(pushers) > 0 {
+		handler.pusher = pushers[0]
+	}
+	return handler
 }
 
 // ServeHTTP upgrades an agent connection and registers its authenticated session.
@@ -73,6 +82,11 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	session := NewSession(connection)
 	h.hub.Register(host.ID, session)
 	defer h.disconnect(host.ID, session)
+	if h.pusher != nil {
+		if err := h.pusher.PushDesiredState(r.Context(), host.ID); err != nil {
+			return
+		}
+	}
 
 	for {
 		if _, _, err := connection.ReadMessage(); err != nil {
