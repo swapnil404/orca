@@ -35,15 +35,24 @@ type resourceStore interface {
 	DeleteCluster(context.Context, string, string) error
 }
 
+type desiredStatePusher interface {
+	PushDesiredState(context.Context, string) error
+}
+
 // ResourceHandler serves user-scoped project and cluster endpoints.
 type ResourceHandler struct {
 	store  resourceStore
 	random io.Reader
+	pusher desiredStatePusher
 }
 
 // NewResourceHandler creates the project and cluster API handler.
-func NewResourceHandler(resources resourceStore) *ResourceHandler {
-	return &ResourceHandler{store: resources, random: rand.Reader}
+func NewResourceHandler(resources resourceStore, pushers ...desiredStatePusher) *ResourceHandler {
+	handler := &ResourceHandler{store: resources, random: rand.Reader}
+	if len(pushers) > 0 {
+		handler.pusher = pushers[0]
+	}
+	return handler
 }
 
 // RegisterRoutes registers project and cluster routes on mux.
@@ -147,10 +156,17 @@ func (h *ResourceHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if err := h.store.DeleteProject(r.Context(), userID, r.PathValue("projectID")); err != nil {
+	projectID := r.PathValue("projectID")
+	clusters, err := h.store.ListClusters(r.Context(), userID, projectID)
+	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	if err := h.store.DeleteProject(r.Context(), userID, projectID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), clusterHostIDs(clusters)...)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -187,6 +203,7 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		writeStoreError(w, err)
 		return
 	}
+	h.pushHosts(r.Context(), cluster.HostID)
 	writeJSON(w, http.StatusCreated, cluster)
 }
 
@@ -239,6 +256,7 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		writeStoreError(w, err)
 		return
 	}
+	h.pushHosts(r.Context(), cluster.HostID)
 	writeJSON(w, http.StatusOK, cluster)
 }
 
@@ -247,11 +265,41 @@ func (h *ResourceHandler) deleteCluster(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if err := h.store.DeleteCluster(r.Context(), userID, r.PathValue("clusterID")); err != nil {
+	clusterID := r.PathValue("clusterID")
+	cluster, err := h.store.GetCluster(r.Context(), userID, clusterID)
+	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	if err := h.store.DeleteCluster(r.Context(), userID, clusterID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), cluster.HostID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ResourceHandler) pushHosts(ctx context.Context, hostIDs ...string) {
+	if h.pusher == nil {
+		return
+	}
+	for _, hostID := range hostIDs {
+		// The desired state is already durable. Reconnection will recover a failed push.
+		_ = h.pusher.PushDesiredState(ctx, hostID)
+	}
+}
+
+func clusterHostIDs(clusters []store.Cluster) []string {
+	hostIDs := make([]string, 0, len(clusters))
+	seen := make(map[string]struct{}, len(clusters))
+	for _, cluster := range clusters {
+		if _, exists := seen[cluster.HostID]; exists {
+			continue
+		}
+		seen[cluster.HostID] = struct{}{}
+		hostIDs = append(hostIDs, cluster.HostID)
+	}
+	return hostIDs
 }
 
 func requireUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
