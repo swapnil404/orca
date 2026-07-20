@@ -100,33 +100,33 @@ func actualState(containers []orcadocker.ContainerInfo) reconciler.ActualState {
 	for _, container := range containers {
 		cluster, exists := clusters[container.ClusterID]
 		if !exists {
-			cluster = &reconciler.ActualCluster{ID: container.ClusterID}
+			cluster = &reconciler.ActualCluster{Id: container.ClusterID}
 			clusters[container.ClusterID] = cluster
 			order = append(order, container.ClusterID)
 		}
 
 		switch container.Kind {
 		case orcadocker.ContainerKindPrimary:
-			cluster.ContainerID = container.ID
+			cluster.ContainerId = container.ID
 			cluster.Status = container.Status
 			cluster.Version = postgresVersion(container.Image)
 		case orcadocker.ContainerKindReplica:
-			cluster.Replicas = append(cluster.Replicas, reconciler.ActualReplica{
-				ID:          container.ReplicaID,
-				ContainerID: container.ID,
+			cluster.Replicas = append(cluster.Replicas, &reconciler.ActualReplica{
+				Id:          container.ReplicaID,
+				ContainerId: container.ID,
 				Status:      container.Status,
 			})
 		case orcadocker.ContainerKindPgBouncer:
 			cluster.PgBouncer = &reconciler.ActualPgBouncer{
-				ContainerID: container.ID,
+				ContainerId: container.ID,
 				Status:      container.Status,
 			}
 		}
 	}
 
-	actual := reconciler.ActualState{Clusters: make([]reconciler.ActualCluster, 0, len(order))}
+	actual := reconciler.ActualState{Clusters: make([]*reconciler.ActualCluster, 0, len(order))}
 	for _, clusterID := range order {
-		actual.Clusters = append(actual.Clusters, *clusters[clusterID])
+		actual.Clusters = append(actual.Clusters, clusters[clusterID])
 	}
 
 	return actual

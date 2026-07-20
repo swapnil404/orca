@@ -64,7 +64,7 @@ func applyAction(ctx context.Context, docker DockerClient, action Action) error 
 		spec, err := pgBouncerContainerSpec(action)
 		return createAndStart(ctx, docker, spec, err)
 	case ActionDeletePrimary:
-		cluster, ok := action.Spec.(ActualCluster)
+		cluster, ok := action.Spec.(*ActualCluster)
 		if !ok {
 			return errors.New("delete_primary action requires ActualCluster")
 		}
@@ -75,7 +75,7 @@ func applyAction(ctx context.Context, docker DockerClient, action Action) error 
 		if err := stopAndRemove(ctx, docker, containerID); err != nil {
 			return err
 		}
-		return docker.RemoveVolume(ctx, orcadocker.VolumeName(cluster.ID))
+		return docker.RemoveVolume(ctx, orcadocker.VolumeName(cluster.Id))
 	case ActionDeleteReplica:
 		containerID, err := replicaContainerID(action)
 		if err != nil {
@@ -122,18 +122,18 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		return spec, nil
 	}
 
-	cluster, ok := action.Spec.(ClusterSpec)
+	cluster, ok := action.Spec.(*ClusterSpec)
 	if !ok {
 		return orcadocker.ContainerSpec{}, fmt.Errorf("%s action requires ClusterSpec", action.Type)
 	}
 
 	return orcadocker.ContainerSpec{
-		ClusterID: cluster.ID,
+		ClusterID: cluster.Id,
 		Kind:      orcadocker.ContainerKindPrimary,
 		Image:     postgresImage(cluster.Version),
 		Env: []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"PGDATA=" + orcadocker.VolumeMountPath(cluster.ID) + "/primary",
+			"PGDATA=" + orcadocker.VolumeMountPath(cluster.Id) + "/primary",
 		},
 		UseVolume: true,
 	}, nil
@@ -144,7 +144,7 @@ func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		return spec, nil
 	}
 
-	replica, ok := action.Spec.(ReplicaSpec)
+	replica, ok := action.Spec.(*ReplicaSpec)
 	if !ok {
 		return orcadocker.ContainerSpec{}, errors.New("create_replica action requires ReplicaSpec")
 	}
@@ -152,11 +152,11 @@ func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	return orcadocker.ContainerSpec{
 		ClusterID: action.ClusterID,
 		Kind:      orcadocker.ContainerKindReplica,
-		ReplicaID: replica.ID,
+		ReplicaID: replica.Id,
 		Image:     postgresImage(""),
 		Env: []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"PGDATA=" + orcadocker.VolumeMountPath(action.ClusterID) + "/replicas/" + replica.ID,
+			"PGDATA=" + orcadocker.VolumeMountPath(action.ClusterID) + "/replicas/" + replica.Id,
 		},
 		UseVolume: true,
 	}, nil
@@ -166,7 +166,7 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if spec, ok := action.Spec.(orcadocker.ContainerSpec); ok {
 		return spec, nil
 	}
-	if _, ok := action.Spec.(PgBouncerSpec); !ok {
+	if _, ok := action.Spec.(*PgBouncerSpec); !ok {
 		return orcadocker.ContainerSpec{}, errors.New("create_pgbouncer action requires PgBouncerSpec")
 	}
 
@@ -178,30 +178,30 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 }
 
 func primaryContainerID(action Action) (string, error) {
-	cluster, ok := action.Spec.(ActualCluster)
+	cluster, ok := action.Spec.(*ActualCluster)
 	if !ok {
 		return "", errors.New("delete_primary action requires ActualCluster")
 	}
 
-	return cluster.ContainerID, nil
+	return cluster.ContainerId, nil
 }
 
 func replicaContainerID(action Action) (string, error) {
-	replica, ok := action.Spec.(ActualReplica)
+	replica, ok := action.Spec.(*ActualReplica)
 	if !ok {
 		return "", errors.New("delete_replica action requires ActualReplica")
 	}
 
-	return replica.ContainerID, nil
+	return replica.ContainerId, nil
 }
 
 func pgBouncerContainerID(action Action) (string, error) {
-	pgBouncer, ok := action.Spec.(ActualPgBouncer)
+	pgBouncer, ok := action.Spec.(*ActualPgBouncer)
 	if !ok {
 		return "", errors.New("delete_pgbouncer action requires ActualPgBouncer")
 	}
 
-	return pgBouncer.ContainerID, nil
+	return pgBouncer.ContainerId, nil
 }
 
 func postgresImage(version string) string {
