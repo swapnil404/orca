@@ -1,26 +1,15 @@
 package state
 
+import orcatypes "github.com/betterorca/betterorca/pkg/types"
+
 // DesiredState is the desired set of clusters managed by the agent.
-type DesiredState struct {
-	ClusterID string
-	Clusters  []ClusterSpec
-}
+type DesiredState = orcatypes.DesiredState
 
 // ClusterSpec describes a desired Postgres cluster.
-type ClusterSpec struct {
-	ID        string
-	Version   string            // e.g. "16"
-	Params    map[string]string // postgresql.conf overrides
-	Replicas  []ReplicaSpec
-	PgBouncer *PgBouncerSpec // nil if not wanted
-}
+type ClusterSpec = orcatypes.ClusterSpec
 
 // ReplicaSpec describes a desired Postgres replica.
-type ReplicaSpec struct {
-	ID string
-}
+type ReplicaSpec = orcatypes.ReplicaSpec
 
 // PgBouncerSpec describes a desired PgBouncer sidecar.
-type PgBouncerSpec struct {
-	PoolMode string
-}
+type PgBouncerSpec = orcatypes.PgBouncerSpec

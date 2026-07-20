@@ -3,9 +3,12 @@ module github.com/betterorca/betterorca/agent
 go 1.25.0
 
 require (
+	github.com/betterorca/betterorca/pkg v0.0.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/opencontainers/image-spec v1.1.1
 )
+
+replace github.com/betterorca/betterorca/pkg => ../pkg
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -31,5 +34,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )

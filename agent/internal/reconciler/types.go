@@ -1,6 +1,9 @@
 package reconciler
 
-import "github.com/betterorca/betterorca/agent/internal/state"
+import (
+	"github.com/betterorca/betterorca/agent/internal/state"
+	orcatypes "github.com/betterorca/betterorca/pkg/types"
+)
 
 // DesiredState is the desired set of clusters managed by the agent.
 type DesiredState = state.DesiredState
@@ -15,29 +18,13 @@ type ReplicaSpec = state.ReplicaSpec
 type PgBouncerSpec = state.PgBouncerSpec
 
 // ActualState is the set of clusters currently observed by the agent.
-type ActualState struct {
-	Clusters []ActualCluster
-}
+type ActualState = orcatypes.ActualState
 
 // ActualCluster describes an observed Postgres primary and its child resources.
-type ActualCluster struct {
-	ID          string
-	ContainerID string
-	Status      string // running, stopped, unknown
-	Version     string
-	Replicas    []ActualReplica
-	PgBouncer   *ActualPgBouncer
-}
+type ActualCluster = orcatypes.ActualCluster
 
 // ActualReplica describes an observed Postgres replica.
-type ActualReplica struct {
-	ID          string
-	ContainerID string
-	Status      string
-}
+type ActualReplica = orcatypes.ActualReplica
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.
-type ActualPgBouncer struct {
-	ContainerID string
-	Status      string
-}
+type ActualPgBouncer = orcatypes.ActualPgBouncer

@@ -31,13 +31,13 @@ type Action struct {
 // Diff computes the reconciliation actions required to make actual match desired.
 func Diff(desired DesiredState, actual ActualState) []Action {
 	actions := []Action{}
-	actualClusters := make(map[string]ActualCluster, len(actual.Clusters))
+	actualClusters := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
-		actualClusters[cluster.ID] = cluster
+		actualClusters[cluster.Id] = cluster
 	}
 
 	for _, desiredCluster := range desired.Clusters {
-		actualCluster, exists := actualClusters[desiredCluster.ID]
+		actualCluster, exists := actualClusters[desiredCluster.Id]
 		if !exists {
 			actions = append(actions, createClusterActions(desiredCluster)...)
 			continue
@@ -46,18 +46,18 @@ func Diff(desired DesiredState, actual ActualState) []Action {
 		if primaryNeedsUpdate(desiredCluster, actualCluster) {
 			actions = append(actions, Action{
 				Type:      ActionUpdatePrimary,
-				ClusterID: desiredCluster.ID,
+				ClusterID: desiredCluster.Id,
 				Spec:      desiredCluster,
 			})
 		}
 
-		actions = append(actions, diffReplicas(desiredCluster.ID, desiredCluster.Replicas, actualCluster.Replicas)...)
-		actions = append(actions, diffPgBouncer(desiredCluster.ID, desiredCluster.PgBouncer, actualCluster.PgBouncer)...)
-		delete(actualClusters, desiredCluster.ID)
+		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas)...)
+		actions = append(actions, diffPgBouncer(desiredCluster.Id, desiredCluster.PgBouncer, actualCluster.PgBouncer)...)
+		delete(actualClusters, desiredCluster.Id)
 	}
 
 	for _, actualCluster := range actual.Clusters {
-		if _, exists := actualClusters[actualCluster.ID]; exists {
+		if _, exists := actualClusters[actualCluster.Id]; exists {
 			actions = append(actions, deleteClusterActions(actualCluster)...)
 		}
 	}
@@ -65,18 +65,18 @@ func Diff(desired DesiredState, actual ActualState) []Action {
 	return actions
 }
 
-func createClusterActions(cluster ClusterSpec) []Action {
+func createClusterActions(cluster *ClusterSpec) []Action {
 	actions := []Action{{
 		Type:      ActionCreatePrimary,
-		ClusterID: cluster.ID,
+		ClusterID: cluster.Id,
 		Spec:      cluster,
 	}}
 
 	for _, replica := range cluster.Replicas {
 		actions = append(actions, Action{
 			Type:      ActionCreateReplica,
-			ClusterID: cluster.ID,
-			ReplicaID: replica.ID,
+			ClusterID: cluster.Id,
+			ReplicaID: replica.Id,
 			Spec:      replica,
 		})
 	}
@@ -84,22 +84,22 @@ func createClusterActions(cluster ClusterSpec) []Action {
 	if cluster.PgBouncer != nil {
 		actions = append(actions, Action{
 			Type:      ActionCreatePgBouncer,
-			ClusterID: cluster.ID,
-			Spec:      *cluster.PgBouncer,
+			ClusterID: cluster.Id,
+			Spec:      cluster.PgBouncer,
 		})
 	}
 
 	return actions
 }
 
-func deleteClusterActions(cluster ActualCluster) []Action {
+func deleteClusterActions(cluster *ActualCluster) []Action {
 	actions := []Action{}
 
 	for _, replica := range cluster.Replicas {
 		actions = append(actions, Action{
 			Type:      ActionDeleteReplica,
-			ClusterID: cluster.ID,
-			ReplicaID: replica.ID,
+			ClusterID: cluster.Id,
+			ReplicaID: replica.Id,
 			Spec:      replica,
 		})
 	}
@@ -107,51 +107,51 @@ func deleteClusterActions(cluster ActualCluster) []Action {
 	if cluster.PgBouncer != nil {
 		actions = append(actions, Action{
 			Type:      ActionDeletePgBouncer,
-			ClusterID: cluster.ID,
-			Spec:      *cluster.PgBouncer,
+			ClusterID: cluster.Id,
+			Spec:      cluster.PgBouncer,
 		})
 	}
 
 	actions = append(actions, Action{
 		Type:      ActionDeletePrimary,
-		ClusterID: cluster.ID,
+		ClusterID: cluster.Id,
 		Spec:      cluster,
 	})
 
 	return actions
 }
 
-func primaryNeedsUpdate(desired ClusterSpec, actual ActualCluster) bool {
+func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
 	return desired.Version != actual.Version || len(desired.Params) > 0
 }
 
-func diffReplicas(clusterID string, desired []ReplicaSpec, actual []ActualReplica) []Action {
+func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualReplica) []Action {
 	actions := []Action{}
-	actualReplicas := make(map[string]ActualReplica, len(actual))
+	actualReplicas := make(map[string]*ActualReplica, len(actual))
 	for _, replica := range actual {
-		actualReplicas[replica.ID] = replica
+		actualReplicas[replica.Id] = replica
 	}
 
 	for _, desiredReplica := range desired {
-		if _, exists := actualReplicas[desiredReplica.ID]; !exists {
+		if _, exists := actualReplicas[desiredReplica.Id]; !exists {
 			actions = append(actions, Action{
 				Type:      ActionCreateReplica,
 				ClusterID: clusterID,
-				ReplicaID: desiredReplica.ID,
+				ReplicaID: desiredReplica.Id,
 				Spec:      desiredReplica,
 			})
 			continue
 		}
 
-		delete(actualReplicas, desiredReplica.ID)
+		delete(actualReplicas, desiredReplica.Id)
 	}
 
 	for _, actualReplica := range actual {
-		if _, exists := actualReplicas[actualReplica.ID]; exists {
+		if _, exists := actualReplicas[actualReplica.Id]; exists {
 			actions = append(actions, Action{
 				Type:      ActionDeleteReplica,
 				ClusterID: clusterID,
-				ReplicaID: actualReplica.ID,
+				ReplicaID: actualReplica.Id,
 				Spec:      actualReplica,
 			})
 		}
@@ -165,14 +165,14 @@ func diffPgBouncer(clusterID string, desired *PgBouncerSpec, actual *ActualPgBou
 		return []Action{{
 			Type:      ActionCreatePgBouncer,
 			ClusterID: clusterID,
-			Spec:      *desired,
+			Spec:      desired,
 		}}
 	}
 	if desired == nil && actual != nil {
 		return []Action{{
 			Type:      ActionDeletePgBouncer,
 			ClusterID: clusterID,
-			Spec:      *actual,
+			Spec:      actual,
 		}}
 	}
 

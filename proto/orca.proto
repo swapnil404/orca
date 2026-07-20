@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package orca.v1;
+
+option go_package = "github.com/betterorca/betterorca/pkg/types";
+
+// DesiredStateMessage carries the complete current desired state from server to agent.
+message DesiredStateMessage {
+  DesiredState desired_state = 1;
+}
+
+// AgentReportMessage carries the agent's observed state and current health to the server.
+message AgentReportMessage {
+  ActualState actual_state = 1;
+  HealthReport health_report = 2;
+}
+
+// DesiredState is the desired set of clusters managed by the agent.
+message DesiredState {
+  string cluster_id = 1;
+  repeated ClusterSpec clusters = 2;
+}
+
+// ClusterSpec describes a desired Postgres cluster.
+message ClusterSpec {
+  string id = 1;
+  string version = 2;
+  map<string, string> params = 3;
+  repeated ReplicaSpec replicas = 4;
+  optional PgBouncerSpec pg_bouncer = 5;
+}
+
+// ReplicaSpec describes a desired Postgres replica.
+message ReplicaSpec {
+  string id = 1;
+}
+
+// PgBouncerSpec describes a desired PgBouncer sidecar.
+message PgBouncerSpec {
+  string pool_mode = 1;
+}
+
+// ActualState is the set of clusters currently observed by the agent.
+message ActualState {
+  repeated ActualCluster clusters = 1;
+}
+
+// ActualCluster describes an observed Postgres primary and its child resources.
+message ActualCluster {
+  string id = 1;
+  string container_id = 2;
+  string status = 3;
+  string version = 4;
+  repeated ActualReplica replicas = 5;
+  optional ActualPgBouncer pg_bouncer = 6;
+}
+
+// ActualReplica describes an observed Postgres replica.
+message ActualReplica {
+  string id = 1;
+  string container_id = 2;
+  string status = 3;
+}
+
+// ActualPgBouncer describes an observed PgBouncer sidecar.
+message ActualPgBouncer {
+  string container_id = 1;
+  string status = 2;
+}
+
+// HealthReport contains host resource usage and per-cluster health.
+message HealthReport {
+  HostMetrics host_metrics = 1;
+  repeated ClusterHealth clusters = 2;
+}
+
+// HostMetrics describes resource use on the agent's host.
+message HostMetrics {
+  double cpu_usage_percent = 1;
+  uint64 memory_used_bytes = 2;
+  uint64 memory_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+}
+
+// ClusterHealth describes the reported health of one Postgres cluster.
+message ClusterHealth {
+  string cluster_id = 1;
+  ClusterStatus status = 2;
+}
+
+// ClusterStatus is the health state reported for a cluster.
+enum ClusterStatus {
+  CLUSTER_STATUS_UNSPECIFIED = 0;
+  CLUSTER_STATUS_PENDING = 1;
+  CLUSTER_STATUS_HEALTHY = 2;
+  CLUSTER_STATUS_DEGRADED = 3;
+  CLUSTER_STATUS_DOWN = 4;
+}
