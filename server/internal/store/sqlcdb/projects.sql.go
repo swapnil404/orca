@@ -60,6 +60,38 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 	return i, err
 }
 
+const listProjectIDsForHost = `-- name: ListProjectIDsForHost :many
+SELECT DISTINCT p.id
+FROM projects p
+JOIN clusters c ON c.project_id = p.id
+WHERE c.host_id = $1
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY p.id
+`
+
+func (q *Queries) ListProjectIDsForHost(ctx context.Context, hostID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectIDsForHost, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjects = `-- name: ListProjects :many
 SELECT id, user_id, name, created_at, updated_at, deleted_at
 FROM projects
