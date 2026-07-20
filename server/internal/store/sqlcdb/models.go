@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+type AgentReport struct {
+	HostID       string          `json:"host_id"`
+	ActualState  json.RawMessage `json:"actual_state"`
+	HealthReport json.RawMessage `json:"health_report"`
+	ReportedAt   time.Time       `json:"reported_at"`
+}
+
 type Cluster struct {
 	ID               string          `json:"id"`
 	ProjectID        string          `json:"project_id"`
@@ -22,6 +29,14 @@ type Cluster struct {
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 	DeletedAt        sql.NullTime    `json:"deleted_at"`
+}
+
+type ClusterReport struct {
+	HostID       string          `json:"host_id"`
+	ClusterID    string          `json:"cluster_id"`
+	ActualState  json.RawMessage `json:"actual_state"`
+	HealthStatus string          `json:"health_status"`
+	ReportedAt   time.Time       `json:"reported_at"`
 }
 
 type DesiredState struct {
