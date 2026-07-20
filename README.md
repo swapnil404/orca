@@ -33,6 +33,7 @@ If the connection between your agent and Orca drops and comes back, the agent do
    ```
    docker run -d \
      -e ORCA_TOKEN=your_token_here \
+     -e ORCA_SERVER_URL=wss://your-orca-server.example/agent \
      -v /var/run/docker.sock:/var/run/docker.sock \
      -v /var/orca/data:/var/orca/data \
      orca/agent
