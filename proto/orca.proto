@@ -81,6 +81,7 @@ message ActualReplica {
 message ActualPgBouncer {
   string container_id = 1;
   string status = 2;
+  string config = 3;
 }
 
 // HealthReport contains host resource usage and per-cluster health.

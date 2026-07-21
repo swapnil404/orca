@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -25,6 +27,10 @@ import (
 const (
 	orcaNamePrefix = "orca-"
 	dataRoot       = "/var/orca/data"
+	// PgBouncerConfigRelativePath is the generated INI path within a cluster's data directory.
+	PgBouncerConfigRelativePath = "pgbouncer/pgbouncer.ini"
+	// PgBouncerConfigContainerPath is where the generated INI is mounted in PgBouncer.
+	PgBouncerConfigContainerPath = "/etc/pgbouncer/pgbouncer.ini"
 )
 
 type sdkClient interface {
@@ -54,7 +60,8 @@ type restartSDKClient interface {
 
 // Client implements DockerClient using the official Docker SDK for Go.
 type Client struct {
-	sdk sdkClient
+	sdk      sdkClient
+	dataRoot string
 }
 
 // NewClient creates a Docker SDK-backed Client from environment configuration.
@@ -69,7 +76,7 @@ func NewClient() (*Client, error) {
 
 // NewClientWithSDK creates a Client using the provided Docker SDK-compatible client.
 func NewClientWithSDK(sdk sdkClient) *Client {
-	return &Client{sdk: sdk}
+	return &Client{sdk: sdk, dataRoot: dataRoot}
 }
 
 // CreateContainer creates an Orca container using the exact Orca naming convention.
@@ -103,11 +110,18 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 			return "", err
 		}
 
-		hostConfig.Mounts = []mount.Mount{{
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
 			Type:   mount.TypeVolume,
 			Source: volumeName,
 			Target: VolumeMountPath(spec.ClusterID),
-		}}
+		})
+	}
+	if spec.Config != nil {
+		configMount, err := writeConfigMount(c.dataRoot, spec.ClusterID, spec.Config)
+		if err != nil {
+			return "", err
+		}
+		hostConfig.Mounts = append(hostConfig.Mounts, configMount)
 	}
 
 	config := &containertypes.Config{
@@ -354,6 +368,13 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 	for _, container := range containers {
 		info, ok := parseContainerSummary(container)
 		if ok {
+			if info.Kind == ContainerKindPgBouncer {
+				config, err := readConfig(c.dataRoot, info.ClusterID, PgBouncerConfigRelativePath)
+				if err != nil {
+					return nil, fmt.Errorf("read PgBouncer config for cluster %q: %w", info.ClusterID, err)
+				}
+				info.Config = config
+			}
 			infos = append(infos, info)
 		}
 	}
@@ -390,6 +411,81 @@ func VolumeName(clusterID string) string {
 // VolumeMountPath returns the in-container data mount path for an Orca cluster.
 func VolumeMountPath(clusterID string) string {
 	return fmt.Sprintf("%s/%s", dataRoot, clusterID)
+}
+
+func writeConfigMount(root, clusterID string, config *ConfigMount) (mount.Mount, error) {
+	if config == nil {
+		return mount.Mount{}, errors.New("config mount is required")
+	}
+	if config.ContainerPath == "" {
+		return mount.Mount{}, errors.New("config container path is required")
+	}
+
+	hostPath, err := configHostPath(root, clusterID, config.RelativePath)
+	if err != nil {
+		return mount.Mount{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
+		return mount.Mount{}, fmt.Errorf("create config directory: %w", err)
+	}
+
+	temporary, err := os.CreateTemp(filepath.Dir(hostPath), ".orca-config-*")
+	if err != nil {
+		return mount.Mount{}, fmt.Errorf("create temporary config: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	if err := temporary.Chmod(0o644); err != nil {
+		temporary.Close()
+		return mount.Mount{}, fmt.Errorf("set config permissions: %w", err)
+	}
+	if _, err := temporary.WriteString(config.Content); err != nil {
+		temporary.Close()
+		return mount.Mount{}, fmt.Errorf("write config: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return mount.Mount{}, fmt.Errorf("close config: %w", err)
+	}
+	if err := os.Rename(temporaryPath, hostPath); err != nil {
+		return mount.Mount{}, fmt.Errorf("install config: %w", err)
+	}
+
+	return mount.Mount{
+		Type:     mount.TypeBind,
+		Source:   hostPath,
+		Target:   config.ContainerPath,
+		ReadOnly: true,
+	}, nil
+}
+
+func readConfig(root, clusterID, relativePath string) (string, error) {
+	hostPath, err := configHostPath(root, clusterID, relativePath)
+	if err != nil {
+		return "", err
+	}
+	content, err := os.ReadFile(hostPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func configHostPath(root, clusterID, relativePath string) (string, error) {
+	if root == "" {
+		return "", errors.New("data root is required")
+	}
+	if clusterID == "" || filepath.Base(clusterID) != clusterID {
+		return "", errors.New("cluster ID must be a path segment")
+	}
+	cleanPath := filepath.Clean(relativePath)
+	if cleanPath == "." || filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", errors.New("config path must be relative to the cluster data directory")
+	}
+	return filepath.Join(root, clusterID, cleanPath), nil
 }
 
 func parseContainerSummary(container dockertypes.Container) (ContainerInfo, bool) {

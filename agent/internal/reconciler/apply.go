@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
+	"github.com/betterorca/betterorca/agent/internal/pgbouncer"
 	"github.com/betterorca/betterorca/agent/internal/postgres"
 )
 
@@ -67,6 +68,8 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 	case ActionCreatePgBouncer:
 		spec, err := pgBouncerContainerSpec(action)
 		return createAndStart(ctx, docker, spec, err)
+	case ActionUpdatePgBouncer:
+		return updatePgBouncer(ctx, docker, action)
 	case ActionDeletePrimary:
 		cluster, ok := action.Spec.(*ActualCluster)
 		if !ok {
@@ -180,6 +183,24 @@ func stopAndRemove(ctx context.Context, docker DockerClient, containerID string)
 	return docker.RemoveContainer(ctx, containerID)
 }
 
+func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) error {
+	spec, err := pgBouncerContainerSpec(action)
+	if err != nil {
+		return err
+	}
+	name, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: action.ClusterID,
+		Kind:      orcadocker.ContainerKindPgBouncer,
+	})
+	if err != nil {
+		return err
+	}
+	if err := stopAndRemove(ctx, docker, name); err != nil {
+		return err
+	}
+	return createAndStart(ctx, docker, spec, nil)
+}
+
 func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if spec, ok := action.Spec.(orcadocker.ContainerSpec); ok {
 		return spec, nil
@@ -229,14 +250,24 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if spec, ok := action.Spec.(orcadocker.ContainerSpec); ok {
 		return spec, nil
 	}
-	if _, ok := action.Spec.(*PgBouncerSpec); !ok {
-		return orcadocker.ContainerSpec{}, errors.New("create_pgbouncer action requires PgBouncerSpec")
+	cluster, ok := action.Spec.(*ClusterSpec)
+	if !ok {
+		return orcadocker.ContainerSpec{}, fmt.Errorf("%s action requires ClusterSpec", action.Type)
+	}
+	config, err := pgbouncer.GeneratePgBouncerConfig(*cluster)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, err
 	}
 
 	return orcadocker.ContainerSpec{
 		ClusterID: action.ClusterID,
 		Kind:      orcadocker.ContainerKindPgBouncer,
 		Image:     "pgbouncer:latest",
+		Config: &orcadocker.ConfigMount{
+			RelativePath:  orcadocker.PgBouncerConfigRelativePath,
+			ContainerPath: orcadocker.PgBouncerConfigContainerPath,
+			Content:       config,
+		},
 	}, nil
 }
 

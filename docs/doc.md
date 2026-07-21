@@ -54,7 +54,7 @@ This runs on a timer and also triggers immediately whenever a new desired state 
 
 `agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
 
-Currently the primary is the only service this loop provisions end to end. Replica, PgBouncer, pgBackRest, and extension provisioning are designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
+The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest and extension provisioning remain designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
 
 ## The reconnection rule and split-brain avoidance
 

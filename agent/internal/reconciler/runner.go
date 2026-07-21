@@ -92,7 +92,7 @@ func ActualStateFromContainers(containers []orcadocker.ContainerInfo) ActualStat
 				Id: container.ReplicaID, ContainerId: container.ID, Status: container.Status,
 			})
 		case orcadocker.ContainerKindPgBouncer:
-			cluster.PgBouncer = &ActualPgBouncer{ContainerId: container.ID, Status: container.Status}
+			cluster.PgBouncer = &ActualPgBouncer{ContainerId: container.ID, Status: container.Status, Config: container.Config}
 		}
 	}
 
