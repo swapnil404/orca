@@ -215,7 +215,7 @@ func createClusterUpsertState(ctx context.Context, queries *sqlcdb.Queries, clus
 	}
 	replicas := make([]replica, cluster.ReplicaCount)
 	for i := range replicas {
-		replicas[i].ID = fmt.Sprintf("%s-replica-%d", cluster.ID, i+1)
+		replicas[i].ID = fmt.Sprintf("%d", i+1)
 	}
 	state := struct {
 		ID        string            `json:"id"`

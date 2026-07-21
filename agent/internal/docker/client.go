@@ -271,6 +271,37 @@ func (c *Client) ContainerNetworkCIDRs(ctx context.Context, containerID string) 
 	return result, nil
 }
 
+// ContainerNetworkAddresses returns the IP addresses attached to a container.
+func (c *Client) ContainerNetworkAddresses(ctx context.Context, containerID string) ([]string, error) {
+	if c.sdk == nil {
+		return nil, errors.New("docker client is nil")
+	}
+	if containerID == "" {
+		return nil, errors.New("container ID is required")
+	}
+	sdk, ok := c.sdk.(inspectSDKClient)
+	if !ok {
+		return nil, errors.New("docker client does not support container inspect")
+	}
+
+	container, err := sdk.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect container %q: %w", containerID, err)
+	}
+	if container.NetworkSettings == nil {
+		return nil, nil
+	}
+
+	addresses := make([]string, 0, len(container.NetworkSettings.Networks))
+	for _, endpoint := range container.NetworkSettings.Networks {
+		if endpoint != nil && net.ParseIP(endpoint.IPAddress) != nil {
+			addresses = append(addresses, endpoint.IPAddress)
+		}
+	}
+	sort.Strings(addresses)
+	return addresses, nil
+}
+
 // RemoveContainer removes a Docker container by ID.
 func (c *Client) RemoveContainer(ctx context.Context, containerID string) error {
 	if c.sdk == nil {

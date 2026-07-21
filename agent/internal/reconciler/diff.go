@@ -133,7 +133,8 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 	}
 
 	for _, desiredReplica := range desired {
-		if _, exists := actualReplicas[desiredReplica.Id]; !exists {
+		actualReplica, exists := actualReplicas[desiredReplica.Id]
+		if !exists {
 			actions = append(actions, Action{
 				Type:      ActionCreateReplica,
 				ClusterID: clusterID,
@@ -141,6 +142,12 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 				Spec:      desiredReplica,
 			})
 			continue
+		}
+		if actualReplica.Status != "running" {
+			actions = append(actions,
+				Action{Type: ActionDeleteReplica, ClusterID: clusterID, ReplicaID: actualReplica.Id, Spec: actualReplica},
+				Action{Type: ActionCreateReplica, ClusterID: clusterID, ReplicaID: desiredReplica.Id, Spec: desiredReplica},
+			)
 		}
 
 		delete(actualReplicas, desiredReplica.Id)

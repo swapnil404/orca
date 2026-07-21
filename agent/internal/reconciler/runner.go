@@ -60,7 +60,7 @@ func (r *Runner) reconcileCached(ctx context.Context) (Pass, error) {
 	}
 
 	actions := Diff(desired, ActualStateFromContainers(containers))
-	results := Apply(ctx, r.docker, actions)
+	results := Apply(ctx, r.docker, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
