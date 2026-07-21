@@ -144,6 +144,14 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 	return created.ID, nil
 }
 
+// WriteConfig writes generated container configuration to the host.
+func (c *Client) WriteConfig(ctx context.Context, clusterID string, config *ConfigMount) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return writeConfig(c.dataRoot, clusterID, config)
+}
+
 func (c *Client) pullImage(ctx context.Context, image string) error {
 	stream, err := c.sdk.ImagePull(ctx, image, imagetypes.PullOptions{})
 	if err != nil {
@@ -453,10 +461,27 @@ func writeConfigMount(root, clusterID string, config *ConfigMount) (mount.Mount,
 
 	return mount.Mount{
 		Type:     mount.TypeBind,
-		Source:   hostPath,
-		Target:   config.ContainerPath,
+		Source:   filepath.Dir(hostPath),
+		Target:   filepath.Dir(config.ContainerPath),
 		ReadOnly: true,
 	}, nil
+}
+
+func writeConfig(root, clusterID string, config *ConfigMount) error {
+	if config == nil {
+		return errors.New("config mount is required")
+	}
+	hostPath, err := configHostPath(root, clusterID, config.RelativePath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	if err := os.WriteFile(hostPath, []byte(config.Content), 0o644); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }
 
 func readConfig(root, clusterID, relativePath string) (string, error) {
