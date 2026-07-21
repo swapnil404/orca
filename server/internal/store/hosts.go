@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/betterorca/betterorca/server/internal/store/sqlcdb"
+	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
 
 // HostStatus describes whether an agent has connected to a registered host.

@@ -9,11 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/betterorca/betterorca/agent/internal/devrpc"
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
-	"github.com/betterorca/betterorca/agent/internal/reconciler"
-	"github.com/betterorca/betterorca/agent/internal/state"
-	"github.com/betterorca/betterorca/agent/internal/tunnel"
+	"github.com/swapnil404/orca/agent/internal/devrpc"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/reconciler"
+	"github.com/swapnil404/orca/agent/internal/state"
+	"github.com/swapnil404/orca/agent/internal/tunnel"
 )
 
 const defaultDevAddress = "127.0.0.1:8080"

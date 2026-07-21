@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/betterorca/betterorca/pkg/types"
+	"github.com/swapnil404/orca/pkg/types"
 )
 
 const (

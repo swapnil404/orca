@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/betterorca/betterorca/server/internal/auth"
-	"github.com/betterorca/betterorca/server/internal/store"
+	"github.com/swapnil404/orca/server/internal/auth"
+	"github.com/swapnil404/orca/server/internal/store"
 )
 
 const (

@@ -1,16 +1,16 @@
-module github.com/betterorca/betterorca/agent
+module github.com/swapnil404/orca/agent
 
 go 1.25.0
 
 require (
-	github.com/betterorca/betterorca/pkg v0.0.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/gorilla/websocket v1.5.3
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/swapnil404/orca/pkg v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
 
-replace github.com/betterorca/betterorca/pkg => ../pkg
+replace github.com/swapnil404/orca/pkg => ../pkg
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect

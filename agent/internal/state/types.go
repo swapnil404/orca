@@ -1,6 +1,6 @@
 package state
 
-import orcatypes "github.com/betterorca/betterorca/pkg/types"
+import orcatypes "github.com/swapnil404/orca/pkg/types"
 
 // DesiredState is the desired set of clusters managed by the agent.
 type DesiredState = orcatypes.DesiredState

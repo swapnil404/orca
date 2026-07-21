@@ -1036,7 +1036,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x16CLUSTER_STATUS_PENDING\x10\x01\x12\x1a\n" +
 	"\x16CLUSTER_STATUS_HEALTHY\x10\x02\x12\x1b\n" +
 	"\x17CLUSTER_STATUS_DEGRADED\x10\x03\x12\x17\n" +
-	"\x13CLUSTER_STATUS_DOWN\x10\x04B,Z*github.com/betterorca/betterorca/pkg/typesb\x06proto3"
+	"\x13CLUSTER_STATUS_DOWN\x10\x04B&Z$github.com/swapnil404/orca/pkg/typesb\x06proto3"
 
 var (
 	file_orca_proto_rawDescOnce sync.Once

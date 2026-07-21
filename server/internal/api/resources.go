@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/betterorca/betterorca/server/internal/store"
+	"github.com/swapnil404/orca/server/internal/store"
 )
 
 const maxRequestBodyBytes = 1 << 20

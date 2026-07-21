@@ -11,9 +11,9 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/betterorca/betterorca/pkg/types"
-	"github.com/betterorca/betterorca/server/internal/auth"
-	"github.com/betterorca/betterorca/server/internal/store"
+	"github.com/swapnil404/orca/pkg/types"
+	"github.com/swapnil404/orca/server/internal/auth"
+	"github.com/swapnil404/orca/server/internal/store"
 )
 
 const (

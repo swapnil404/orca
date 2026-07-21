@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orca.v1;
 
-option go_package = "github.com/betterorca/betterorca/pkg/types";
+option go_package = "github.com/swapnil404/orca/pkg/types";
 
 // DesiredStateMessage carries the complete current desired state from server to agent.
 message DesiredStateMessage {

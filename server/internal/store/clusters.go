@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/betterorca/betterorca/server/internal/store/sqlcdb"
+	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
 
 // Cluster is a desired Postgres cluster assigned to a host.

@@ -8,8 +8,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/betterorca/betterorca/pkg/types"
-	"github.com/betterorca/betterorca/server/internal/store/sqlcdb"
+	"github.com/swapnil404/orca/pkg/types"
+	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
 
 const (
