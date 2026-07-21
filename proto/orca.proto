@@ -28,6 +28,7 @@ message ClusterSpec {
   map<string, string> params = 3;
   repeated ReplicaSpec replicas = 4;
   optional PgBouncerSpec pg_bouncer = 5;
+  repeated DatabaseSpec databases = 6;
 }
 
 // ReplicaSpec describes a desired Postgres replica.
@@ -35,9 +36,17 @@ message ReplicaSpec {
   string id = 1;
 }
 
+// DatabaseSpec describes a desired Postgres database.
+message DatabaseSpec {
+  string name = 1;
+}
+
 // PgBouncerSpec describes a desired PgBouncer sidecar.
 message PgBouncerSpec {
   string pool_mode = 1;
+  uint32 max_connections = 2;
+  uint32 reserve_pool_size = 3;
+  uint32 reserve_pool_timeout_seconds = 4;
 }
 
 // ActualState is the set of clusters currently observed by the agent.
