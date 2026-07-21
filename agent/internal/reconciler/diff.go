@@ -1,5 +1,7 @@
 package reconciler
 
+import "github.com/betterorca/betterorca/agent/internal/pgbouncer"
+
 // ActionType identifies the kind of reconciliation action to execute.
 type ActionType string
 
@@ -16,6 +18,8 @@ const (
 	ActionDeleteReplica ActionType = "delete_replica"
 	// ActionCreatePgBouncer creates a PgBouncer container.
 	ActionCreatePgBouncer ActionType = "create_pgbouncer"
+	// ActionUpdatePgBouncer replaces a PgBouncer container with updated configuration.
+	ActionUpdatePgBouncer ActionType = "update_pgbouncer"
 	// ActionDeletePgBouncer deletes a PgBouncer container.
 	ActionDeletePgBouncer ActionType = "delete_pgbouncer"
 )
@@ -37,6 +41,12 @@ func Diff(desired DesiredState, actual ActualState) []Action {
 	}
 
 	for _, desiredCluster := range desired.Clusters {
+		desiredPgBouncerConfig := ""
+		pgBouncerConfigValid := true
+		if desiredCluster.PgBouncer != nil {
+			desiredPgBouncerConfig, pgBouncerConfigValid = generatedPgBouncerConfig(desiredCluster)
+		}
+
 		actualCluster, exists := actualClusters[desiredCluster.Id]
 		if !exists {
 			actions = append(actions, createClusterActions(desiredCluster)...)
@@ -52,7 +62,8 @@ func Diff(desired DesiredState, actual ActualState) []Action {
 		}
 
 		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas)...)
-		actions = append(actions, diffPgBouncer(desiredCluster.Id, desiredCluster.PgBouncer, actualCluster.PgBouncer)...)
+		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
+		actions = append(actions, pgBouncerActions...)
 		delete(actualClusters, desiredCluster.Id)
 	}
 
@@ -85,7 +96,7 @@ func createClusterActions(cluster *ClusterSpec) []Action {
 		actions = append(actions, Action{
 			Type:      ActionCreatePgBouncer,
 			ClusterID: cluster.Id,
-			Spec:      cluster.PgBouncer,
+			Spec:      cluster,
 		})
 	}
 
@@ -167,21 +178,36 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 	return actions
 }
 
-func diffPgBouncer(clusterID string, desired *PgBouncerSpec, actual *ActualPgBouncer) []Action {
-	if desired != nil && actual == nil {
+func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool, actual *ActualPgBouncer) []Action {
+	if desired.PgBouncer != nil && actual == nil {
 		return []Action{{
 			Type:      ActionCreatePgBouncer,
-			ClusterID: clusterID,
+			ClusterID: desired.Id,
 			Spec:      desired,
 		}}
 	}
-	if desired == nil && actual != nil {
+	if desired.PgBouncer == nil && actual != nil {
 		return []Action{{
 			Type:      ActionDeletePgBouncer,
-			ClusterID: clusterID,
+			ClusterID: desired.Id,
 			Spec:      actual,
+		}}
+	}
+	if desired.PgBouncer == nil {
+		return nil
+	}
+	if !configValid || desiredConfig != actual.Config {
+		return []Action{{
+			Type:      ActionUpdatePgBouncer,
+			ClusterID: desired.Id,
+			Spec:      desired,
 		}}
 	}
 
 	return nil
+}
+
+func generatedPgBouncerConfig(desired *ClusterSpec) (string, bool) {
+	config, err := pgbouncer.GeneratePgBouncerConfig(*desired)
+	return config, err == nil
 }

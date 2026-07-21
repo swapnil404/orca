@@ -35,6 +35,15 @@ type ContainerSpec struct {
 	Labels    map[string]string
 	Command   []string
 	UseVolume bool
+	Config    *ConfigMount
+}
+
+// ConfigMount describes generated configuration persisted on the host and
+// bind-mounted read-only into a container.
+type ConfigMount struct {
+	RelativePath  string
+	ContainerPath string
+	Content       string
 }
 
 // ContainerInfo describes an Orca container currently visible in Docker.
@@ -46,4 +55,5 @@ type ContainerInfo struct {
 	ReplicaID string
 	Image     string
 	Status    string
+	Config    string
 }

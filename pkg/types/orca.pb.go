@@ -716,6 +716,7 @@ type ActualPgBouncer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ContainerId   string                 `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Config        string                 `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -760,6 +761,13 @@ func (x *ActualPgBouncer) GetContainerId() string {
 func (x *ActualPgBouncer) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *ActualPgBouncer) GetConfig() string {
+	if x != nil {
+		return x.Config
 	}
 	return ""
 }
@@ -1005,10 +1013,11 @@ const file_orca_proto_rawDesc = "" +
 	"\x15last_wal_replayed_lsn\x18\b \x01(\tR\x12lastWalReplayedLsn\x124\n" +
 	"\x16replication_lag_status\x18\t \x01(\tR\x14replicationLagStatusB\x18\n" +
 	"\x16_replication_lag_bytesB\x14\n" +
-	"\x12_standby_connected\"L\n" +
+	"\x12_standby_connected\"d\n" +
 	"\x0fActualPgBouncer\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"{\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06config\x18\x03 \x01(\tR\x06config\"{\n" +
 	"\fHealthReport\x127\n" +
 	"\fhost_metrics\x18\x01 \x01(\v2\x14.orca.v1.HostMetricsR\vhostMetrics\x122\n" +
 	"\bclusters\x18\x02 \x03(\v2\x16.orca.v1.ClusterHealthR\bclusters\"\xe5\x01\n" +
