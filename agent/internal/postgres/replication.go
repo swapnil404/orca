@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
 	orcatypes "github.com/betterorca/betterorca/pkg/types"
 )
 
 const (
-	postgresUser = "postgres"
-	hbaChanged   = "changed"
+	postgresUser         = "postgres"
+	hbaChanged           = "changed"
+	primaryReadyTimeout  = 30 * time.Second
+	primaryReadyInterval = 250 * time.Millisecond
 )
 
 // ClusterDesiredState describes the desired state of one PostgreSQL cluster.
@@ -39,6 +42,9 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		Kind:      orcadocker.ContainerKindPrimary,
 	})
 	if err != nil {
+		return err
+	}
+	if err := waitForPrimary(ctx, docker, primary); err != nil {
 		return err
 	}
 
@@ -88,6 +94,28 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 	}
 
 	return nil
+}
+
+func waitForPrimary(ctx context.Context, docker DockerClient, primary string) error {
+	ctx, cancel := context.WithTimeout(ctx, primaryReadyTimeout)
+	defer cancel()
+
+	var lastErr error
+	for {
+		if _, err := docker.ExecContainer(ctx, primary, psqlCommand("SELECT 1")); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		timer := time.NewTimer(primaryReadyInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("wait for primary readiness: %w", errors.Join(lastErr, ctx.Err()))
+		case <-timer.C:
+		}
+	}
 }
 
 func psqlCommand(query string) []string {

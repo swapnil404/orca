@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
+	"github.com/betterorca/betterorca/agent/internal/postgres"
 )
 
 // DockerClient is the Docker wrapper interface used by Apply.
@@ -36,19 +37,23 @@ func (r ApplyResult) MarshalJSON() ([]byte, error) {
 }
 
 // Apply executes every action against Docker and reports each result.
-func Apply(ctx context.Context, docker DockerClient, actions []Action) []ApplyResult {
+func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredStates ...DesiredState) []ApplyResult {
+	var desired DesiredState
+	if len(desiredStates) > 0 {
+		desired = desiredStates[0]
+	}
 	results := make([]ApplyResult, 0, len(actions))
 	for _, action := range actions {
 		results = append(results, ApplyResult{
 			Action: action,
-			Err:    applyAction(ctx, docker, action),
+			Err:    applyAction(ctx, docker, action, desired),
 		})
 	}
 
 	return results
 }
 
-func applyAction(ctx context.Context, docker DockerClient, action Action) error {
+func applyAction(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
 	if docker == nil {
 		return errors.New("docker client is nil")
 	}
@@ -58,8 +63,7 @@ func applyAction(ctx context.Context, docker DockerClient, action Action) error 
 		spec, err := primaryContainerSpec(action)
 		return createAndStart(ctx, docker, spec, err)
 	case ActionCreateReplica:
-		spec, err := replicaContainerSpec(action)
-		return createAndStart(ctx, docker, spec, err)
+		return createReplica(ctx, docker, action, desired)
 	case ActionCreatePgBouncer:
 		spec, err := pgBouncerContainerSpec(action)
 		return createAndStart(ctx, docker, spec, err)
@@ -91,6 +95,65 @@ func applyAction(ctx context.Context, docker DockerClient, action Action) error 
 	default:
 		return fmt.Errorf("unknown action type %q", action.Type)
 	}
+}
+
+type replicaDockerClient interface {
+	postgres.DockerClient
+	postgres.ReplicaDockerClient
+	ContainerNetworkAddresses(context.Context, string) ([]string, error)
+}
+
+func createReplica(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
+	replicaDocker, ok := docker.(replicaDockerClient)
+	if !ok {
+		return errors.New("docker client does not support replica provisioning")
+	}
+	cluster, index, err := desiredReplica(desired, action.ClusterID, action.ReplicaID)
+	if err != nil {
+		return err
+	}
+	if err := postgres.ConfigurePrimaryReplication(ctx, replicaDocker, cluster); err != nil {
+		return fmt.Errorf("configure primary replication: %w", err)
+	}
+	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: action.ClusterID,
+		Kind:      orcadocker.ContainerKindPrimary,
+	})
+	if err != nil {
+		return err
+	}
+	addresses, err := replicaDocker.ContainerNetworkAddresses(ctx, primary)
+	if err != nil {
+		return fmt.Errorf("inspect primary address: %w", err)
+	}
+	if len(addresses) == 0 {
+		return errors.New("primary container has no network address")
+	}
+	_, err = postgres.CreateReplica(ctx, replicaDocker, postgres.ReplicaSpec{
+		ClusterID:       cluster.Id,
+		ReplicaID:       action.ReplicaID,
+		Index:           index,
+		PostgresVersion: cluster.Version,
+		Primary: postgres.PrimaryConnectionInfo{
+			Host: addresses[0],
+		},
+	})
+	return err
+}
+
+func desiredReplica(desired DesiredState, clusterID, replicaID string) (*ClusterSpec, int, error) {
+	for _, cluster := range desired.Clusters {
+		if cluster == nil || cluster.Id != clusterID {
+			continue
+		}
+		for index, replica := range cluster.Replicas {
+			if replica != nil && replica.Id == replicaID {
+				return cluster, index + 1, nil
+			}
+		}
+		return nil, 0, fmt.Errorf("replica %q is not desired for cluster %q", replicaID, clusterID)
+	}
+	return nil, 0, fmt.Errorf("cluster %q is not desired", clusterID)
 }
 
 func createAndStart(ctx context.Context, docker DockerClient, spec orcadocker.ContainerSpec, specErr error) error {

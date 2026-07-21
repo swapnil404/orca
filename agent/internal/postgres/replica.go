@@ -27,6 +27,7 @@ type PrimaryConnectionInfo struct {
 // ReplicaSpec describes a PostgreSQL replica to create.
 type ReplicaSpec struct {
 	ClusterID       string
+	ReplicaID       string
 	Index           int
 	Primary         PrimaryConnectionInfo
 	PostgresVersion string
@@ -122,6 +123,9 @@ func validateReplicaSpec(spec ReplicaSpec) error {
 	if spec.Index < 1 {
 		return errors.New("replica index must be greater than zero")
 	}
+	if spec.ReplicaID == "" {
+		return errors.New("replica ID is required")
+	}
 	if spec.Primary.Host == "" {
 		return errors.New("primary host is required")
 	}
@@ -132,7 +136,7 @@ func validateReplicaSpec(spec ReplicaSpec) error {
 }
 
 func replicaContainerSpec(spec ReplicaSpec, bootstrap bool) orcadocker.ContainerSpec {
-	replicaID := strconv.Itoa(spec.Index)
+	replicaID := spec.ReplicaID
 	command := []string(nil)
 	if bootstrap {
 		replicaID += bootstrapSuffix
