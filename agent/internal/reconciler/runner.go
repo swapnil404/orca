@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
-	"github.com/betterorca/betterorca/agent/internal/postgres"
-	"github.com/betterorca/betterorca/agent/internal/state"
-	"github.com/betterorca/betterorca/pkg/types"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/postgres"
+	"github.com/swapnil404/orca/agent/internal/state"
+	"github.com/swapnil404/orca/pkg/types"
 )
 
 // Pass contains the action outcomes and observed state from one reconciliation pass.

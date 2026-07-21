@@ -1,4 +1,4 @@
-module github.com/betterorca/betterorca/pkg
+module github.com/swapnil404/orca/pkg
 
 go 1.25.0
 

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 )
 
 const (

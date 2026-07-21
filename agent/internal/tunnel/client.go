@@ -11,8 +11,8 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/betterorca/betterorca/agent/internal/reconciler"
-	"github.com/betterorca/betterorca/pkg/types"
+	"github.com/swapnil404/orca/agent/internal/reconciler"
+	"github.com/swapnil404/orca/pkg/types"
 )
 
 const (

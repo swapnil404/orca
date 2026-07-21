@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/betterorca/betterorca/pkg/types"
+	"github.com/swapnil404/orca/pkg/types"
 )
 
 var errSessionCannotWrite = errors.New("session connection does not support WebSocket writes")

@@ -1,6 +1,6 @@
 package reconciler
 
-import "github.com/betterorca/betterorca/agent/internal/pgbouncer"
+import "github.com/swapnil404/orca/agent/internal/pgbouncer"
 
 // ActionType identifies the kind of reconciliation action to execute.
 type ActionType string

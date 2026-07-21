@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/betterorca/betterorca/pkg/types"
-	"github.com/betterorca/betterorca/server/internal/store"
-	"github.com/betterorca/betterorca/server/internal/ws"
+	"github.com/swapnil404/orca/pkg/types"
+	"github.com/swapnil404/orca/server/internal/store"
+	"github.com/swapnil404/orca/server/internal/ws"
 )
 
 type desiredStateStore interface {

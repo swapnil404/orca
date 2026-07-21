@@ -1,8 +1,8 @@
 package reconciler
 
 import (
-	"github.com/betterorca/betterorca/agent/internal/state"
-	orcatypes "github.com/betterorca/betterorca/pkg/types"
+	"github.com/swapnil404/orca/agent/internal/state"
+	orcatypes "github.com/swapnil404/orca/pkg/types"
 )
 
 // DesiredState is the desired set of clusters managed by the agent.

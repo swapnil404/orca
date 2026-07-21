@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
-	orcatypes "github.com/betterorca/betterorca/pkg/types"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	orcatypes "github.com/swapnil404/orca/pkg/types"
 )
 
 const postgresPort = 5432

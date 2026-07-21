@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
-	"github.com/betterorca/betterorca/agent/internal/pgbouncer"
-	"github.com/betterorca/betterorca/agent/internal/postgres"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/pgbouncer"
+	"github.com/swapnil404/orca/agent/internal/postgres"
 )
 
 // DockerClient is the Docker wrapper interface used by Apply.

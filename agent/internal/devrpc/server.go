@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 
-	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
-	"github.com/betterorca/betterorca/agent/internal/reconciler"
-	"github.com/betterorca/betterorca/agent/internal/state"
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/reconciler"
+	"github.com/swapnil404/orca/agent/internal/state"
 )
 
 const desiredStatePath = "/dev/desired-state"
