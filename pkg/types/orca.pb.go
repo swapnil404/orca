@@ -527,12 +527,18 @@ func (x *ActualCluster) GetPgBouncer() *ActualPgBouncer {
 
 // ActualReplica describes an observed Postgres replica.
 type ActualReplica struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ContainerId   string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ContainerId          string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Status               string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	ReplicationLagBytes  *uint64                `protobuf:"varint,4,opt,name=replication_lag_bytes,json=replicationLagBytes,proto3,oneof" json:"replication_lag_bytes,omitempty"`
+	StandbyConnected     *bool                  `protobuf:"varint,5,opt,name=standby_connected,json=standbyConnected,proto3,oneof" json:"standby_connected,omitempty"`
+	StreamingState       string                 `protobuf:"bytes,6,opt,name=streaming_state,json=streamingState,proto3" json:"streaming_state,omitempty"`
+	LastWalReceivedLsn   string                 `protobuf:"bytes,7,opt,name=last_wal_received_lsn,json=lastWalReceivedLsn,proto3" json:"last_wal_received_lsn,omitempty"`
+	LastWalReplayedLsn   string                 `protobuf:"bytes,8,opt,name=last_wal_replayed_lsn,json=lastWalReplayedLsn,proto3" json:"last_wal_replayed_lsn,omitempty"`
+	ReplicationLagStatus string                 `protobuf:"bytes,9,opt,name=replication_lag_status,json=replicationLagStatus,proto3" json:"replication_lag_status,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ActualReplica) Reset() {
@@ -582,6 +588,48 @@ func (x *ActualReplica) GetContainerId() string {
 func (x *ActualReplica) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *ActualReplica) GetReplicationLagBytes() uint64 {
+	if x != nil && x.ReplicationLagBytes != nil {
+		return *x.ReplicationLagBytes
+	}
+	return 0
+}
+
+func (x *ActualReplica) GetStandbyConnected() bool {
+	if x != nil && x.StandbyConnected != nil {
+		return *x.StandbyConnected
+	}
+	return false
+}
+
+func (x *ActualReplica) GetStreamingState() string {
+	if x != nil {
+		return x.StreamingState
+	}
+	return ""
+}
+
+func (x *ActualReplica) GetLastWalReceivedLsn() string {
+	if x != nil {
+		return x.LastWalReceivedLsn
+	}
+	return ""
+}
+
+func (x *ActualReplica) GetLastWalReplayedLsn() string {
+	if x != nil {
+		return x.LastWalReplayedLsn
+	}
+	return ""
+}
+
+func (x *ActualReplica) GetReplicationLagStatus() string {
+	if x != nil {
+		return x.ReplicationLagStatus
 	}
 	return ""
 }
@@ -862,11 +910,19 @@ const file_orca_proto_rawDesc = "" +
 	"\breplicas\x18\x05 \x03(\v2\x16.orca.v1.ActualReplicaR\breplicas\x12<\n" +
 	"\n" +
 	"pg_bouncer\x18\x06 \x01(\v2\x18.orca.v1.ActualPgBouncerH\x00R\tpgBouncer\x88\x01\x01B\r\n" +
-	"\v_pg_bouncer\"Z\n" +
+	"\v_pg_bouncer\"\xba\x03\n" +
 	"\rActualReplica\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
-	"\x06status\x18\x03 \x01(\tR\x06status\"L\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x127\n" +
+	"\x15replication_lag_bytes\x18\x04 \x01(\x04H\x00R\x13replicationLagBytes\x88\x01\x01\x120\n" +
+	"\x11standby_connected\x18\x05 \x01(\bH\x01R\x10standbyConnected\x88\x01\x01\x12'\n" +
+	"\x0fstreaming_state\x18\x06 \x01(\tR\x0estreamingState\x121\n" +
+	"\x15last_wal_received_lsn\x18\a \x01(\tR\x12lastWalReceivedLsn\x121\n" +
+	"\x15last_wal_replayed_lsn\x18\b \x01(\tR\x12lastWalReplayedLsn\x124\n" +
+	"\x16replication_lag_status\x18\t \x01(\tR\x14replicationLagStatusB\x18\n" +
+	"\x16_replication_lag_bytesB\x14\n" +
+	"\x12_standby_connected\"L\n" +
 	"\x0fActualPgBouncer\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"{\n" +
@@ -949,6 +1005,7 @@ func file_orca_proto_init() {
 	}
 	file_orca_proto_msgTypes[3].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[7].OneofWrappers = []any{}
+	file_orca_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

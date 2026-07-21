@@ -60,6 +60,12 @@ message ActualReplica {
   string id = 1;
   string container_id = 2;
   string status = 3;
+  optional uint64 replication_lag_bytes = 4;
+  optional bool standby_connected = 5;
+  string streaming_state = 6;
+  string last_wal_received_lsn = 7;
+  string last_wal_replayed_lsn = 8;
+  string replication_lag_status = 9;
 }
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.

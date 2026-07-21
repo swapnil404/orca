@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
+	"github.com/betterorca/betterorca/agent/internal/postgres"
 	"github.com/betterorca/betterorca/agent/internal/state"
 	"github.com/betterorca/betterorca/pkg/types"
 )
@@ -18,14 +19,16 @@ type Pass struct {
 
 // Runner serializes reconciliation through the shared desired-state cache.
 type Runner struct {
-	cache  state.StateCache
-	docker orcadocker.DockerClient
-	mu     sync.Mutex
+	cache          state.StateCache
+	docker         orcadocker.DockerClient
+	healthDatabase postgres.HealthDockerClient
+	mu             sync.Mutex
 }
 
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
 func NewRunner(cache state.StateCache, docker orcadocker.DockerClient) *Runner {
-	return &Runner{cache: cache, docker: docker}
+	healthDatabase, _ := docker.(postgres.HealthDockerClient)
+	return &Runner{cache: cache, docker: docker, healthDatabase: healthDatabase}
 }
 
 // Reconcile saves a complete desired state and reconciles Docker against the cached copy.
@@ -63,6 +66,7 @@ func (r *Runner) reconcileCached(ctx context.Context) (Pass, error) {
 		return Pass{}, err
 	}
 	actual := ActualStateFromContainers(containers)
+	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, &actual)
 	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
 }
 
