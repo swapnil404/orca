@@ -54,6 +54,8 @@ This runs on a timer and also triggers immediately whenever a new desired state 
 
 `agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
 
+Currently the primary is the only service this loop provisions end to end. Replica, PgBouncer, pgBackRest, and extension provisioning are designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
+
 ## The reconnection rule and split-brain avoidance
 
 This is the correctness property the rest of the system depends on. If the agent's connection to the server drops, the agent continues operating from its local cache of the last known desired state. It does not require the server to be reachable to keep running Postgres correctly, it simply stops receiving new configuration changes until the connection is restored.
@@ -80,6 +82,20 @@ Postgres-related containers run as siblings to the agent container, not nested i
 
 - Containers are namespaced by cluster ID: `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, `orca-<cluster-id>-pgbackrest`.
 - Data volumes are named and explicit, mounted at `/var/orca/data/<cluster-id>/` on the host. Anonymous volumes are not used, since named volumes are what allow data to survive container restarts and agent upgrades.
+
+## Provisioning scope
+
+The reconciler's diff and apply logic, and the tunnel and reconnection behavior described above, are service-agnostic: they operate on whatever actions a spec produces, not specifically on primaries. Extending provisioning beyond the primary is additive work within `agent/internal`, not a change to the reconciliation model itself.
+
+**Replicas** (`agent/internal/postgres`): a replica action must configure real streaming replication against the cluster's primary, not just start a second Postgres container with the same image. Actual state reporting for a replica includes replication status (streaming, lagging, disconnected), not just container running/stopped, so the canvas can distinguish a replica that's up from a replica that's healthy.
+
+**PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, per-database or standalone) and manages the PgBouncer container's lifecycle alongside the primary and its replicas.
+
+**pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration and manages scheduled full, differential, and WAL backups, with support for point-in-time recovery. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, backup scheduling runs independently of the diff/apply cycle even though its container lifecycle is managed the same way as other services.
+
+**Extensions** (`agent/internal/extensions`): enables or disables extensions per cluster by reconciling against the cluster's desired extension list, applied against the running primary rather than through a separate container.
+
+Each of these follows the same naming and volume conventions already established for the primary. None of them changes the core reconciliation loop, hub, or reconnection behavior described elsewhere in this document, they extend what a `ClusterSpec` can describe and what the apply step knows how to execute.
 
 ## Server internals
 
@@ -170,6 +186,10 @@ projectEvents := api.NewProjectEventHandler(metadataStore)
 projectEvents.RegisterRoutes(mux)
 agentHandler.SetReportNotifier(projectEvents)
 ```
+
+### Metrics and alerting
+
+Health data ingested from agent reports is planned to be exposed in a Prometheus-compatible format from the server, in addition to what's shown live in the canvas, so users can scrape their own infrastructure's metrics independently. Alert rule evaluation runs against ingested health data server side. This is not yet implemented; when it is, ingestion (already built, see "Data model" above), exposition, and rule evaluation should remain separable, each testable without the others, consistent with how `metrics/` is scoped in `AGENTS.md`.
 
 ### Database tests
 
