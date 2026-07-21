@@ -89,7 +89,7 @@ The reconciler's diff and apply logic, and the tunnel and reconnection behavior 
 
 **Replicas** (`agent/internal/postgres`): a replica action must configure real streaming replication against the cluster's primary, not just start a second Postgres container with the same image. Actual state reporting for a replica includes replication status (streaming, lagging, disconnected), not just container running/stopped, so the canvas can distinguish a replica that's up from a replica that's healthy.
 
-**PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, per-database or standalone) and manages the PgBouncer container's lifecycle alongside the primary and its replicas.
+**PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, connection limits, and reserve pool settings) and manages the PgBouncer container's lifecycle alongside the primary and its replicas. Each desired database gets an alias targeting the primary. When replicas exist, it also gets a `<database>_read` alias whose deterministic host mesh targets all replica containers with round-robin selection.
 
 **pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration and manages scheduled full, differential, and WAL backups, with support for point-in-time recovery. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, backup scheduling runs independently of the diff/apply cycle even though its container lifecycle is managed the same way as other services.
 
