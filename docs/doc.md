@@ -50,11 +50,17 @@ The loop:
 
 This runs on a timer and also triggers immediately whenever a new desired state message arrives.
 
+`agent/internal/reconciler.Runner` owns this path for both the production tunnel and the development RPC harness. A server snapshot is written atomically to the local desired-state cache before Docker is queried. The runner observes Docker again after applying every action and builds the `AgentReportMessage` from that post-apply observation; individual apply failures remain independent and appear in the development result while the report reflects what is actually running.
+
+`agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
+
 ## The reconnection rule and split-brain avoidance
 
 This is the correctness property the rest of the system depends on. If the agent's connection to the server drops, the agent continues operating from its local cache of the last known desired state. It does not require the server to be reachable to keep running Postgres correctly, it simply stops receiving new configuration changes until the connection is restored.
 
 When the connection is restored, the server does not attempt to replay a log of what changed while the agent was offline. It sends the full current desired state, as it exists right now, in one message. The agent reconciles against that as it would any other desired state update.
+
+The tunnel retries connection and authentication failures with exponential backoff from one second to 30 seconds. Between attempts it reconciles from the local cache, without waiting on server availability. On a new connection, periodic reporting remains paused until the server's fresh full desired-state snapshot has been cached and reconciled, so stale pre-disconnect state cannot be reported ahead of the reconnect snapshot.
 
 This avoids split-brain scenarios where the agent and server disagree about history. There is no history to disagree about, only a current desired state and a current actual state, reconciled on every pass. An agent that has been offline for five minutes and an agent that has been offline for five days go through the exact same reconnection path.
 

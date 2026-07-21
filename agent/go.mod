@@ -5,7 +5,9 @@ go 1.25.0
 require (
 	github.com/betterorca/betterorca/pkg v0.0.0
 	github.com/docker/docker v27.5.1+incompatible
+	github.com/gorilla/websocket v1.5.3
 	github.com/opencontainers/image-spec v1.1.1
+	google.golang.org/protobuf v1.36.11
 )
 
 replace github.com/betterorca/betterorca/pkg => ../pkg
@@ -34,6 +36,5 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )

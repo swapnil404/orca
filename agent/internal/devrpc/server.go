@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"sync"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
 	"github.com/betterorca/betterorca/agent/internal/reconciler"
@@ -18,14 +16,17 @@ const desiredStatePath = "/dev/desired-state"
 
 // Server exposes the local development reconciliation endpoint.
 type Server struct {
-	cache  state.StateCache
-	docker orcadocker.DockerClient
-	mu     sync.Mutex
+	runner *reconciler.Runner
 }
 
 // NewServer creates a dev RPC server with explicit state and Docker dependencies.
 func NewServer(cache state.StateCache, docker orcadocker.DockerClient) *Server {
-	return &Server{cache: cache, docker: docker}
+	return NewServerWithRunner(reconciler.NewRunner(cache, docker))
+}
+
+// NewServerWithRunner creates a dev RPC server using the shared reconciliation path.
+func NewServerWithRunner(runner *reconciler.Runner) *Server {
+	return &Server{runner: runner}
 }
 
 // ServeHTTP serves the dev-only desired-state endpoint.
@@ -55,30 +56,14 @@ func (s *Server) handleDesiredState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if err := s.cache.Save(r.Context(), requested); err != nil {
-		http.Error(w, fmt.Sprintf("save desired state: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	desired, err := s.cache.Load(r.Context())
+	pass, err := s.runner.Reconcile(r.Context(), requested)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("load desired state: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("reconcile desired state: %v", err), http.StatusInternalServerError)
 		return
 	}
-	containers, err := s.docker.ListOrcaContainers(r.Context())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("load actual state: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	actions := reconciler.Diff(desired, actualState(containers))
-	results := reconciler.Apply(r.Context(), s.docker, actions)
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
+	if err := json.NewEncoder(w).Encode(pass.Results); err != nil {
 		return
 	}
 }
@@ -95,50 +80,5 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 }
 
 func actualState(containers []orcadocker.ContainerInfo) reconciler.ActualState {
-	clusters := make(map[string]*reconciler.ActualCluster)
-	order := make([]string, 0)
-	for _, container := range containers {
-		cluster, exists := clusters[container.ClusterID]
-		if !exists {
-			cluster = &reconciler.ActualCluster{Id: container.ClusterID}
-			clusters[container.ClusterID] = cluster
-			order = append(order, container.ClusterID)
-		}
-
-		switch container.Kind {
-		case orcadocker.ContainerKindPrimary:
-			cluster.ContainerId = container.ID
-			cluster.Status = container.Status
-			cluster.Version = postgresVersion(container.Image)
-		case orcadocker.ContainerKindReplica:
-			cluster.Replicas = append(cluster.Replicas, &reconciler.ActualReplica{
-				Id:          container.ReplicaID,
-				ContainerId: container.ID,
-				Status:      container.Status,
-			})
-		case orcadocker.ContainerKindPgBouncer:
-			cluster.PgBouncer = &reconciler.ActualPgBouncer{
-				ContainerId: container.ID,
-				Status:      container.Status,
-			}
-		}
-	}
-
-	actual := reconciler.ActualState{Clusters: make([]*reconciler.ActualCluster, 0, len(order))}
-	for _, clusterID := range order {
-		actual.Clusters = append(actual.Clusters, clusters[clusterID])
-	}
-
-	return actual
-}
-
-func postgresVersion(image string) string {
-	image = strings.TrimPrefix(image, "docker.io/library/")
-	version, found := strings.CutPrefix(image, "postgres:")
-	if !found || version == "latest" {
-		return ""
-	}
-
-	version, _, _ = strings.Cut(version, "@")
-	return version
+	return reconciler.ActualStateFromContainers(containers)
 }
