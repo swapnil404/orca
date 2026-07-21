@@ -32,6 +32,11 @@ type Action struct {
 	Spec      any    // the relevant spec needed to execute this action
 }
 
+type pgBouncerUpdateSpec struct {
+	Desired *ClusterSpec
+	Actual  *ActualPgBouncer
+}
+
 // Diff computes the reconciliation actions required to make actual match desired.
 func Diff(desired DesiredState, actual ActualState) []Action {
 	actions := []Action{}
@@ -196,11 +201,14 @@ func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool,
 	if desired.PgBouncer == nil {
 		return nil
 	}
-	if !configValid || desiredConfig != actual.Config {
+	if !configValid || desiredConfig != actual.Config || actual.Status != "running" {
 		return []Action{{
 			Type:      ActionUpdatePgBouncer,
 			ClusterID: desired.Id,
-			Spec:      desired,
+			Spec: &pgBouncerUpdateSpec{
+				Desired: desired,
+				Actual:  actual,
+			},
 		}}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	orcadocker "github.com/betterorca/betterorca/agent/internal/docker"
 	"github.com/betterorca/betterorca/agent/internal/pgbouncer"
@@ -106,6 +107,12 @@ type replicaDockerClient interface {
 	ContainerNetworkAddresses(context.Context, string) ([]string, error)
 }
 
+type pgBouncerDockerClient interface {
+	DockerClient
+	pgbouncer.ConsoleExecutor
+	WriteConfig(ctx context.Context, clusterID string, config *orcadocker.ConfigMount) error
+}
+
 func createReplica(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
 	replicaDocker, ok := docker.(replicaDockerClient)
 	if !ok {
@@ -184,21 +191,54 @@ func stopAndRemove(ctx context.Context, docker DockerClient, containerID string)
 }
 
 func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) error {
+	update, ok := action.Spec.(*pgBouncerUpdateSpec)
+	if !ok || update.Desired == nil || update.Actual == nil {
+		return errors.New("update_pgbouncer action requires desired and actual PgBouncer state")
+	}
 	spec, err := pgBouncerContainerSpec(action)
 	if err != nil {
 		return err
 	}
-	name, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
-		ClusterID: action.ClusterID,
-		Kind:      orcadocker.ContainerKindPgBouncer,
-	})
-	if err != nil {
-		return err
+	pgBouncerDocker, ok := docker.(pgBouncerDockerClient)
+	if !ok {
+		return errors.New("docker client does not support PgBouncer updates")
 	}
-	if err := stopAndRemove(ctx, docker, name); err != nil {
-		return err
+
+	changed, parseErr := pgbouncer.ChangedConfigKeys(update.Actual.Config, spec.Config.Content)
+	method := pgbouncer.UpdateMethodRestart
+	if parseErr == nil && update.Actual.Status == "running" {
+		method = pgbouncer.ClassifyConfigUpdate(changed)
 	}
-	return createAndStart(ctx, docker, spec, nil)
+	if err := pgBouncerDocker.WriteConfig(ctx, action.ClusterID, spec.Config); err != nil {
+		return fmt.Errorf("write PgBouncer config: %w", err)
+	}
+
+	switch method {
+	case pgbouncer.UpdateMethodReload:
+		slog.Info("reloading PgBouncer configuration", "cluster_id", action.ClusterID)
+		if err := pgbouncer.ReloadConfig(ctx, pgBouncerDocker, update.Actual.ContainerId); err != nil {
+			rollbackErr := pgBouncerDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
+				RelativePath:  spec.Config.RelativePath,
+				ContainerPath: spec.Config.ContainerPath,
+				Content:       update.Actual.Config,
+			})
+			return errors.Join(err, rollbackErr)
+		}
+		return nil
+	case pgbouncer.UpdateMethodRestart:
+		slog.Info("restarting PgBouncer for configuration change", "cluster_id", action.ClusterID)
+		if err := docker.StopContainer(ctx, update.Actual.ContainerId); err != nil {
+			rollbackErr := pgBouncerDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
+				RelativePath:  spec.Config.RelativePath,
+				ContainerPath: spec.Config.ContainerPath,
+				Content:       update.Actual.Config,
+			})
+			return errors.Join(err, rollbackErr)
+		}
+		return docker.StartContainer(ctx, update.Actual.ContainerId)
+	default:
+		return fmt.Errorf("unknown PgBouncer update method %q", method)
+	}
 }
 
 func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
@@ -221,6 +261,16 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		},
 		UseVolume: true,
 	}, nil
+}
+
+func pgBouncerDesiredCluster(spec any) (*ClusterSpec, bool) {
+	if cluster, ok := spec.(*ClusterSpec); ok {
+		return cluster, true
+	}
+	if update, ok := spec.(*pgBouncerUpdateSpec); ok && update.Desired != nil {
+		return update.Desired, true
+	}
+	return nil, false
 }
 
 func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
@@ -250,7 +300,7 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if spec, ok := action.Spec.(orcadocker.ContainerSpec); ok {
 		return spec, nil
 	}
-	cluster, ok := action.Spec.(*ClusterSpec)
+	cluster, ok := pgBouncerDesiredCluster(action.Spec)
 	if !ok {
 		return orcadocker.ContainerSpec{}, fmt.Errorf("%s action requires ClusterSpec", action.Type)
 	}
