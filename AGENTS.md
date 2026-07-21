@@ -52,7 +52,11 @@ agent/internal/
 ├── docker/       # Docker SDK wrapper, container and volume lifecycle
 ├── reconciler/   # diff(desired, actual) and apply(actions), core correctness logic
 ├── state/        # local desired-state cache, survives disconnects and restarts
-└── tunnel/       # WebSocket client, auth, reconnection, heartbeat
+├── tunnel/       # WebSocket client, auth, reconnection, heartbeat
+├── postgres/     # primary and replica provisioning, streaming replication config
+├── pgbouncer/    # PgBouncer config generation and container lifecycle
+├── pgbackrest/   # pgBackRest config, backup scheduling, PITR
+└── extensions/   # per-cluster extension enable/disable
 ```
 
 Correctness rules for this module:
@@ -60,6 +64,8 @@ Correctness rules for this module:
 - Delete handling is not optional or deferred. Anything present in actual state but absent from desired state must produce a delete action.
 - A full resync, where actual state is empty and desired state has everything, must go through the same diff path as a normal partial diff. Do not special-case it.
 - Apply logic must not stop on the first failed action. Each action's success or failure is reported independently.
+- Replica provisioning must configure real streaming replication against the primary, not just start a second Postgres container. A replica container that isn't actually replicating is a bug, not a partial implementation.
+- PgBouncer, pgBackRest, and extensions each get their own package rather than being special cases inside `reconciler` or `docker`. `reconciler` orchestrates what needs to happen, these packages know how to make it happen for their specific service.
 
 Docker naming conventions:
 - Containers: `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, `orca-<cluster-id>-pgbackrest`.
@@ -74,7 +80,7 @@ server/internal/
 ├── orchestrator/  # desired state diffing and pushing to the correct agent session
 ├── store/         # database layer, built with sqlc
 ├── auth/          # token issuance and validation, JWT
-└── metrics/       # health report ingestion
+└── metrics/       # health report ingestion, Prometheus-compatible exposition, alert rules
 ```
 
 The WebSocket hub must be safe for concurrent access, sessions are added and removed from multiple goroutines. Use a mutex or equivalent, and any change to the hub needs a concurrency test, not just a happy-path test.
@@ -88,6 +94,10 @@ The server uses `sqlc` for all query access to its own Postgres metadata databas
 ### Auth
 
 Email and password with JWTs is the baseline. Do not add OAuth or other providers without an explicit decision to do so, keep the auth surface minimal and correct rather than broad.
+
+### Metrics and alerts
+
+Health reports ingested from agents are exposed in a Prometheus-compatible format so users can scrape their own infrastructure's metrics if they choose to, in addition to what's shown in the canvas. Alert rules are evaluated server side against ingested health data. Do not couple alerting logic to the WebSocket ingestion handler directly, keep ingestion, storage, and rule evaluation as separate concerns so one can be tested without the others.
 
 ## Frontend (`web/`)
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"sort"
 	"strings"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -16,6 +18,7 @@ import (
 	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/stdcopy"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -33,6 +36,20 @@ type sdkClient interface {
 	ImagePull(ctx context.Context, ref string, options imagetypes.PullOptions) (io.ReadCloser, error)
 	VolumeCreate(ctx context.Context, options volumetypes.CreateOptions) (volumetypes.Volume, error)
 	VolumeRemove(ctx context.Context, volumeID string, force bool) error
+}
+
+type execSDKClient interface {
+	ContainerExecCreate(ctx context.Context, container string, options containertypes.ExecOptions) (dockertypes.IDResponse, error)
+	ContainerExecAttach(ctx context.Context, execID string, config containertypes.ExecAttachOptions) (dockertypes.HijackedResponse, error)
+	ContainerExecInspect(ctx context.Context, execID string) (containertypes.ExecInspect, error)
+}
+
+type inspectSDKClient interface {
+	ContainerInspect(ctx context.Context, containerID string) (dockertypes.ContainerJSON, error)
+}
+
+type restartSDKClient interface {
+	ContainerRestart(ctx context.Context, containerID string, options containertypes.StopOptions) error
 }
 
 // Client implements DockerClient using the official Docker SDK for Go.
@@ -143,6 +160,115 @@ func (c *Client) StopContainer(ctx context.Context, containerID string) error {
 	}
 
 	return c.sdk.ContainerStop(ctx, containerID, containertypes.StopOptions{})
+}
+
+// RestartContainer restarts a Docker container by ID or name.
+func (c *Client) RestartContainer(ctx context.Context, containerID string) error {
+	if c.sdk == nil {
+		return errors.New("docker client is nil")
+	}
+	sdk, ok := c.sdk.(restartSDKClient)
+	if !ok {
+		return errors.New("docker client does not support container restart")
+	}
+
+	return sdk.ContainerRestart(ctx, containerID, containertypes.StopOptions{})
+}
+
+// ExecContainer runs a command in a container and returns its standard output.
+func (c *Client) ExecContainer(ctx context.Context, containerID string, command []string) (string, error) {
+	if c.sdk == nil {
+		return "", errors.New("docker client is nil")
+	}
+	if containerID == "" {
+		return "", errors.New("container ID is required")
+	}
+	if len(command) == 0 {
+		return "", errors.New("exec command is required")
+	}
+	sdk, ok := c.sdk.(execSDKClient)
+	if !ok {
+		return "", errors.New("docker client does not support container exec")
+	}
+
+	created, err := sdk.ContainerExecCreate(ctx, containerID, containertypes.ExecOptions{
+		Cmd:          command,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create exec in container %q: %w", containerID, err)
+	}
+	attached, err := sdk.ContainerExecAttach(ctx, created.ID, containertypes.ExecAttachOptions{})
+	if err != nil {
+		return "", fmt.Errorf("attach exec in container %q: %w", containerID, err)
+	}
+	defer attached.Close()
+
+	var stdout, stderr strings.Builder
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
+		return "", fmt.Errorf("read exec output in container %q: %w", containerID, err)
+	}
+	result, err := sdk.ContainerExecInspect(ctx, created.ID)
+	if err != nil {
+		return "", fmt.Errorf("inspect exec in container %q: %w", containerID, err)
+	}
+	if result.ExitCode != 0 {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = strings.TrimSpace(stdout.String())
+		}
+		return "", fmt.Errorf("exec in container %q exited with code %d: %s", containerID, result.ExitCode, message)
+	}
+
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// ContainerNetworkCIDRs returns the subnets attached to a container.
+func (c *Client) ContainerNetworkCIDRs(ctx context.Context, containerID string) ([]string, error) {
+	if c.sdk == nil {
+		return nil, errors.New("docker client is nil")
+	}
+	if containerID == "" {
+		return nil, errors.New("container ID is required")
+	}
+	sdk, ok := c.sdk.(inspectSDKClient)
+	if !ok {
+		return nil, errors.New("docker client does not support container inspect")
+	}
+
+	container, err := sdk.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect container %q: %w", containerID, err)
+	}
+	if container.NetworkSettings == nil {
+		return nil, nil
+	}
+
+	cidrs := make(map[string]struct{}, len(container.NetworkSettings.Networks))
+	for _, endpoint := range container.NetworkSettings.Networks {
+		if endpoint == nil || endpoint.IPAddress == "" || endpoint.IPPrefixLen == 0 {
+			continue
+		}
+		ip := net.ParseIP(endpoint.IPAddress)
+		if ip == nil {
+			continue
+		}
+		bits := 128
+		if ip.To4() != nil {
+			ip = ip.To4()
+			bits = 32
+		}
+		network := &net.IPNet{IP: ip.Mask(net.CIDRMask(endpoint.IPPrefixLen, bits)), Mask: net.CIDRMask(endpoint.IPPrefixLen, bits)}
+		cidrs[network.String()] = struct{}{}
+	}
+
+	result := make([]string, 0, len(cidrs))
+	for cidr := range cidrs {
+		result = append(result, cidr)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 // RemoveContainer removes a Docker container by ID.
