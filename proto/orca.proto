@@ -30,6 +30,7 @@ message ClusterSpec {
   optional PgBouncerSpec pg_bouncer = 5;
   repeated DatabaseSpec databases = 6;
   optional PgBackRestSpec pg_back_rest = 7;
+  repeated string enabled_extensions = 8;
 }
 
 // ReplicaSpec describes a desired Postgres replica.

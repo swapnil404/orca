@@ -2,10 +2,12 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/extensions"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 	"github.com/swapnil404/orca/agent/internal/state"
 	"github.com/swapnil404/orca/pkg/types"
@@ -13,8 +15,16 @@ import (
 
 // Pass contains the action outcomes and observed state from one reconciliation pass.
 type Pass struct {
-	Results []ApplyResult
-	Report  *types.AgentReportMessage
+	Results          []ApplyResult
+	ExtensionResults []ExtensionPassResult
+	Report           *types.AgentReportMessage
+}
+
+// ExtensionPassResult reports extension reconciliation for one cluster.
+type ExtensionPassResult struct {
+	ClusterID string
+	Results   []extensions.Result
+	Err       error
 }
 
 // Runner serializes reconciliation through the shared desired-state cache.
@@ -22,6 +32,7 @@ type Runner struct {
 	cache          state.StateCache
 	docker         orcadocker.DockerClient
 	healthDatabase postgres.HealthDockerClient
+	extensions     extensions.ContainerExecutor
 	mu             sync.Mutex
 	observers      []DesiredStateObserver
 }
@@ -34,7 +45,11 @@ type DesiredStateObserver interface {
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
 func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers ...DesiredStateObserver) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
-	return &Runner{cache: cache, docker: docker, healthDatabase: healthDatabase, observers: observers}
+	extensionExecutor, _ := docker.(extensions.ContainerExecutor)
+	return &Runner{
+		cache: cache, docker: docker, healthDatabase: healthDatabase,
+		extensions: extensionExecutor, observers: observers,
+	}
 }
 
 // Reconcile saves a complete desired state and reconciles Docker against the cached copy.
@@ -84,8 +99,39 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired DesiredState) (Pa
 		return Pass{}, err
 	}
 	actual := ActualStateFromContainers(containers)
+	extensionResults := r.reconcileExtensions(ctx, desired, actual)
 	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, &actual)
-	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
+	return Pass{Results: results, ExtensionResults: extensionResults, Report: reportFor(desired, actual)}, nil
+}
+
+func (r *Runner) reconcileExtensions(ctx context.Context, desired DesiredState, actual ActualState) []ExtensionPassResult {
+	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
+	for _, cluster := range actual.Clusters {
+		actualByID[cluster.Id] = cluster
+	}
+
+	results := make([]ExtensionPassResult, 0, len(desired.Clusters))
+	for _, cluster := range desired.Clusters {
+		if cluster == nil {
+			continue
+		}
+		observed := actualByID[cluster.Id]
+		if observed == nil || observed.ContainerId == "" || observed.Status != "running" {
+			continue
+		}
+		if r.extensions == nil {
+			if len(cluster.EnabledExtensions) > 0 {
+				results = append(results, ExtensionPassResult{
+					ClusterID: cluster.Id,
+					Err:       fmt.Errorf("docker client does not support extension reconciliation"),
+				})
+			}
+			continue
+		}
+		actionResults, err := extensions.Reconcile(ctx, r.extensions, observed.ContainerId, cluster.EnabledExtensions)
+		results = append(results, ExtensionPassResult{ClusterID: cluster.Id, Results: actionResults, Err: err})
+	}
+	return results
 }
 
 func (r *Runner) notifyObservers(desired *DesiredState) {
