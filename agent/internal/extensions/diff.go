@@ -31,17 +31,20 @@ type Action struct {
 	Method    UpdateMethod
 }
 
-type definition struct {
-	SQLName         string
-	RequiresRestart bool
+var sqlNames = map[string]string{
+	"pgvector":    "vector",
+	"powa":        "powa",
+	"timescaledb": "timescaledb",
+	"pg_partman":  "pg_partman",
+	"postgis":     "postgis",
 }
 
-var definitions = map[string]definition{
-	"pgvector":    {SQLName: "vector", RequiresRestart: false},
-	"powa":        {SQLName: "powa", RequiresRestart: true},
-	"timescaledb": {SQLName: "timescaledb", RequiresRestart: true},
-	"pg_partman":  {SQLName: "pg_partman", RequiresRestart: false},
-	"postgis":     {SQLName: "postgis", RequiresRestart: false},
+var restartRequiredExtensions = map[string]bool{
+	"pgvector":    false,
+	"powa":        true,
+	"timescaledb": true,
+	"pg_partman":  false,
+	"postgis":     false,
 }
 
 // Diff returns the operations needed to make actual match desired.
@@ -82,7 +85,7 @@ func newAction(actionType ActionType, extension string) Action {
 // ClassifyUpdate determines whether an extension change can be hot-applied or
 // requires a PostgreSQL restart.
 func ClassifyUpdate(extension string) UpdateMethod {
-	if definitions[extension].RequiresRestart {
+	if restartRequiredExtensions[extension] {
 		return UpdateMethodRestart
 	}
 	return UpdateMethodHotApply
@@ -91,7 +94,7 @@ func ClassifyUpdate(extension string) UpdateMethod {
 func extensionSet(extensions []string) (map[string]struct{}, error) {
 	set := make(map[string]struct{}, len(extensions))
 	for _, extension := range extensions {
-		if _, supported := definitions[extension]; !supported {
+		if _, supported := sqlNames[extension]; !supported {
 			return nil, fmt.Errorf("unsupported extension %q", extension)
 		}
 		set[extension] = struct{}{}

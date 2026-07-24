@@ -58,6 +58,10 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 		errorsByAction[action] = executeAction(ctx, executor, containerID, action)
 	}
 
+	if len(restartActions) == 0 {
+		return resultsFor(actions, errorsByAction), nil
+	}
+
 	preservePreloads := make([]string, 0)
 	for _, action := range restartActions {
 		if action.Type != ActionDrop {
@@ -70,26 +74,25 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 	}
 
 	batchErr := applyPreloadAndRestart(ctx, executor, containerID, desired, preservePreloads)
-	if len(restartActions) > 0 {
-		for _, action := range restartActions {
-			if batchErr != nil {
-				errorsByAction[action] = errors.Join(errorsByAction[action], batchErr)
-				continue
-			}
-			if action.Type == ActionCreate {
-				errorsByAction[action] = executeAction(ctx, executor, containerID, action)
-			}
+	for _, action := range restartActions {
+		if batchErr != nil {
+			errorsByAction[action] = errors.Join(errorsByAction[action], batchErr)
+			continue
+		}
+		if action.Type == ActionCreate {
+			errorsByAction[action] = executeAction(ctx, executor, containerID, action)
 		}
 	}
 
+	return resultsFor(actions, errorsByAction), nil
+}
+
+func resultsFor(actions []Action, errorsByAction map[Action]error) []Result {
 	results := make([]Result, 0, len(actions))
 	for _, action := range actions {
 		results = append(results, Result{Action: action, Err: errorsByAction[action]})
 	}
-	if len(restartActions) == 0 && batchErr != nil {
-		return results, batchErr
-	}
-	return results, nil
+	return results
 }
 
 func applyPreloadAndRestart(ctx context.Context, executor PrimaryExecutor, containerID string, desired, preserve []string) error {
@@ -102,19 +105,15 @@ func applyPreloadAndRestart(ctx context.Context, executor PrimaryExecutor, conta
 	for library := range current {
 		target[library] = struct{}{}
 	}
-	delete(target, definitions["powa"].SQLName)
-	delete(target, definitions["timescaledb"].SQLName)
+	delete(target, sqlNames["powa"])
+	delete(target, sqlNames["timescaledb"])
 	for _, extension := range desired {
-		definition, supported := definitions[extension]
-		if supported && definition.RequiresRestart {
-			target[definition.SQLName] = struct{}{}
+		if restartRequiredExtensions[extension] {
+			target[sqlNames[extension]] = struct{}{}
 		}
 	}
 	for _, extension := range preserve {
-		target[definitions[extension].SQLName] = struct{}{}
-	}
-	if equalSets(current, target) {
-		return nil
+		target[sqlNames[extension]] = struct{}{}
 	}
 
 	libraries := make([]string, 0, len(target))
@@ -133,18 +132,6 @@ func applyPreloadAndRestart(ctx context.Context, executor PrimaryExecutor, conta
 		return fmt.Errorf("wait for primary after extension restart: %w", err)
 	}
 	return nil
-}
-
-func equalSets(left, right map[string]struct{}) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for value := range left {
-		if _, exists := right[value]; !exists {
-			return false
-		}
-	}
-	return true
 }
 
 func executeAction(ctx context.Context, executor PrimaryExecutor, containerID string, action Action) error {
@@ -193,9 +180,9 @@ func parseInstalled(output string) ([]string, error) {
 		return nil, nil
 	}
 
-	reverseNames := make(map[string]string, len(definitions))
-	for extension, definition := range definitions {
-		reverseNames[definition.SQLName] = extension
+	reverseNames := make(map[string]string, len(sqlNames))
+	for extension, sqlName := range sqlNames {
+		reverseNames[sqlName] = extension
 	}
 	lines := strings.Split(output, "\n")
 	installed := make([]string, 0, len(lines))
@@ -212,7 +199,7 @@ func parseInstalled(output string) ([]string, error) {
 }
 
 func statement(action Action) string {
-	sqlName := definitions[action.Extension].SQLName
+	sqlName := sqlNames[action.Extension]
 	if action.Type == ActionCreate {
 		return "CREATE EXTENSION IF NOT EXISTS " + sqlName + ";"
 	}
