@@ -130,7 +130,9 @@ func recoveryContainerSpec(desired *ClusterDesiredState, config string) orcadock
 
 func restoreCommand(clusterID string, target time.Time) []string {
 	return []string{
-		"gosu", postgresUser, "pgbackrest",
+		"sh", "-c",
+		`install -d -m 0700 -o postgres -g postgres "$1" && shift && exec gosu postgres pgbackrest "$@"`,
+		"sh", orcadocker.VolumeMountPath(clusterID) + "/primary",
 		"--stanza=" + clusterID,
 		"--delta",
 		"--type=time",
