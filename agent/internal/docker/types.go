@@ -23,6 +23,8 @@ const (
 	ContainerKindReplica ContainerKind = "replica"
 	// ContainerKindPgBouncer is a PgBouncer container.
 	ContainerKindPgBouncer ContainerKind = "pgbouncer"
+	// ContainerKindPgBackRest is a temporary pgBackRest restore container.
+	ContainerKindPgBackRest ContainerKind = "pgbackrest"
 )
 
 // ContainerSpec describes the container the Docker wrapper should create.

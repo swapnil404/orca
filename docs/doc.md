@@ -91,7 +91,23 @@ The reconciler's diff and apply logic, and the tunnel and reconnection behavior 
 
 **PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, connection limits, and reserve pool settings) and manages the PgBouncer container's lifecycle alongside the primary and its replicas. Each desired database gets an alias targeting the primary. When replicas exist, it also gets a `<database>_read` alias whose deterministic host mesh targets all replica containers with round-robin selection.
 
-**pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration, enables WAL archiving on the primary, initializes the stanza, and schedules full, differential, and incremental backups from desired intervals. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, so its in-process ticker workers run alongside the diff/apply cycle and continue using cached desired state while offline. The v1 scheduler does not persist last-run timestamps; restarting the agent resets each interval and can delay the next backup by up to one configured interval, as recorded in `ARCHITECTURE.md`.
+**pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration, enables WAL archiving on the primary, initializes the stanza, and schedules full, differential, and incremental backups from desired intervals. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, so its in-process ticker workers run alongside the diff/apply cycle and continue using cached desired state while offline. The v1 scheduler does not persist last-run timestamps; restarting the agent resets each interval and can delay the next backup by up to one configured interval.
+
+### Point-in-time recovery
+
+Point-in-time recovery is an agent package operation with no REST or UI entry point. A caller invokes `pgbackrest.RestoreToTime(ctx, dockerClient, clusterSpec, target)` with a non-zero `time.Time`. The cluster must have valid pgBackRest settings, and its local `repo1-path` must be inside `/var/orca/data/<cluster-id>/`. This is required because both the primary and the temporary restore container mount the same explicit `orca-<cluster-id>-data` volume at that path. Recovery validates this before stopping PostgreSQL; repositories outside the shared volume are rejected rather than beginning downtime with an inaccessible backup.
+
+The as-built recovery sequence is:
+
+1. Generate and validate the current stanza configuration and recovery repository path.
+2. Stop `orca-<cluster-id>-primary` through the Docker SDK.
+3. Create and start `orca-<cluster-id>-pgbackrest` from the cluster's configured `postgres:<version>` image. It runs `sleep infinity`, mounts the cluster data volume, sets `PGDATA` to `/var/orca/data/<cluster-id>/primary`, and bind-mounts the generated pgBackRest configuration at `/etc/pgbackrest/pgbackrest.conf`.
+4. In that restore container, run `gosu postgres pgbackrest --stanza=<cluster-id> --delta --type=time --target=<timestamp-with-offset> --target-action=pause restore`. `--delta` restores over the existing primary data directory. `pause` deliberately prevents automatic promotion at the target.
+5. Stop and remove the temporary pgBackRest container, then start the normal primary container. PostgreSQL starts with the recovery files written by pgBackRest and replays archived WAL.
+6. Poll PostgreSQL for `pg_is_in_recovery()` and `pg_is_wal_replay_paused()`. A successful SQL connection proves the restored database has reached consistency; recovery only advances after both values are true, proving that replay reached and paused at the requested target.
+7. Execute `pg_wal_replay_resume()`, then poll until `pg_is_in_recovery()` is false and `transaction_read_only` is `off`. Only then does `RestoreToTime` return success. Both polling phases have a two-minute timeout and honor caller cancellation.
+
+If setup fails before `pgbackrest restore` starts, the temporary container is removed and the untouched primary is restarted. Once restore has started, failures remove the temporary container but deliberately leave the primary stopped because `--delta` may have partially rewritten `PGDATA`; automatically starting that directory could expose an incomplete restore. Failures after the restored primary starts are returned with the primary's current state left available for diagnosis.
 
 **Extensions** (`agent/internal/extensions`): enables or disables extensions per cluster by reconciling against the cluster's desired extension list, applied against the running primary rather than through a separate container.
 
