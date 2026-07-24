@@ -23,12 +23,18 @@ type Runner struct {
 	docker         orcadocker.DockerClient
 	healthDatabase postgres.HealthDockerClient
 	mu             sync.Mutex
+	observers      []DesiredStateObserver
+}
+
+// DesiredStateObserver receives complete desired-state snapshots after they are cached.
+type DesiredStateObserver interface {
+	Update(*DesiredState)
 }
 
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
-func NewRunner(cache state.StateCache, docker orcadocker.DockerClient) *Runner {
+func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers ...DesiredStateObserver) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
-	return &Runner{cache: cache, docker: docker, healthDatabase: healthDatabase}
+	return &Runner{cache: cache, docker: docker, healthDatabase: healthDatabase, observers: observers}
 }
 
 // Reconcile saves a complete desired state and reconciles Docker against the cached copy.
@@ -39,21 +45,33 @@ func (r *Runner) Reconcile(ctx context.Context, desired DesiredState) (Pass, err
 	if err := r.cache.Save(ctx, desired); err != nil {
 		return Pass{}, err
 	}
-	return r.reconcileCached(ctx)
+	// Scheduling changes, especially removals, take effect once the snapshot is
+	// durable even if Docker observation fails. A successful pass notifies again
+	// so idempotent setup is retried after newly desired primaries are created.
+	r.notifyObservers(&desired)
+	pass, err := r.reconcileDesired(ctx, desired)
+	if err == nil {
+		r.notifyObservers(&desired)
+	}
+	return pass, err
 }
 
 // ReconcileCached reconciles Docker against the last desired state received from the server.
 func (r *Runner) ReconcileCached(ctx context.Context) (Pass, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.reconcileCached(ctx)
-}
-
-func (r *Runner) reconcileCached(ctx context.Context) (Pass, error) {
 	desired, err := r.cache.Load(ctx)
 	if err != nil {
 		return Pass{}, err
 	}
+	pass, err := r.reconcileDesired(ctx, desired)
+	if err == nil {
+		r.notifyObservers(&desired)
+	}
+	return pass, err
+}
+
+func (r *Runner) reconcileDesired(ctx context.Context, desired DesiredState) (Pass, error) {
 	containers, err := r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
@@ -68,6 +86,14 @@ func (r *Runner) reconcileCached(ctx context.Context) (Pass, error) {
 	actual := ActualStateFromContainers(containers)
 	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, &actual)
 	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
+}
+
+func (r *Runner) notifyObservers(desired *DesiredState) {
+	for _, observer := range r.observers {
+		if observer != nil {
+			observer.Update(desired)
+		}
+	}
 }
 
 // ActualStateFromContainers converts Docker observations into the reconciler's actual state.

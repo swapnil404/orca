@@ -13,6 +13,8 @@ import (
 	"github.com/swapnil404/orca/server/internal/store"
 )
 
+const maxBackupIntervalSeconds = int64((1<<63 - 1) / 1_000_000_000)
+
 const maxRequestBodyBytes = 1 << 20
 
 type userIDContextKey struct{}
@@ -171,12 +173,13 @@ func (h *ResourceHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 }
 
 type clusterRequest struct {
-	HostID           string            `json:"host_id"`
-	Name             string            `json:"name"`
-	PostgresVersion  string            `json:"postgres_version"`
-	Parameters       map[string]string `json:"parameters"`
-	ReplicaCount     int32             `json:"replica_count"`
-	PgBouncerEnabled bool              `json:"pgbouncer_enabled"`
+	HostID           string                  `json:"host_id"`
+	Name             string                  `json:"name"`
+	PostgresVersion  string                  `json:"postgres_version"`
+	Parameters       map[string]string       `json:"parameters"`
+	ReplicaCount     int32                   `json:"replica_count"`
+	PgBouncerEnabled bool                    `json:"pgbouncer_enabled"`
+	PgBackRest       *store.PgBackRestConfig `json:"pg_back_rest"`
 }
 
 func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) {
@@ -198,6 +201,7 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		Name: strings.TrimSpace(request.Name), PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters: normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
 		PgBouncerEnabled: request.PgBouncerEnabled,
+		PgBackRest:       request.PgBackRest,
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -251,6 +255,7 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters:      normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
 		PgBouncerEnabled: request.PgBouncerEnabled,
+		PgBackRest:       request.PgBackRest,
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -327,6 +332,24 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 	if request.ReplicaCount < 0 {
 		writeError(w, http.StatusBadRequest, "replica_count cannot be negative")
 		return false
+	}
+	if request.PgBackRest != nil {
+		if strings.TrimSpace(request.PgBackRest.RepoPath) == "" || strings.ContainsAny(request.PgBackRest.RepoPath, "\r\n") {
+			writeError(w, http.StatusBadRequest, "pg_back_rest.repo_path must be nonempty and single-line")
+			return false
+		}
+		if request.PgBackRest.RetentionFull <= 0 || request.PgBackRest.RetentionDiff <= 0 {
+			writeError(w, http.StatusBadRequest, "pgBackRest retention counts must be greater than zero")
+			return false
+		}
+		if request.PgBackRest.FullIntervalSeconds < 0 || request.PgBackRest.DiffIntervalSeconds < 0 || request.PgBackRest.IncrIntervalSeconds < 0 {
+			writeError(w, http.StatusBadRequest, "pgBackRest backup intervals cannot be negative")
+			return false
+		}
+		if request.PgBackRest.FullIntervalSeconds > maxBackupIntervalSeconds || request.PgBackRest.DiffIntervalSeconds > maxBackupIntervalSeconds || request.PgBackRest.IncrIntervalSeconds > maxBackupIntervalSeconds {
+			writeError(w, http.StatusBadRequest, "pgBackRest backup interval is too large")
+			return false
+		}
 	}
 	return true
 }

@@ -13,28 +13,46 @@ import (
 const createCluster = `-- name: CreateCluster :one
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
-    replica_count, pgbouncer_enabled
+    replica_count, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
+    pgbackrest_retention_full, pgbackrest_retention_diff,
+    pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
+    pgbackrest_incr_interval_seconds
 )
 SELECT $1::text, p.id, h.id, $2::text,
        $3::text, $4::jsonb,
-       $5::integer, $6::boolean
+       $5::integer, $6::boolean,
+       $7::boolean, $8::text,
+       $9::integer, $10::integer,
+       $11::bigint, $12::bigint,
+       $13::bigint
 FROM projects p
-JOIN hosts h ON h.id = $7 AND h.user_id = $8
-WHERE p.id = $9 AND p.user_id = $8 AND p.deleted_at IS NULL
+JOIN hosts h ON h.id = $14 AND h.user_id = $15
+WHERE p.id = $16 AND p.user_id = $15 AND p.deleted_at IS NULL
 RETURNING id, project_id, host_id, name, postgres_version, parameters,
-          replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at
+          replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at,
+          pgbackrest_enabled, pgbackrest_repo_path,
+          pgbackrest_retention_full, pgbackrest_retention_diff,
+          pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
+          pgbackrest_incr_interval_seconds
 `
 
 type CreateClusterParams struct {
-	ClusterID        string          `json:"cluster_id"`
-	Name             string          `json:"name"`
-	PostgresVersion  string          `json:"postgres_version"`
-	Parameters       json.RawMessage `json:"parameters"`
-	ReplicaCount     int32           `json:"replica_count"`
-	PgbouncerEnabled bool            `json:"pgbouncer_enabled"`
-	HostID           string          `json:"host_id"`
-	UserID           string          `json:"user_id"`
-	ProjectID        string          `json:"project_id"`
+	ClusterID                     string          `json:"cluster_id"`
+	Name                          string          `json:"name"`
+	PostgresVersion               string          `json:"postgres_version"`
+	Parameters                    json.RawMessage `json:"parameters"`
+	ReplicaCount                  int32           `json:"replica_count"`
+	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
+	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
+	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
+	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
+	PgbackrestRetentionDiff       int32           `json:"pgbackrest_retention_diff"`
+	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
+	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
+	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
+	HostID                        string          `json:"host_id"`
+	UserID                        string          `json:"user_id"`
+	ProjectID                     string          `json:"project_id"`
 }
 
 func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (Cluster, error) {
@@ -45,6 +63,13 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		arg.Parameters,
 		arg.ReplicaCount,
 		arg.PgbouncerEnabled,
+		arg.PgbackrestEnabled,
+		arg.PgbackrestRepoPath,
+		arg.PgbackrestRetentionFull,
+		arg.PgbackrestRetentionDiff,
+		arg.PgbackrestFullIntervalSeconds,
+		arg.PgbackrestDiffIntervalSeconds,
+		arg.PgbackrestIncrIntervalSeconds,
 		arg.HostID,
 		arg.UserID,
 		arg.ProjectID,
@@ -62,13 +87,24 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
 	)
 	return i, err
 }
 
 const getCluster = `-- name: GetCluster :one
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
-       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at
+       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+       c.pgbackrest_enabled, c.pgbackrest_repo_path,
+       c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+       c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+       c.pgbackrest_incr_interval_seconds
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.id = $1 AND p.user_id = $2
@@ -95,13 +131,24 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
 	)
 	return i, err
 }
 
 const listActiveClustersForProject = `-- name: ListActiveClustersForProject :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
-       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at
+       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+       c.pgbackrest_enabled, c.pgbackrest_repo_path,
+       c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+       c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+       c.pgbackrest_incr_interval_seconds
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
@@ -135,6 +182,13 @@ func (q *Queries) ListActiveClustersForProject(ctx context.Context, arg ListActi
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.PgbackrestEnabled,
+			&i.PgbackrestRepoPath,
+			&i.PgbackrestRetentionFull,
+			&i.PgbackrestRetentionDiff,
+			&i.PgbackrestFullIntervalSeconds,
+			&i.PgbackrestDiffIntervalSeconds,
+			&i.PgbackrestIncrIntervalSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -151,7 +205,11 @@ func (q *Queries) ListActiveClustersForProject(ctx context.Context, arg ListActi
 
 const listClusters = `-- name: ListClusters :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
-       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at
+       c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+       c.pgbackrest_enabled, c.pgbackrest_repo_path,
+       c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+       c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+       c.pgbackrest_incr_interval_seconds
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
@@ -185,6 +243,13 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.PgbackrestEnabled,
+			&i.PgbackrestRepoPath,
+			&i.PgbackrestRetentionFull,
+			&i.PgbackrestRetentionDiff,
+			&i.PgbackrestFullIntervalSeconds,
+			&i.PgbackrestDiffIntervalSeconds,
+			&i.PgbackrestIncrIntervalSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -251,22 +316,40 @@ SET name = $3,
     parameters = $5,
     replica_count = $6,
     pgbouncer_enabled = $7,
+    pgbackrest_enabled = $8,
+    pgbackrest_repo_path = $9,
+    pgbackrest_retention_full = $10,
+    pgbackrest_retention_diff = $11,
+    pgbackrest_full_interval_seconds = $12,
+    pgbackrest_diff_interval_seconds = $13,
+    pgbackrest_incr_interval_seconds = $14,
     updated_at = NOW()
 FROM projects p
 WHERE c.id = $1 AND c.project_id = p.id AND p.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
-          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds
 `
 
 type UpdateClusterParams struct {
-	ID               string          `json:"id"`
-	UserID           string          `json:"user_id"`
-	Name             string          `json:"name"`
-	PostgresVersion  string          `json:"postgres_version"`
-	Parameters       json.RawMessage `json:"parameters"`
-	ReplicaCount     int32           `json:"replica_count"`
-	PgbouncerEnabled bool            `json:"pgbouncer_enabled"`
+	ID                            string          `json:"id"`
+	UserID                        string          `json:"user_id"`
+	Name                          string          `json:"name"`
+	PostgresVersion               string          `json:"postgres_version"`
+	Parameters                    json.RawMessage `json:"parameters"`
+	ReplicaCount                  int32           `json:"replica_count"`
+	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
+	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
+	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
+	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
+	PgbackrestRetentionDiff       int32           `json:"pgbackrest_retention_diff"`
+	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
+	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
+	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
 }
 
 func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error) {
@@ -278,6 +361,13 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		arg.Parameters,
 		arg.ReplicaCount,
 		arg.PgbouncerEnabled,
+		arg.PgbackrestEnabled,
+		arg.PgbackrestRepoPath,
+		arg.PgbackrestRetentionFull,
+		arg.PgbackrestRetentionDiff,
+		arg.PgbackrestFullIntervalSeconds,
+		arg.PgbackrestDiffIntervalSeconds,
+		arg.PgbackrestIncrIntervalSeconds,
 	)
 	var i Cluster
 	err := row.Scan(
@@ -292,6 +382,13 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
 	)
 	return i, err
 }

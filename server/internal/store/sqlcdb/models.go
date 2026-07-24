@@ -18,17 +18,24 @@ type AgentReport struct {
 }
 
 type Cluster struct {
-	ID               string          `json:"id"`
-	ProjectID        string          `json:"project_id"`
-	HostID           string          `json:"host_id"`
-	Name             string          `json:"name"`
-	PostgresVersion  string          `json:"postgres_version"`
-	Parameters       json.RawMessage `json:"parameters"`
-	ReplicaCount     int32           `json:"replica_count"`
-	PgbouncerEnabled bool            `json:"pgbouncer_enabled"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	DeletedAt        sql.NullTime    `json:"deleted_at"`
+	ID                            string          `json:"id"`
+	ProjectID                     string          `json:"project_id"`
+	HostID                        string          `json:"host_id"`
+	Name                          string          `json:"name"`
+	PostgresVersion               string          `json:"postgres_version"`
+	Parameters                    json.RawMessage `json:"parameters"`
+	ReplicaCount                  int32           `json:"replica_count"`
+	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
+	CreatedAt                     time.Time       `json:"created_at"`
+	UpdatedAt                     time.Time       `json:"updated_at"`
+	DeletedAt                     sql.NullTime    `json:"deleted_at"`
+	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
+	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
+	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
+	PgbackrestRetentionDiff       int32           `json:"pgbackrest_retention_diff"`
+	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
+	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
+	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
 }
 
 type ClusterReport struct {
