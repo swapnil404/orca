@@ -32,7 +32,7 @@ type Runner struct {
 	cache          state.StateCache
 	docker         orcadocker.DockerClient
 	healthDatabase postgres.HealthDockerClient
-	extensions     extensions.ContainerExecutor
+	extensions     extensions.PrimaryExecutor
 	mu             sync.Mutex
 	observers      []DesiredStateObserver
 }
@@ -45,7 +45,7 @@ type DesiredStateObserver interface {
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
 func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers ...DesiredStateObserver) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
-	extensionExecutor, _ := docker.(extensions.ContainerExecutor)
+	extensionExecutor, _ := docker.(extensions.PrimaryExecutor)
 	return &Runner{
 		cache: cache, docker: docker, healthDatabase: healthDatabase,
 		extensions: extensionExecutor, observers: observers,
