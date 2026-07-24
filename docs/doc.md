@@ -54,7 +54,7 @@ This runs on a timer and also triggers immediately whenever a new desired state 
 
 `agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
 
-The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest and extension provisioning remain designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
+The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest configures WAL archiving and runs desired interval-based backup schedules in the agent process. Extension provisioning remains designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
 
 ## The reconnection rule and split-brain avoidance
 
@@ -91,7 +91,7 @@ The reconciler's diff and apply logic, and the tunnel and reconnection behavior 
 
 **PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, connection limits, and reserve pool settings) and manages the PgBouncer container's lifecycle alongside the primary and its replicas. Each desired database gets an alias targeting the primary. When replicas exist, it also gets a `<database>_read` alias whose deterministic host mesh targets all replica containers with round-robin selection.
 
-**pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration and manages scheduled full, differential, and WAL backups, with support for point-in-time recovery. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, backup scheduling runs independently of the diff/apply cycle even though its container lifecycle is managed the same way as other services.
+**pgBackRest** (`agent/internal/pgbackrest`): generates backup configuration, enables WAL archiving on the primary, initializes the stanza, and schedules full, differential, and incremental backups from desired intervals. This is the one piece of provisioning that has an ongoing responsibility beyond reconciling to a snapshot, so its in-process ticker workers run alongside the diff/apply cycle and continue using cached desired state while offline. The v1 scheduler does not persist last-run timestamps; restarting the agent resets each interval and can delay the next backup by up to one configured interval, as recorded in `ARCHITECTURE.md`.
 
 **Extensions** (`agent/internal/extensions`): enables or disables extensions per cluster by reconciling against the cluster's desired extension list, applied against the running primary rather than through a separate container.
 

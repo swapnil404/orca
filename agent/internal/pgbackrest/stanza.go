@@ -26,12 +26,9 @@ func InitializeStanza(ctx context.Context, executor Executor, desired *ClusterDe
 		return err
 	}
 
-	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
-		ClusterID: desired.Id,
-		Kind:      orcadocker.ContainerKindPrimary,
-	})
+	primary, err := primaryContainerName(desired.Id)
 	if err != nil {
-		return fmt.Errorf("resolve primary: %w", err)
+		return err
 	}
 
 	if _, err := executor.ExecContainer(ctx, primary, pgBackRestCommand(desired.Id, "info")); err == nil {
@@ -46,6 +43,17 @@ func InitializeStanza(ctx context.Context, executor Executor, desired *ClusterDe
 	return nil
 }
 
+func primaryContainerName(clusterID string) (string, error) {
+	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: clusterID,
+		Kind:      orcadocker.ContainerKindPrimary,
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve primary: %w", err)
+	}
+	return primary, nil
+}
+
 func pgBackRestCommand(stanza, operation string) []string {
-	return []string{"pgbackrest", "--stanza=" + stanza, operation}
+	return []string{"gosu", postgresUser, "pgbackrest", "--stanza=" + stanza, operation}
 }

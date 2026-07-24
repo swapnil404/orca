@@ -55,6 +55,14 @@ message PgBackRestSpec {
   string repo_path = 1;
   uint32 retention_full = 2;
   uint32 retention_diff = 3;
+  BackupSchedule schedule = 4;
+}
+
+// BackupSchedule describes interval-based backup scheduling.
+message BackupSchedule {
+  uint64 full_interval_seconds = 1;
+  uint64 diff_interval_seconds = 2;
+  uint64 incr_interval_seconds = 3;
 }
 
 // ActualState is the set of clusters currently observed by the agent.

@@ -48,6 +48,18 @@ func validateSpec(spec *orcatypes.PgBackRestSpec) error {
 	if spec.RetentionDiff == 0 {
 		return errors.New("differential retention must be greater than zero")
 	}
+	if schedule := spec.Schedule; schedule != nil {
+		intervals := map[string]uint64{
+			"full":         schedule.FullIntervalSeconds,
+			"differential": schedule.DiffIntervalSeconds,
+			"incremental":  schedule.IncrIntervalSeconds,
+		}
+		for backupType, interval := range intervals {
+			if interval > maxScheduleIntervalSeconds {
+				return fmt.Errorf("%s backup interval is too large", backupType)
+			}
+		}
+	}
 	return nil
 }
 
