@@ -230,16 +230,17 @@ func (x *DesiredState) GetClusters() []*ClusterSpec {
 
 // ClusterSpec describes a desired Postgres cluster.
 type ClusterSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	Params        map[string]string      `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Replicas      []*ReplicaSpec         `protobuf:"bytes,4,rep,name=replicas,proto3" json:"replicas,omitempty"`
-	PgBouncer     *PgBouncerSpec         `protobuf:"bytes,5,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
-	Databases     []*DatabaseSpec        `protobuf:"bytes,6,rep,name=databases,proto3" json:"databases,omitempty"`
-	PgBackRest    *PgBackRestSpec        `protobuf:"bytes,7,opt,name=pg_back_rest,json=pgBackRest,proto3,oneof" json:"pg_back_rest,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Version           string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Params            map[string]string      `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Replicas          []*ReplicaSpec         `protobuf:"bytes,4,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PgBouncer         *PgBouncerSpec         `protobuf:"bytes,5,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
+	Databases         []*DatabaseSpec        `protobuf:"bytes,6,rep,name=databases,proto3" json:"databases,omitempty"`
+	PgBackRest        *PgBackRestSpec        `protobuf:"bytes,7,opt,name=pg_back_rest,json=pgBackRest,proto3,oneof" json:"pg_back_rest,omitempty"`
+	EnabledExtensions []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ClusterSpec) Reset() {
@@ -317,6 +318,13 @@ func (x *ClusterSpec) GetDatabases() []*DatabaseSpec {
 func (x *ClusterSpec) GetPgBackRest() *PgBackRestSpec {
 	if x != nil {
 		return x.PgBackRest
+	}
+	return nil
+}
+
+func (x *ClusterSpec) GetEnabledExtensions() []string {
+	if x != nil {
+		return x.EnabledExtensions
 	}
 	return nil
 }
@@ -1107,7 +1115,7 @@ const file_orca_proto_rawDesc = "" +
 	"\fDesiredState\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x120\n" +
-	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\"\xaf\x03\n" +
+	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\"\xde\x03\n" +
 	"\vClusterSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x128\n" +
@@ -1117,7 +1125,8 @@ const file_orca_proto_rawDesc = "" +
 	"pg_bouncer\x18\x05 \x01(\v2\x16.orca.v1.PgBouncerSpecH\x00R\tpgBouncer\x88\x01\x01\x123\n" +
 	"\tdatabases\x18\x06 \x03(\v2\x15.orca.v1.DatabaseSpecR\tdatabases\x12>\n" +
 	"\fpg_back_rest\x18\a \x01(\v2\x17.orca.v1.PgBackRestSpecH\x01R\n" +
-	"pgBackRest\x88\x01\x01\x1a9\n" +
+	"pgBackRest\x88\x01\x01\x12-\n" +
+	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensions\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +

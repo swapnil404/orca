@@ -54,7 +54,7 @@ This runs on a timer and also triggers immediately whenever a new desired state 
 
 `agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
 
-The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest configures WAL archiving and runs desired interval-based backup schedules in the agent process. Extension provisioning remains designed but not yet implemented, see "Provisioning scope" below for the target shape of that work.
+The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest configures WAL archiving and runs desired interval-based backup schedules in the agent process. Extension provisioning reconciles the supported per-cluster extension list against each running primary.
 
 ## The reconnection rule and split-brain avoidance
 
@@ -109,7 +109,7 @@ The as-built recovery sequence is:
 
 If setup fails before `pgbackrest restore` starts, the temporary container is removed and the untouched primary is restarted. Once restore has started, failures remove the temporary container but deliberately leave the primary stopped because `--delta` may have partially rewritten `PGDATA`; automatically starting that directory could expose an incomplete restore. Failures after the restored primary starts are returned with the primary's current state left available for diagnosis.
 
-**Extensions** (`agent/internal/extensions`): enables or disables extensions per cluster by reconciling against the cluster's desired extension list, applied against the running primary rather than through a separate container.
+**Extensions** (`agent/internal/extensions`): enables or disables `pgvector`, `powa`, `timescaledb`, `pg_partman`, and `postgis` per cluster by querying `pg_extension` in the running primary's `postgres` database. Extensions present in `ClusterSpec.enabled_extensions` but absent from the query result are enabled with `CREATE EXTENSION IF NOT EXISTS`; managed extensions absent from desired state are disabled with `DROP EXTENSION IF EXISTS`. The pure extension-list diff is separate from SQL execution, and unmanaged extensions are never considered for removal. The primary image must provide the selected extensions' control files and libraries.
 
 Each of these follows the same naming and volume conventions already established for the primary. None of them changes the core reconciliation loop, hub, or reconnection behavior described elsewhere in this document, they extend what a `ClusterSpec` can describe and what the apply step knows how to execute.
 
