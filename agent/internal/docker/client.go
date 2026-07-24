@@ -406,6 +406,8 @@ func ContainerName(spec ContainerSpec) (string, error) {
 		return fmt.Sprintf("orca-%s-replica-%s", spec.ClusterID, spec.ReplicaID), nil
 	case ContainerKindPgBouncer:
 		return fmt.Sprintf("orca-%s-pgbouncer", spec.ClusterID), nil
+	case ContainerKindPgBackRest:
+		return fmt.Sprintf("orca-%s-pgbackrest", spec.ClusterID), nil
 	default:
 		return "", fmt.Errorf("unknown container kind %q", spec.Kind)
 	}
