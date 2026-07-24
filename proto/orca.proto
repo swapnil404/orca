@@ -29,6 +29,7 @@ message ClusterSpec {
   repeated ReplicaSpec replicas = 4;
   optional PgBouncerSpec pg_bouncer = 5;
   repeated DatabaseSpec databases = 6;
+  optional PgBackRestSpec pg_back_rest = 7;
 }
 
 // ReplicaSpec describes a desired Postgres replica.
@@ -47,6 +48,13 @@ message PgBouncerSpec {
   uint32 max_connections = 2;
   uint32 reserve_pool_size = 3;
   uint32 reserve_pool_timeout_seconds = 4;
+}
+
+// PgBackRestSpec describes the desired backup repository and retention policy.
+message PgBackRestSpec {
+  string repo_path = 1;
+  uint32 retention_full = 2;
+  uint32 retention_diff = 3;
 }
 
 // ActualState is the set of clusters currently observed by the agent.
