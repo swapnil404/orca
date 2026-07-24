@@ -121,7 +121,10 @@ func applyPreloadAndRestart(ctx context.Context, executor PrimaryExecutor, conta
 		libraries = append(libraries, library)
 	}
 	sort.Strings(libraries)
-	query := "ALTER SYSTEM SET shared_preload_libraries = " + quoteConfig(strings.Join(libraries, ",")) + ";"
+	query := "ALTER SYSTEM RESET shared_preload_libraries;"
+	if len(libraries) > 0 {
+		query = "ALTER SYSTEM SET shared_preload_libraries = " + quoteConfig(strings.Join(libraries, ",")) + ";"
+	}
 	if _, err := executor.ExecContainer(ctx, containerID, psqlCommand(query)); err != nil {
 		return fmt.Errorf("configure shared_preload_libraries: %w", err)
 	}
