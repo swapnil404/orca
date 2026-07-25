@@ -15,16 +15,8 @@ import (
 
 // Pass contains the action outcomes and observed state from one reconciliation pass.
 type Pass struct {
-	Results          []ApplyResult
-	ExtensionResults []ExtensionPassResult
-	Report           *types.AgentReportMessage
-}
-
-// ExtensionPassResult reports extension reconciliation for one cluster.
-type ExtensionPassResult struct {
-	ClusterID string
-	Results   []extensions.Result
-	Err       error
+	Results []ApplyResult
+	Report  *types.AgentReportMessage
 }
 
 // Runner serializes reconciliation through the shared desired-state cache.
@@ -92,46 +84,69 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired DesiredState) (Pa
 		return Pass{}, err
 	}
 
-	actions := Diff(desired, ActualStateFromContainers(containers))
+	actual := ActualStateFromContainers(containers)
+	observationResults := r.populateInstalledExtensions(ctx, desired, &actual)
+	actions := Diff(desired, actual)
 	results := Apply(ctx, r.docker, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
 	}
-	actual := ActualStateFromContainers(containers)
-	extensionResults := r.reconcileExtensions(ctx, desired, actual)
+	actual = ActualStateFromContainers(containers)
+	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, &actual)...)
+	extensionResults := Apply(ctx, r.docker, extensionOnlyActions(Diff(desired, actual)), desired)
+	results = append(observationResults, results...)
+	results = append(results, extensionResults...)
+	results = append(results, r.populateInstalledExtensions(ctx, desired, &actual)...)
 	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, &actual)
-	return Pass{Results: results, ExtensionResults: extensionResults, Report: reportFor(desired, actual)}, nil
+	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
 }
 
-func (r *Runner) reconcileExtensions(ctx context.Context, desired DesiredState, actual ActualState) []ExtensionPassResult {
-	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
-	for _, cluster := range actual.Clusters {
-		actualByID[cluster.Id] = cluster
+func (r *Runner) populateInstalledExtensions(ctx context.Context, desired DesiredState, actual *ActualState) []ApplyResult {
+	desiredByID := make(map[string]*ClusterSpec, len(desired.Clusters))
+	for _, cluster := range desired.Clusters {
+		if cluster != nil {
+			desiredByID[cluster.Id] = cluster
+		}
 	}
 
-	results := make([]ExtensionPassResult, 0, len(desired.Clusters))
-	for _, cluster := range desired.Clusters {
-		if cluster == nil {
+	results := make([]ApplyResult, 0)
+	for _, cluster := range actual.Clusters {
+		if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" {
 			continue
 		}
-		observed := actualByID[cluster.Id]
-		if observed == nil || observed.ContainerId == "" || observed.Status != "running" {
+		desiredCluster, managed := desiredByID[cluster.Id]
+		if !managed {
 			continue
 		}
+		action := Action{Type: ActionUpdateExtensions, ClusterID: cluster.Id}
 		if r.extensions == nil {
-			if len(cluster.EnabledExtensions) > 0 {
-				results = append(results, ExtensionPassResult{
-					ClusterID: cluster.Id,
-					Err:       fmt.Errorf("docker client does not support extension reconciliation"),
+			if len(desiredCluster.EnabledExtensions) > 0 {
+				results = append(results, ApplyResult{
+					Action: action,
+					Err:    fmt.Errorf("docker client does not support extension reconciliation"),
 				})
 			}
 			continue
 		}
-		actionResults, err := extensions.Reconcile(ctx, r.extensions, observed.ContainerId, cluster.EnabledExtensions)
-		results = append(results, ExtensionPassResult{ClusterID: cluster.Id, Results: actionResults, Err: err})
+		installed, err := extensions.Installed(ctx, r.extensions, cluster.ContainerId)
+		if err != nil {
+			results = append(results, ApplyResult{Action: action, Err: err})
+			continue
+		}
+		cluster.EnabledExtensions = installed
 	}
 	return results
+}
+
+func extensionOnlyActions(actions []Action) []Action {
+	extensionActions := make([]Action, 0)
+	for _, action := range actions {
+		if action.Type == ActionUpdateExtensions {
+			extensionActions = append(extensionActions, action)
+		}
+	}
+	return extensionActions
 }
 
 func (r *Runner) notifyObservers(desired *DesiredState) {

@@ -80,6 +80,7 @@ message ActualCluster {
   repeated ActualReplica replicas = 5;
   optional ActualPgBouncer pg_bouncer = 6;
   optional ActualBackup backup = 7;
+  repeated string enabled_extensions = 8;
 }
 
 // ActualReplica describes an observed Postgres replica.

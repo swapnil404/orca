@@ -52,6 +52,7 @@ export interface ActualCluster {
   version?: string
   replicas?: ActualReplica[]
   pg_bouncer?: ActualPgBouncer
+  enabled_extensions?: string[]
 }
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'pending' | 'unknown'

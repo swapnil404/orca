@@ -30,8 +30,8 @@ type Result struct {
 	Err    error
 }
 
-// Reconcile queries installed extensions and applies the desired changes.
-func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string, desired []string) ([]Result, error) {
+// Installed queries the managed extensions currently installed in a primary.
+func Installed(ctx context.Context, executor PrimaryExecutor, containerID string) ([]string, error) {
 	if executor == nil {
 		return nil, fmt.Errorf("extension executor is nil")
 	}
@@ -39,7 +39,12 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 	if err != nil {
 		return nil, fmt.Errorf("query installed extensions: %w", err)
 	}
-	actual, err := parseInstalled(output)
+	return parseInstalled(output)
+}
+
+// Reconcile queries installed extensions and applies the desired changes.
+func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string, desired []string) ([]Result, error) {
+	actual, err := Installed(ctx, executor, containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +52,11 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 	if err != nil {
 		return nil, err
 	}
+	return Apply(ctx, executor, containerID, desired, actions), nil
+}
 
+// Apply executes extension actions, batching preload changes into one restart.
+func Apply(ctx context.Context, executor PrimaryExecutor, containerID string, desired []string, actions []Action) []Result {
 	errorsByAction := make(map[Action]error, len(actions))
 	restartActions := make([]Action, 0)
 	for _, action := range actions {
@@ -59,7 +68,7 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 	}
 
 	if len(restartActions) == 0 {
-		return resultsFor(actions, errorsByAction), nil
+		return resultsFor(actions, errorsByAction)
 	}
 
 	preservePreloads := make([]string, 0)
@@ -84,7 +93,7 @@ func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string
 		}
 	}
 
-	return resultsFor(actions, errorsByAction), nil
+	return resultsFor(actions, errorsByAction)
 }
 
 func resultsFor(actions []Action, errorsByAction map[Action]error) []Result {
