@@ -23,6 +23,7 @@ type Querier interface {
 	ListClusters(ctx context.Context, arg ListClustersParams) ([]Cluster, error)
 	ListCurrentDesiredStatesForHost(ctx context.Context, hostID string) ([]DesiredState, error)
 	ListDesiredStateHistory(ctx context.Context, arg ListDesiredStateHistoryParams) ([]DesiredState, error)
+	ListMetricClusterReports(ctx context.Context, projectID string) ([]ListMetricClusterReportsRow, error)
 	ListProjectIDsForHost(ctx context.Context, hostID string) ([]string, error)
 	ListProjects(ctx context.Context, userID string) ([]Project, error)
 	SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterParams) (SoftDeleteClusterRow, error)

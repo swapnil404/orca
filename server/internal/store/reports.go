@@ -39,6 +39,16 @@ type ClusterReport struct {
 	Stale       bool
 }
 
+// MetricClusterReport is the latest persisted observation used for metrics exposition.
+type MetricClusterReport struct {
+	ProjectID   string
+	ClusterID   string
+	ActualState *types.ActualCluster
+	Health      string
+	LastSeen    time.Time
+	Stale       bool
+}
+
 // StoreAgentReport atomically replaces the latest report snapshot for hostID.
 func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *types.AgentReportMessage, receivedAt time.Time) error {
 	actualState, err := protojson.Marshal(report.GetActualState())
@@ -148,6 +158,37 @@ func (s *Postgres) ListClusterReportsForHost(ctx context.Context, hostID string,
 				return nil, fmt.Errorf("decode actual cluster %q: %w", row.ClusterID, err)
 			}
 		}
+		report.Stale = reportIsStale(report.LastSeen, now, DefaultReportStalenessWindow)
+		if report.Stale {
+			report.Health = unknownHealthStatus
+		}
+		reports = append(reports, report)
+	}
+	return reports, nil
+}
+
+// ListMetricClusterReports returns active clusters and their latest persisted reports.
+// An empty projectID includes clusters from every project.
+func (s *Postgres) ListMetricClusterReports(ctx context.Context, projectID string, now time.Time) ([]MetricClusterReport, error) {
+	rows, err := s.queries.ListMetricClusterReports(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	reports := make([]MetricClusterReport, 0, len(rows))
+	for _, row := range rows {
+		report := MetricClusterReport{
+			ProjectID: row.ProjectID,
+			ClusterID: row.ClusterID,
+			Health:    unknownHealthStatus,
+		}
+		if string(row.ActualState) != "null" {
+			report.ActualState = &types.ActualCluster{}
+			if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
+				return nil, fmt.Errorf("decode actual cluster %q: %w", row.ClusterID, err)
+			}
+		}
+		report.Health = row.HealthStatus
+		report.LastSeen = row.ReportedAt
 		report.Stale = reportIsStale(report.LastSeen, now, DefaultReportStalenessWindow)
 		if report.Stale {
 			report.Health = unknownHealthStatus

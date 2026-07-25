@@ -205,7 +205,7 @@ agentHandler.SetReportNotifier(projectEvents)
 
 ### Metrics and alerting
 
-Health data ingested from agent reports is planned to be exposed in a Prometheus-compatible format from the server, in addition to what's shown live in the canvas, so users can scrape their own infrastructure's metrics independently. Alert rule evaluation runs against ingested health data server side. This is not yet implemented; when it is, ingestion (already built, see "Data model" above), exposition, and rule evaluation should remain separable, each testable without the others, consistent with how `metrics/` is scoped in `AGENTS.md`.
+`server/internal/metrics` exposes the latest persisted agent reports in Prometheus format at `GET /metrics` and, filtered by project, at `GET /projects/{projectID}/metrics`. The exposition includes cluster availability, per-replica lag, PgBouncer pool utilization when connection counters are reported, and backup age and last-success time when a backup observation is reported; it reads the same `cluster_reports` snapshots written by agent-report ingestion rather than maintaining another ingestion path. Alert rule evaluation remains deferred and, when implemented, should evaluate ingested health data separately from ingestion and exposition so each concern remains independently testable.
 
 ### Database tests
 

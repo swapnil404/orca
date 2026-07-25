@@ -75,6 +75,56 @@ func (q *Queries) ListClusterReportsForHost(ctx context.Context, hostID string) 
 	return items, nil
 }
 
+const listMetricClusterReports = `-- name: ListMetricClusterReports :many
+SELECT p.id AS project_id, c.id AS cluster_id,
+       COALESCE(cr.actual_state, 'null'::jsonb) AS actual_state,
+       COALESCE(cr.health_status, 'unknown') AS health_status,
+       COALESCE(cr.reported_at, 'epoch'::timestamptz) AS reported_at
+FROM projects p
+JOIN clusters c ON c.project_id = p.id
+LEFT JOIN cluster_reports cr ON cr.host_id = c.host_id AND cr.cluster_id = c.id
+WHERE p.deleted_at IS NULL AND c.deleted_at IS NULL
+  AND ($1::text = '' OR p.id = $1)
+ORDER BY p.id, c.id
+`
+
+type ListMetricClusterReportsRow struct {
+	ProjectID    string          `json:"project_id"`
+	ClusterID    string          `json:"cluster_id"`
+	ActualState  json.RawMessage `json:"actual_state"`
+	HealthStatus string          `json:"health_status"`
+	ReportedAt   time.Time       `json:"reported_at"`
+}
+
+func (q *Queries) ListMetricClusterReports(ctx context.Context, projectID string) ([]ListMetricClusterReportsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMetricClusterReports, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMetricClusterReportsRow
+	for rows.Next() {
+		var i ListMetricClusterReportsRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.ClusterID,
+			&i.ActualState,
+			&i.HealthStatus,
+			&i.ReportedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertAgentReport = `-- name: UpsertAgentReport :exec
 INSERT INTO agent_reports (host_id, actual_state, health_report, reported_at)
 VALUES ($1, $2, $3, $4)
