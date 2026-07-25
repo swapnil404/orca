@@ -79,6 +79,7 @@ message ActualCluster {
   string version = 4;
   repeated ActualReplica replicas = 5;
   optional ActualPgBouncer pg_bouncer = 6;
+  optional ActualBackup backup = 7;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -99,6 +100,13 @@ message ActualPgBouncer {
   string container_id = 1;
   string status = 2;
   string config = 3;
+  optional uint32 active_client_connections = 4;
+  optional uint32 max_client_connections = 5;
+}
+
+// ActualBackup describes the latest observed successful backup.
+message ActualBackup {
+  optional int64 last_success_unix_seconds = 1;
 }
 
 // HealthReport contains host resource usage and per-cluster health.
