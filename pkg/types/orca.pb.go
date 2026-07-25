@@ -665,16 +665,17 @@ func (x *ActualState) GetClusters() []*ActualCluster {
 
 // ActualCluster describes an observed Postgres primary and its child resources.
 type ActualCluster struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ContainerId   string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	Replicas      []*ActualReplica       `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
-	PgBouncer     *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
-	Backup        *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ContainerId       string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Status            string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Version           string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Replicas          []*ActualReplica       `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PgBouncer         *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
+	Backup            *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
+	EnabledExtensions []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ActualCluster) Reset() {
@@ -752,6 +753,13 @@ func (x *ActualCluster) GetPgBouncer() *ActualPgBouncer {
 func (x *ActualCluster) GetBackup() *ActualBackup {
 	if x != nil {
 		return x.Backup
+	}
+	return nil
+}
+
+func (x *ActualCluster) GetEnabledExtensions() []string {
+	if x != nil {
+		return x.EnabledExtensions
 	}
 	return nil
 }
@@ -1220,7 +1228,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xb4\x02\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xe3\x02\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1229,7 +1237,8 @@ const file_orca_proto_rawDesc = "" +
 	"\breplicas\x18\x05 \x03(\v2\x16.orca.v1.ActualReplicaR\breplicas\x12<\n" +
 	"\n" +
 	"pg_bouncer\x18\x06 \x01(\v2\x18.orca.v1.ActualPgBouncerH\x00R\tpgBouncer\x88\x01\x01\x122\n" +
-	"\x06backup\x18\a \x01(\v2\x15.orca.v1.ActualBackupH\x01R\x06backup\x88\x01\x01B\r\n" +
+	"\x06backup\x18\a \x01(\v2\x15.orca.v1.ActualBackupH\x01R\x06backup\x88\x01\x01\x12-\n" +
+	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensionsB\r\n" +
 	"\v_pg_bouncerB\t\n" +
 	"\a_backup\"\xba\x03\n" +
 	"\rActualReplica\x12\x0e\n" +

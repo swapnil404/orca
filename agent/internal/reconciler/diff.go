@@ -1,6 +1,11 @@
 package reconciler
 
-import "github.com/swapnil404/orca/agent/internal/pgbouncer"
+import (
+	"fmt"
+
+	"github.com/swapnil404/orca/agent/internal/extensions"
+	"github.com/swapnil404/orca/agent/internal/pgbouncer"
+)
 
 // ActionType identifies the kind of reconciliation action to execute.
 type ActionType string
@@ -22,6 +27,8 @@ const (
 	ActionUpdatePgBouncer ActionType = "update_pgbouncer"
 	// ActionDeletePgBouncer deletes a PgBouncer container.
 	ActionDeletePgBouncer ActionType = "delete_pgbouncer"
+	// ActionUpdateExtensions reconciles extensions on a running Postgres primary.
+	ActionUpdateExtensions ActionType = "update_extensions"
 )
 
 // Action describes a single reconciliation operation.
@@ -35,6 +42,12 @@ type Action struct {
 type pgBouncerUpdateSpec struct {
 	Desired *ClusterSpec
 	Actual  *ActualPgBouncer
+}
+
+type extensionUpdateSpec struct {
+	Desired []string
+	Actual  *ActualCluster
+	Actions []extensions.Action
 }
 
 // Diff computes the reconciliation actions required to make actual match desired.
@@ -69,6 +82,8 @@ func Diff(desired DesiredState, actual ActualState) []Action {
 		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas)...)
 		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
 		actions = append(actions, pgBouncerActions...)
+		extensionActions := diffExtensions(desiredCluster, actualCluster)
+		actions = append(actions, extensionActions...)
 		delete(actualClusters, desiredCluster.Id)
 	}
 
@@ -215,7 +230,35 @@ func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool,
 	return nil
 }
 
+func diffExtensions(desired *ClusterSpec, actual *ActualCluster) []Action {
+	if actual == nil || actual.ContainerId == "" || actual.Status != "running" || actual.EnabledExtensions == nil {
+		return nil
+	}
+	extensionActions, err := extensions.Diff(desired.EnabledExtensions, actual.EnabledExtensions)
+	if err != nil || len(extensionActions) == 0 {
+		return nil
+	}
+
+	return []Action{{
+		Type:      ActionUpdateExtensions,
+		ClusterID: desired.Id,
+		Spec: &extensionUpdateSpec{
+			Desired: append([]string(nil), desired.EnabledExtensions...),
+			Actual:  actual,
+			Actions: extensionActions,
+		},
+	}}
+}
+
 func generatedPgBouncerConfig(desired *ClusterSpec) (string, bool) {
 	config, err := pgbouncer.GeneratePgBouncerConfig(*desired)
 	return config, err == nil
+}
+
+func extensionUpdate(action Action) (*extensionUpdateSpec, error) {
+	update, ok := action.Spec.(*extensionUpdateSpec)
+	if !ok || update.Actual == nil || update.Actual.ContainerId == "" {
+		return nil, fmt.Errorf("%s action requires extension update state", action.Type)
+	}
+	return update, nil
 }

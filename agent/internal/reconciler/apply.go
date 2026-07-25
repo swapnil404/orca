@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/agent/internal/extensions"
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 )
@@ -71,6 +72,8 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 		return createAndStart(ctx, docker, spec, err)
 	case ActionUpdatePgBouncer:
 		return updatePgBouncer(ctx, docker, action)
+	case ActionUpdateExtensions:
+		return updateExtensions(ctx, docker, action)
 	case ActionDeletePrimary:
 		cluster, ok := action.Spec.(*ActualCluster)
 		if !ok {
@@ -111,6 +114,11 @@ type pgBouncerDockerClient interface {
 	DockerClient
 	pgbouncer.ConsoleExecutor
 	WriteConfig(ctx context.Context, clusterID string, config *orcadocker.ConfigMount) error
+}
+
+type extensionDockerClient interface {
+	DockerClient
+	extensions.PrimaryExecutor
 }
 
 func createReplica(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
@@ -239,6 +247,24 @@ func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) er
 	default:
 		return fmt.Errorf("unknown PgBouncer update method %q", method)
 	}
+}
+
+func updateExtensions(ctx context.Context, docker DockerClient, action Action) error {
+	update, err := extensionUpdate(action)
+	if err != nil {
+		return err
+	}
+	extensionDocker, ok := docker.(extensionDockerClient)
+	if !ok {
+		return errors.New("docker client does not support extension reconciliation")
+	}
+
+	results := extensions.Apply(ctx, extensionDocker, update.Actual.ContainerId, update.Desired, update.Actions)
+	var applyErr error
+	for _, result := range results {
+		applyErr = errors.Join(applyErr, result.Err)
+	}
+	return applyErr
 }
 
 func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
