@@ -74,45 +74,20 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}, []string{"project_id", "cluster_id"})
 	registry.MustRegister(clusterUp, replicationLag, poolUtilization, backupLastSuccess, backupAge)
 
-	for _, report := range reports {
-		labels := prometheus.Labels{"project_id": report.ProjectID, "cluster_id": report.ClusterID}
-		up := 0.0
-		if !report.Stale && report.ActualState != nil && report.ActualState.GetStatus() == "running" {
-			up = 1
-		}
-		clusterUp.With(labels).Set(up)
-		if report.Stale || report.ActualState == nil {
-			continue
-		}
-
-		for _, replica := range report.ActualState.GetReplicas() {
-			if replica.ReplicationLagBytes == nil {
-				continue
-			}
-			replicationLag.With(prometheus.Labels{
-				"project_id": report.ProjectID,
-				"cluster_id": report.ClusterID,
-				"replica_id": replica.GetId(),
-			}).Set(float64(replica.GetReplicationLagBytes()))
-		}
-
-		pgBouncer := report.ActualState.GetPgBouncer()
-		if pgBouncer != nil && pgBouncer.ActiveClientConnections != nil &&
-			pgBouncer.MaxClientConnections != nil && pgBouncer.GetMaxClientConnections() > 0 {
-			poolUtilization.With(labels).Set(
-				float64(pgBouncer.GetActiveClientConnections()) / float64(pgBouncer.GetMaxClientConnections()),
-			)
-		}
-
-		backup := report.ActualState.GetBackup()
-		if backup != nil && backup.LastSuccessUnixSeconds != nil {
-			lastSuccess := backup.GetLastSuccessUnixSeconds()
-			backupLastSuccess.With(labels).Set(float64(lastSuccess))
-			age := now.Sub(time.Unix(lastSuccess, 0)).Seconds()
-			if age < 0 {
-				age = 0
-			}
-			backupAge.With(labels).Set(age)
+	for _, metric := range currentMetricValues(reports, now) {
+		labels := prometheus.Labels{"project_id": metric.projectID, "cluster_id": metric.clusterID}
+		switch metric.name {
+		case MetricClusterUp:
+			clusterUp.With(labels).Set(metric.value)
+		case MetricReplicaReplicationLagBytes:
+			labels["replica_id"] = metric.replicaID
+			replicationLag.With(labels).Set(metric.value)
+		case MetricPgBouncerPoolUtilizationRatio:
+			poolUtilization.With(labels).Set(metric.value)
+		case MetricBackupLastSuccessTimestampSeconds:
+			backupLastSuccess.With(labels).Set(metric.value)
+		case MetricBackupAgeSeconds:
+			backupAge.With(labels).Set(metric.value)
 		}
 	}
 
