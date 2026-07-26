@@ -17,6 +17,18 @@ type AgentReport struct {
 	ReportedAt   time.Time       `json:"reported_at"`
 }
 
+type AlertRule struct {
+	ID                          string         `json:"id"`
+	ProjectID                   string         `json:"project_id"`
+	ClusterID                   sql.NullString `json:"cluster_id"`
+	MetricName                  string         `json:"metric_name"`
+	Comparison                  string         `json:"comparison"`
+	Threshold                   float64        `json:"threshold"`
+	DurationBeforeFiringSeconds int64          `json:"duration_before_firing_seconds"`
+	CurrentState                string         `json:"current_state"`
+	LastTransitionAt            time.Time      `json:"last_transition_at"`
+}
+
 type Cluster struct {
 	ID                            string          `json:"id"`
 	ProjectID                     string          `json:"project_id"`

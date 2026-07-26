@@ -9,16 +9,20 @@ import (
 )
 
 type Querier interface {
+	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
 	CreateCluster(ctx context.Context, arg CreateClusterParams) (Cluster, error)
 	CreateDesiredState(ctx context.Context, arg CreateDesiredStateParams) (DesiredState, error)
 	CreateHost(ctx context.Context, arg CreateHostParams) (Host, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
+	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
 	GetAgentReport(ctx context.Context, hostID string) (AgentReport, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
 	GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Host, error)
 	GetProject(ctx context.Context, arg GetProjectParams) (Project, error)
 	ListActiveClustersForProject(ctx context.Context, arg ListActiveClustersForProjectParams) ([]Cluster, error)
+	ListAlertRulesForEvaluation(ctx context.Context) ([]AlertRule, error)
+	ListAlertRulesForProject(ctx context.Context, arg ListAlertRulesForProjectParams) ([]AlertRule, error)
 	ListClusterReportsForHost(ctx context.Context, hostID string) ([]ClusterReport, error)
 	ListClusters(ctx context.Context, arg ListClustersParams) ([]Cluster, error)
 	ListCurrentDesiredStatesForHost(ctx context.Context, hostID string) ([]DesiredState, error)
@@ -29,6 +33,7 @@ type Querier interface {
 	SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterParams) (SoftDeleteClusterRow, error)
 	SoftDeleteClustersForProject(ctx context.Context, arg SoftDeleteClustersForProjectParams) error
 	SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectParams) (string, error)
+	UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (AlertRule, error)
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
