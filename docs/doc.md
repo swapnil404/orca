@@ -205,7 +205,7 @@ agentHandler.SetReportNotifier(projectEvents)
 
 ### Metrics and alerting
 
-`server/internal/metrics` exposes the latest persisted agent reports in Prometheus format at `GET /metrics` and, filtered by project, at `GET /projects/{projectID}/metrics`. The exposition includes cluster availability, per-replica lag, PgBouncer pool utilization when connection counters are reported, and backup age and last-success time when a backup observation is reported; it reads the same `cluster_reports` snapshots written by agent-report ingestion rather than maintaining another ingestion path. Alert rule evaluation remains deferred and, when implemented, should evaluate ingested health data separately from ingestion and exposition so each concern remains independently testable.
+`server/internal/metrics` exposes the latest persisted agent reports in Prometheus format at `GET /metrics` and, filtered by project, at `GET /projects/{projectID}/metrics`. The exposition includes cluster availability, per-replica lag, PgBouncer pool utilization when connection counters are reported, and backup age and last-success time when a backup observation is reported; it reads the same `cluster_reports` snapshots written by agent-report ingestion rather than maintaining another ingestion path. Alert rule definitions and their current evaluation state are stored in `alert_rules`, independently from cluster desired state. Alert rule evaluation remains deferred and, when implemented, should evaluate ingested health data separately from ingestion and exposition so each concern remains independently testable.
 
 ### Database tests
 
