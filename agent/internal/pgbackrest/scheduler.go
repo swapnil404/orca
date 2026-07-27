@@ -13,7 +13,7 @@ import (
 
 // DesiredStateSource loads the last desired state cached by the agent.
 type DesiredStateSource interface {
-	Load(ctx context.Context) (orcatypes.DesiredState, error)
+	Load(ctx context.Context) (*orcatypes.DesiredState, error)
 }
 
 // BackupType identifies a pgBackRest backup type.
@@ -98,7 +98,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		s.logger.Warn("load backup schedules from cached desired state", "error", err)
 	}
 	clusters := make(map[string]*scheduledCluster)
-	s.syncSchedules(ctx, clusters, &desired)
+	s.syncSchedules(ctx, clusters, desired)
 	defer cancelSchedules(clusters)
 
 	for {
@@ -153,7 +153,7 @@ func (s *Scheduler) syncSchedules(ctx context.Context, current map[string]*sched
 	}
 
 	for clusterID, cluster := range wanted {
-		if _, err := GeneratePgBackRestConfig(*cluster); err != nil {
+		if _, err := GeneratePgBackRestConfig(cluster); err != nil {
 			s.logger.Error("configure pgBackRest schedule", "cluster_id", clusterID, "error", err)
 			continue
 		}

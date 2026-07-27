@@ -22,7 +22,7 @@ func InitializeStanza(ctx context.Context, executor Executor, desired *ClusterDe
 	if executor == nil {
 		return errors.New("executor is nil")
 	}
-	if _, err := GeneratePgBackRestConfig(*desired); err != nil {
+	if _, err := GeneratePgBackRestConfig(desired); err != nil {
 		return err
 	}
 

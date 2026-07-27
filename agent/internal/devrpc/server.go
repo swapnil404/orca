@@ -56,7 +56,7 @@ func (s *Server) handleDesiredState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pass, err := s.runner.Reconcile(r.Context(), requested)
+	pass, err := s.runner.Reconcile(r.Context(), &requested)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("reconcile desired state: %v", err), http.StatusInternalServerError)
 		return
@@ -79,6 +79,6 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 	return errors.New("decode desired state: request body must contain one JSON value")
 }
 
-func actualState(containers []orcadocker.ContainerInfo) reconciler.ActualState {
+func actualState(containers []orcadocker.ContainerInfo) *reconciler.ActualState {
 	return reconciler.ActualStateFromContainers(containers)
 }

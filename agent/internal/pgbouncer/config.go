@@ -17,7 +17,10 @@ const postgresPort = 5432
 type ClusterDesiredState = orcatypes.ClusterSpec
 
 // GeneratePgBouncerConfig returns the complete pgbouncer.ini for a cluster.
-func GeneratePgBouncerConfig(desired ClusterDesiredState) (string, error) {
+func GeneratePgBouncerConfig(desired *ClusterDesiredState) (string, error) {
+	if desired == nil {
+		return "", errors.New("desired cluster is nil")
+	}
 	if desired.PgBouncer == nil {
 		return "", errors.New("PgBouncer settings are required")
 	}

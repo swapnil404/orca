@@ -38,7 +38,7 @@ func RestoreToTime(ctx context.Context, executor RecoveryExecutor, desired *Clus
 	if target.IsZero() {
 		return errors.New("recovery target time is required")
 	}
-	config, err := GeneratePgBackRestConfig(*desired)
+	config, err := GeneratePgBackRestConfig(desired)
 	if err != nil {
 		return err
 	}

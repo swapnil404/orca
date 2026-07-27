@@ -15,7 +15,7 @@ func InstallConfig(ctx context.Context, executor Executor, desired *ClusterDesir
 	if executor == nil {
 		return fmt.Errorf("executor is nil")
 	}
-	config, err := GeneratePgBackRestConfig(*desired)
+	config, err := GeneratePgBackRestConfig(desired)
 	if err != nil {
 		return err
 	}

@@ -13,7 +13,10 @@ import (
 type ClusterDesiredState = orcatypes.ClusterSpec
 
 // GeneratePgBackRestConfig returns the complete pgbackrest.conf for a cluster.
-func GeneratePgBackRestConfig(desired ClusterDesiredState) (string, error) {
+func GeneratePgBackRestConfig(desired *ClusterDesiredState) (string, error) {
+	if desired == nil {
+		return "", errors.New("desired cluster is nil")
+	}
 	if desired.PgBackRest == nil {
 		return "", errors.New("pgBackRest settings are required")
 	}
