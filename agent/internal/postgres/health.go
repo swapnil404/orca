@@ -11,9 +11,13 @@ import (
 )
 
 const (
-	unknownStreamingState = "unknown"
-	unknownLagStatus      = "unknown"
-	knownLagStatus        = "known"
+	unknownStreamingState  = "unknown"
+	unknownLagStatus       = "unknown"
+	knownLagStatus         = "known"
+	laggingLagStatus       = "lagging"
+	criticalLagStatus      = "critical"
+	laggingThresholdBytes  = 16 * 1024 * 1024
+	criticalThresholdBytes = 1024 * 1024 * 1024
 )
 
 const primaryReplicationHealthQuery = `
@@ -55,15 +59,27 @@ type replicaReceiverRow struct {
 	replayedLSN    string
 }
 
-// PopulateReplicaHealth augments the existing actual-state report with PostgreSQL replication observations.
-func PopulateReplicaHealth(ctx context.Context, docker HealthDockerClient, actual *types.ActualState) {
+// PopulateHealth augments actual state with PostgreSQL readiness and replication observations.
+func PopulateHealth(ctx context.Context, docker HealthDockerClient, actual *types.ActualState) {
 	if docker == nil || actual == nil {
 		return
 	}
 
 	for _, cluster := range actual.Clusters {
+		populatePrimaryReadiness(ctx, docker, cluster)
 		populateClusterReplicaHealth(ctx, docker, cluster)
 	}
+}
+
+func populatePrimaryReadiness(ctx context.Context, docker HealthDockerClient, cluster *types.ActualCluster) {
+	if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" {
+		return
+	}
+	ready := false
+	if output, err := docker.ExecContainer(ctx, cluster.ContainerId, psqlCommand("SELECT 1")); err == nil && strings.TrimSpace(output) == "1" {
+		ready = true
+	}
+	cluster.PostgresReady = &ready
 }
 
 func populateClusterReplicaHealth(ctx context.Context, docker HealthDockerClient, cluster *types.ActualCluster) {
@@ -124,7 +140,14 @@ func populateClusterReplicaHealth(ctx context.Context, docker HealthDockerClient
 		replica.StreamingState = primary.streamingState
 		replica.ReplicationLagBytes = primary.lagBytes
 		if primary.lagBytes != nil {
-			replica.ReplicationLagStatus = knownLagStatus
+			switch {
+			case *primary.lagBytes >= criticalThresholdBytes:
+				replica.ReplicationLagStatus = criticalLagStatus
+			case *primary.lagBytes >= laggingThresholdBytes:
+				replica.ReplicationLagStatus = laggingLagStatus
+			default:
+				replica.ReplicationLagStatus = knownLagStatus
+			}
 		}
 	}
 }

@@ -93,6 +93,7 @@ message ActualCluster {
   map<string, string> applied_params = 9;
   bool volume_exists = 10;
   string image = 11;
+  optional bool postgres_ready = 12;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -115,6 +116,7 @@ message ActualPgBouncer {
   string config = 3;
   optional uint32 active_client_connections = 4;
   optional uint32 max_client_connections = 5;
+  optional bool admin_console_reachable = 6;
 }
 
 // ActualBackup describes applied backup configuration and the latest observed success.

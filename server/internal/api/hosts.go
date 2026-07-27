@@ -84,7 +84,7 @@ func (h *HostRegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}{
 		HostID:           host.ID,
 		Status:           host.Status,
-		DockerRunCommand: fmt.Sprintf("docker run -d \\\n  -e ORCA_TOKEN=%s \\\n  -e ORCA_SERVER_URL=%s \\\n  -v /var/run/docker.sock:/var/run/docker.sock \\\n  -v /var/orca/data:/var/orca/data \\\n  orca/agent", token, h.serverURL),
+		DockerRunCommand: fmt.Sprintf("docker run -d \\\n  -e ORCA_TOKEN=%s \\\n  -e ORCA_SERVER_URL=%s \\\n  -v /var/run/docker.sock:/var/run/docker.sock \\\n  -v /proc:/host/proc:ro \\\n  -v /var/orca/data:/var/orca/data \\\n  orca/agent", token, h.serverURL),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

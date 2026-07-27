@@ -3,12 +3,15 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
+	"github.com/swapnil404/orca/agent/internal/hostmetrics"
 	"github.com/swapnil404/orca/agent/internal/pgbackrest"
+	"github.com/swapnil404/orca/agent/internal/pgbouncer"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 	"github.com/swapnil404/orca/agent/internal/state"
 	"github.com/swapnil404/orca/pkg/types"
@@ -33,6 +36,8 @@ type Runner struct {
 	cache          state.StateCache
 	docker         orcadocker.DockerClient
 	healthDatabase postgres.HealthDockerClient
+	pgBouncer      pgbouncer.ConsoleExecutor
+	hostMetrics    *hostmetrics.Collector
 	extensions     extensions.PrimaryExecutor
 	mu             sync.Mutex
 	backups        *pgbackrest.Scheduler
@@ -46,10 +51,12 @@ type volumeLister interface {
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
 func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, schedulers ...*pgbackrest.Scheduler) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
+	pgBouncerExecutor, _ := docker.(pgbouncer.ConsoleExecutor)
 	extensionExecutor, _ := docker.(extensions.PrimaryExecutor)
 	runner := &Runner{
-		cache: cache, docker: docker, healthDatabase: healthDatabase,
-		extensions: extensionExecutor, operations: pgbackrest.NewOperationGate(),
+		cache: cache, docker: docker, healthDatabase: healthDatabase, pgBouncer: pgBouncerExecutor,
+		hostMetrics: hostmetrics.NewCollector(os.Getenv("ORCA_DATA_DIR")),
+		extensions:  extensionExecutor, operations: pgbackrest.NewOperationGate(),
 	}
 	if len(schedulers) > 0 {
 		runner.backups = schedulers[0]
@@ -122,9 +129,11 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
 	backupResults, pendingBackupResults := r.backupResults()
 	results = append(results, backupResults...)
-	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, actual)
-	r.populateBackupSuccess(actual)
-	pass := Pass{Results: results, Report: reportFor(desired, actual, results)}
+	postgres.PopulateHealth(ctx, r.healthDatabase, actual)
+	pgbouncer.PopulateStatus(ctx, r.pgBouncer, actual)
+	r.populateBackupSuccess(ctx, actual)
+	hostMetrics, _ := r.hostMetrics.Collect()
+	pass := Pass{Results: results, Report: reportFor(desired, actual, results, hostMetrics)}
 	if pendingBackupResults > 0 {
 		var once sync.Once
 		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
@@ -203,16 +212,12 @@ func (r *Runner) backupResults() ([]ApplyResult, int) {
 	return results, len(queued)
 }
 
-func (r *Runner) populateBackupSuccess(actual *ActualState) {
-	if r.backups == nil {
-		return
-	}
+func (r *Runner) populateBackupSuccess(ctx context.Context, actual *ActualState) {
 	for _, cluster := range actual.Clusters {
 		if cluster == nil || cluster.Backup == nil {
 			continue
 		}
-		if completedAt, ok := r.backups.LastSuccess(cluster.Id); ok {
-			unixSeconds := completedAt.Unix()
+		if unixSeconds, ok, err := pgbackrest.LastSuccessfulBackup(ctx, r.healthDatabase, cluster.ContainerId, cluster.Id); err == nil && ok {
 			cluster.Backup.LastSuccessUnixSeconds = &unixSeconds
 		}
 	}
@@ -290,7 +295,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 	return &actual
 }
 
-func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult) *types.AgentReportMessage {
+func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult, hostMetrics *types.HostMetrics) *types.AgentReportMessage {
 	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
 		actualByID[cluster.Id] = cluster
@@ -301,7 +306,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 	for _, cluster := range desired.Clusters {
 		health = append(health, &types.ClusterHealth{
 			ClusterId: cluster.Id,
-			Status:    clusterStatus(actualByID[cluster.Id]),
+			Status:    clusterStatus(cluster, actualByID[cluster.Id]),
 		})
 		seen[cluster.Id] = struct{}{}
 	}
@@ -309,7 +314,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		if _, exists := seen[cluster.Id]; exists {
 			continue
 		}
-		health = append(health, &types.ClusterHealth{ClusterId: cluster.Id, Status: clusterStatus(cluster)})
+		health = append(health, &types.ClusterHealth{ClusterId: cluster.Id, Status: clusterStatus(nil, cluster)})
 	}
 
 	reconciliationResults := make([]*types.ReconciliationResult, 0, len(results))
@@ -327,22 +332,37 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		ActualState:           actual,
 		ReconciliationResults: reconciliationResults,
 		HealthReport: &types.HealthReport{
-			HostMetrics: &types.HostMetrics{},
+			HostMetrics: hostMetrics,
 			Clusters:    health,
 		},
 	}
 }
 
-func clusterStatus(cluster *ActualCluster) types.ClusterStatus {
-	if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" {
+func clusterStatus(desired *ClusterSpec, cluster *ActualCluster) types.ClusterStatus {
+	if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" || cluster.PostgresReady == nil || !cluster.GetPostgresReady() {
 		return types.ClusterStatus_CLUSTER_STATUS_DOWN
 	}
+	replicas := make(map[string]*ActualReplica, len(cluster.Replicas))
 	for _, replica := range cluster.Replicas {
-		if replica.Status != "running" {
+		if replica == nil {
+			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+		}
+		replicas[replica.GetId()] = replica
+		if replica.Status != "running" || replica.StandbyConnected == nil || !replica.GetStandbyConnected() || replica.StreamingState != "streaming" || replica.ReplicationLagBytes == nil || replica.ReplicationLagStatus != "known" {
 			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 		}
 	}
-	if cluster.PgBouncer != nil && cluster.PgBouncer.Status != "running" {
+	if desired != nil {
+		for _, replica := range desired.Replicas {
+			if replica == nil || replicas[replica.Id] == nil {
+				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+			}
+		}
+	}
+	if cluster.PgBouncer != nil && (cluster.PgBouncer.Status != "running" || cluster.PgBouncer.AdminConsoleReachable == nil || !cluster.PgBouncer.GetAdminConsoleReachable()) {
+		return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+	}
+	if desired != nil && desired.PgBouncer != nil && cluster.PgBouncer == nil {
 		return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 	}
 	return types.ClusterStatus_CLUSTER_STATUS_HEALTHY

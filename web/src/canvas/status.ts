@@ -32,9 +32,11 @@ export function pgBouncerStatus(
   pgBouncer: ActualPgBouncer | undefined,
   now = Date.now(),
 ): NodeStatus {
-  if (!state || !pgBouncer) return 'unknown'
+  if (!state) return 'unknown'
   if (isReportStale(state, now)) return 'stale'
-  return isRunning(pgBouncer.status) ? 'healthy' : 'degraded'
+  if (state.health === 'down' || state.health === 'pending') return state.health
+  if (!pgBouncer) return 'unknown'
+  return isRunning(pgBouncer.status) && pgBouncer.admin_console_reachable === true ? 'healthy' : 'degraded'
 }
 
 function isReportStale(state: ProjectClusterState, now: number): boolean {

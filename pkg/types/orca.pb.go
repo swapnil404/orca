@@ -754,6 +754,7 @@ type ActualCluster struct {
 	AppliedParams     map[string]string      `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	VolumeExists      bool                   `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
 	Image             string                 `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	PostgresReady     *bool                  `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -863,6 +864,13 @@ func (x *ActualCluster) GetImage() string {
 		return x.Image
 	}
 	return ""
+}
+
+func (x *ActualCluster) GetPostgresReady() bool {
+	if x != nil && x.PostgresReady != nil {
+		return *x.PostgresReady
+	}
+	return false
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -982,6 +990,7 @@ type ActualPgBouncer struct {
 	Config                  string                 `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`
 	ActiveClientConnections *uint32                `protobuf:"varint,4,opt,name=active_client_connections,json=activeClientConnections,proto3,oneof" json:"active_client_connections,omitempty"`
 	MaxClientConnections    *uint32                `protobuf:"varint,5,opt,name=max_client_connections,json=maxClientConnections,proto3,oneof" json:"max_client_connections,omitempty"`
+	AdminConsoleReachable   *bool                  `protobuf:"varint,6,opt,name=admin_console_reachable,json=adminConsoleReachable,proto3,oneof" json:"admin_console_reachable,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1049,6 +1058,13 @@ func (x *ActualPgBouncer) GetMaxClientConnections() uint32 {
 		return *x.MaxClientConnections
 	}
 	return 0
+}
+
+func (x *ActualPgBouncer) GetAdminConsoleReachable() bool {
+	if x != nil && x.AdminConsoleReachable != nil {
+		return *x.AdminConsoleReachable
+	}
+	return false
 }
 
 // ActualBackup describes applied backup configuration and the latest observed success.
@@ -1344,7 +1360,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xb2\x04\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf1\x04\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1358,12 +1374,14 @@ const file_orca_proto_rawDesc = "" +
 	"\x0eapplied_params\x18\t \x03(\v2).orca.v1.ActualCluster.AppliedParamsEntryR\rappliedParams\x12#\n" +
 	"\rvolume_exists\x18\n" +
 	" \x01(\bR\fvolumeExists\x12\x14\n" +
-	"\x05image\x18\v \x01(\tR\x05image\x1a@\n" +
+	"\x05image\x18\v \x01(\tR\x05image\x12*\n" +
+	"\x0epostgres_ready\x18\f \x01(\bH\x02R\rpostgresReady\x88\x01\x01\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
 	"\v_pg_bouncerB\t\n" +
-	"\a_backup\"\xba\x03\n" +
+	"\a_backupB\x11\n" +
+	"\x0f_postgres_ready\"\xba\x03\n" +
 	"\rActualReplica\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1375,15 +1393,17 @@ const file_orca_proto_rawDesc = "" +
 	"\x15last_wal_replayed_lsn\x18\b \x01(\tR\x12lastWalReplayedLsn\x124\n" +
 	"\x16replication_lag_status\x18\t \x01(\tR\x14replicationLagStatusB\x18\n" +
 	"\x16_replication_lag_bytesB\x14\n" +
-	"\x12_standby_connected\"\x99\x02\n" +
+	"\x12_standby_connected\"\xf2\x02\n" +
 	"\x0fActualPgBouncer\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06config\x18\x03 \x01(\tR\x06config\x12?\n" +
 	"\x19active_client_connections\x18\x04 \x01(\rH\x00R\x17activeClientConnections\x88\x01\x01\x129\n" +
-	"\x16max_client_connections\x18\x05 \x01(\rH\x01R\x14maxClientConnections\x88\x01\x01B\x1c\n" +
+	"\x16max_client_connections\x18\x05 \x01(\rH\x01R\x14maxClientConnections\x88\x01\x01\x12;\n" +
+	"\x17admin_console_reachable\x18\x06 \x01(\bH\x02R\x15adminConsoleReachable\x88\x01\x01B\x1c\n" +
 	"\x1a_active_client_connectionsB\x19\n" +
-	"\x17_max_client_connections\"\x84\x01\n" +
+	"\x17_max_client_connectionsB\x1a\n" +
+	"\x18_admin_console_reachable\"\x84\x01\n" +
 	"\fActualBackup\x12>\n" +
 	"\x19last_success_unix_seconds\x18\x01 \x01(\x03H\x00R\x16lastSuccessUnixSeconds\x88\x01\x01\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\tR\x06configB\x1c\n" +

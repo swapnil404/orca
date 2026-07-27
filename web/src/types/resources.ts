@@ -46,6 +46,9 @@ export interface ActualPgBouncer {
   container_id?: string
   status?: string
   config?: string
+  active_client_connections?: number
+  max_client_connections?: number
+  admin_console_reachable?: boolean
 }
 
 export interface ActualCluster {
@@ -56,6 +59,7 @@ export interface ActualCluster {
   replicas?: ActualReplica[]
   pg_bouncer?: ActualPgBouncer
   enabled_extensions?: string[]
+  postgres_ready?: boolean
 }
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'pending' | 'unknown'
