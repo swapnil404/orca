@@ -83,11 +83,17 @@ Postgres-related containers run as siblings to the agent container, not nested i
 - Containers are namespaced by cluster ID: `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, `orca-<cluster-id>-pgbackrest`.
 - Data volumes are named and explicit, mounted at `/var/orca/data/<cluster-id>/` on the host. Anonymous volumes are not used, since named volumes are what allow data to survive container restarts and agent upgrades.
 
+The agent observes these named volumes independently from containers. Cluster deletion therefore remains pending until the volume removal succeeds; if an attached container blocks removal, a later reconciliation pass still sees the orphaned volume and retries it after the remaining container has been removed.
+
 ## Provisioning scope
 
 The reconciler's diff and apply logic, and the tunnel and reconnection behavior described above, are service-agnostic: they operate on whatever actions a spec produces, not specifically on primaries. Extending provisioning beyond the primary is additive work within `agent/internal`, not a change to the reconciliation model itself.
 
 **Replicas** (`agent/internal/postgres`): a replica action must configure real streaming replication against the cluster's primary, not just start a second Postgres container with the same image. Actual state reporting for a replica includes replication status (streaming, lagging, disconnected), not just container running/stopped, so the canvas can distinguish a replica that's up from a replica that's healthy.
+
+When the desired PostgreSQL version changes, the primary is replaced first while preserving its named data volume. Existing replicas are then updated serially in action order: each old replica container, replication slot, and replica data directory is removed before a fresh base backup is taken from the updated primary. Reusing a replica data directory across PostgreSQL major versions is unsafe, while a stop/start alone would leave the old image and data in place, so this rebuild is the rolling update boundary supported by the current reconciler.
+
+**PostgreSQL parameters** are rendered deterministically into an Orca-owned configuration file that includes the image-generated `postgresql.conf` before applying desired overrides. The file is bind-mounted into the primary. Changed settings classified by PostgreSQL as start-time settings use an explicit restart-required table; other changes call `pg_reload_conf()`. Version changes and legacy containers without the managed configuration mount are replaced only after the existing named primary container has been stopped and removed.
 
 **PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, connection limits, and reserve pool settings) and manages the PgBouncer container's lifecycle alongside the primary and its replicas. Each desired database gets an alias targeting the primary. When replicas exist, it also gets a `<database>_read` alias whose deterministic host mesh targets all replica containers with round-robin selection.
 

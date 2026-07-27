@@ -5,6 +5,7 @@ import (
 
 	"github.com/swapnil404/orca/agent/internal/extensions"
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
+	"github.com/swapnil404/orca/agent/internal/postgres"
 )
 
 // ActionType identifies the kind of reconciliation action to execute.
@@ -15,6 +16,8 @@ const (
 	ActionCreatePrimary ActionType = "create_primary"
 	// ActionUpdatePrimary updates a Postgres primary container.
 	ActionUpdatePrimary ActionType = "update_primary"
+	// ActionRecoverPrimary starts a desired Postgres primary that is stopped.
+	ActionRecoverPrimary ActionType = "recover_primary"
 	// ActionDeletePrimary deletes a Postgres primary container.
 	ActionDeletePrimary ActionType = "delete_primary"
 	// ActionCreateReplica creates a Postgres replica container.
@@ -44,6 +47,11 @@ type pgBouncerUpdateSpec struct {
 	Actual  *ActualPgBouncer
 }
 
+type primaryUpdateSpec struct {
+	Desired *ClusterSpec
+	Actual  *ActualCluster
+}
+
 type extensionUpdateSpec struct {
 	Desired []string
 	Actual  *ActualCluster
@@ -71,15 +79,22 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 			continue
 		}
 
-		if primaryNeedsUpdate(desiredCluster, actualCluster) {
+		primaryVersionChanged := desiredCluster.Version != actualCluster.Version
+		if actualCluster.ContainerId == "" {
+			actions = append(actions, Action{Type: ActionCreatePrimary, ClusterID: desiredCluster.Id, Spec: desiredCluster})
+		} else if primaryNeedsUpdate(desiredCluster, actualCluster) {
 			actions = append(actions, Action{
 				Type:      ActionUpdatePrimary,
 				ClusterID: desiredCluster.Id,
-				Spec:      desiredCluster,
+				Spec:      &primaryUpdateSpec{Desired: desiredCluster, Actual: actualCluster},
+			})
+		} else if actualCluster.Status != "running" {
+			actions = append(actions, Action{
+				Type: ActionRecoverPrimary, ClusterID: desiredCluster.Id, Spec: actualCluster,
 			})
 		}
 
-		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas)...)
+		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas, primaryVersionChanged)...)
 		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
 		actions = append(actions, pgBouncerActions...)
 		extensionActions := diffExtensions(desiredCluster, actualCluster)
@@ -153,10 +168,10 @@ func deleteClusterActions(cluster *ActualCluster) []Action {
 }
 
 func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
-	return desired.Version != actual.Version || len(desired.Params) > 0
+	return desired.Version != actual.Version || len(postgres.ChangedParameters(desired.Params, actual.AppliedParams)) > 0
 }
 
-func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualReplica) []Action {
+func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
 	actions := []Action{}
 	actualReplicas := make(map[string]*ActualReplica, len(actual))
 	for _, replica := range actual {
@@ -174,7 +189,7 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 			})
 			continue
 		}
-		if actualReplica.Status != "running" {
+		if actualReplica.Status != "running" || primaryVersionChanged {
 			actions = append(actions,
 				Action{Type: ActionDeleteReplica, ClusterID: clusterID, ReplicaID: actualReplica.Id, Spec: actualReplica},
 				Action{Type: ActionCreateReplica, ClusterID: clusterID, ReplicaID: desiredReplica.Id, Spec: desiredReplica},

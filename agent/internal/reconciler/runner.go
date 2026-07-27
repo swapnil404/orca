@@ -34,6 +34,10 @@ type DesiredStateObserver interface {
 	Update(*DesiredState)
 }
 
+type volumeLister interface {
+	ListOrcaVolumes(context.Context) ([]orcadocker.VolumeInfo, error)
+}
+
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
 func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers ...DesiredStateObserver) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
@@ -87,7 +91,11 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		return Pass{}, err
 	}
 
-	actual := ActualStateFromContainers(containers)
+	volumes, err := r.listVolumes(ctx)
+	if err != nil {
+		return Pass{}, err
+	}
+	actual := ActualStateFromDocker(containers, volumes)
 	observationResults := r.populateInstalledExtensions(ctx, desired, actual)
 	actions := Diff(desired, actual)
 	results := Apply(ctx, r.docker, actions, desired)
@@ -95,7 +103,11 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	if err != nil {
 		return Pass{}, err
 	}
-	actual = ActualStateFromContainers(containers)
+	volumes, err = r.listVolumes(ctx)
+	if err != nil {
+		return Pass{}, err
+	}
+	actual = ActualStateFromDocker(containers, volumes)
 	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, actual)...)
 	extensionResults := Apply(ctx, r.docker, extensionOnlyActions(Diff(desired, actual)), desired)
 	results = append(observationResults, results...)
@@ -103,6 +115,14 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
 	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, actual)
 	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
+}
+
+func (r *Runner) listVolumes(ctx context.Context) ([]orcadocker.VolumeInfo, error) {
+	lister, ok := r.docker.(volumeLister)
+	if !ok {
+		return nil, nil
+	}
+	return lister.ListOrcaVolumes(ctx)
 }
 
 func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *DesiredState, actual *ActualState) []ApplyResult {
@@ -162,6 +182,11 @@ func (r *Runner) notifyObservers(desired *DesiredState) {
 
 // ActualStateFromContainers converts Docker observations into the reconciler's actual state.
 func ActualStateFromContainers(containers []orcadocker.ContainerInfo) *ActualState {
+	return ActualStateFromDocker(containers, nil)
+}
+
+// ActualStateFromDocker converts Docker container and volume observations into actual state.
+func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orcadocker.VolumeInfo) *ActualState {
 	clusters := make(map[string]*ActualCluster)
 	order := make([]string, 0)
 	for _, container := range containers {
@@ -177,6 +202,7 @@ func ActualStateFromContainers(containers []orcadocker.ContainerInfo) *ActualSta
 			cluster.ContainerId = container.ID
 			cluster.Status = container.Status
 			cluster.Version = postgresVersionFromImage(container.Image)
+			cluster.AppliedParams, _ = postgres.ParseConfig(container.Config)
 		case orcadocker.ContainerKindReplica:
 			cluster.Replicas = append(cluster.Replicas, &ActualReplica{
 				Id: container.ReplicaID, ContainerId: container.ID, Status: container.Status,
@@ -184,6 +210,15 @@ func ActualStateFromContainers(containers []orcadocker.ContainerInfo) *ActualSta
 		case orcadocker.ContainerKindPgBouncer:
 			cluster.PgBouncer = &ActualPgBouncer{ContainerId: container.ID, Status: container.Status, Config: container.Config}
 		}
+	}
+	for _, volume := range volumes {
+		cluster, exists := clusters[volume.ClusterID]
+		if !exists {
+			cluster = &ActualCluster{Id: volume.ClusterID}
+			clusters[volume.ClusterID] = cluster
+			order = append(order, volume.ClusterID)
+		}
+		cluster.VolumeExists = true
 	}
 
 	actual := ActualState{Clusters: make([]*ActualCluster, 0, len(order))}

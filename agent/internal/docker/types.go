@@ -59,3 +59,9 @@ type ContainerInfo struct {
 	Status    string
 	Config    string
 }
+
+// VolumeInfo describes an Orca data volume visible in Docker.
+type VolumeInfo struct {
+	Name      string
+	ClusterID string
+}

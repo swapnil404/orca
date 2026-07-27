@@ -47,8 +47,18 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 	}
 	results := make([]ApplyResult, 0, len(actions))
 	failedReplicaDeletes := make(map[string]error)
+	failedPrimaryActions := make(map[string]error)
 	for _, action := range actions {
 		key := action.ClusterID + "\x00" + action.ReplicaID
+		if action.Type == ActionDeleteReplica || action.Type == ActionCreateReplica {
+			if primaryErr, blocked := failedPrimaryActions[action.ClusterID]; blocked {
+				results = append(results, ApplyResult{
+					Action: action,
+					Err:    fmt.Errorf("replica action blocked by failed primary action in this apply pass: %w", primaryErr),
+				})
+				continue
+			}
+		}
 		if action.Type == ActionCreateReplica {
 			if deleteErr, blocked := failedReplicaDeletes[key]; blocked {
 				results = append(results, ApplyResult{
@@ -66,9 +76,16 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 		if action.Type == ActionDeleteReplica && err != nil {
 			failedReplicaDeletes[key] = err
 		}
+		if isPrimaryAction(action.Type) && err != nil {
+			failedPrimaryActions[action.ClusterID] = err
+		}
 	}
 
 	return results
+}
+
+func isPrimaryAction(actionType ActionType) bool {
+	return actionType == ActionCreatePrimary || actionType == ActionUpdatePrimary || actionType == ActionRecoverPrimary
 }
 
 func applyAction(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
@@ -77,9 +94,25 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 	}
 
 	switch action.Type {
-	case ActionCreatePrimary, ActionUpdatePrimary:
+	case ActionCreatePrimary:
 		spec, err := primaryContainerSpec(action)
-		return createAndStart(ctx, docker, spec, err)
+		if err != nil {
+			return err
+		}
+		cluster, _ := action.Spec.(*ClusterSpec)
+		var params map[string]string
+		if cluster != nil {
+			params = cluster.Params
+		}
+		return createPrimary(ctx, docker, spec, params)
+	case ActionUpdatePrimary:
+		return updatePrimary(ctx, docker, action)
+	case ActionRecoverPrimary:
+		containerID, err := primaryContainerID(action)
+		if err != nil {
+			return err
+		}
+		return docker.StartContainer(ctx, containerID)
 	case ActionCreateReplica:
 		return createReplica(ctx, docker, action, desired)
 	case ActionCreatePgBouncer:
@@ -94,12 +127,10 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 		if !ok {
 			return errors.New("delete_primary action requires ActualCluster")
 		}
-		containerID, err := primaryContainerID(action)
-		if err != nil {
-			return err
-		}
-		if err := stopAndRemove(ctx, docker, containerID); err != nil {
-			return err
+		if cluster.ContainerId != "" {
+			if err := stopAndRemove(ctx, docker, cluster.ContainerId); err != nil {
+				return err
+			}
 		}
 		return docker.RemoveVolume(ctx, orcadocker.VolumeName(cluster.Id))
 	case ActionDeleteReplica:
@@ -138,6 +169,12 @@ type pgBouncerDockerClient interface {
 type extensionDockerClient interface {
 	DockerClient
 	extensions.PrimaryExecutor
+}
+
+type primaryConfigDockerClient interface {
+	DockerClient
+	WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+	ExecContainer(context.Context, string, []string) (string, error)
 }
 
 func createReplica(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
@@ -205,6 +242,17 @@ func createAndStart(ctx context.Context, docker DockerClient, spec orcadocker.Co
 	return docker.StartContainer(ctx, containerID)
 }
 
+func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.ContainerSpec, params map[string]string) error {
+	containerID, err := docker.CreateContainer(ctx, spec)
+	if err != nil {
+		return err
+	}
+	if err := docker.StartContainer(ctx, containerID); err != nil {
+		return err
+	}
+	return markPrimaryParamsApplied(ctx, docker, containerID, spec.ClusterID, params)
+}
+
 func stopAndRemove(ctx context.Context, docker DockerClient, containerID string) error {
 	if containerID == "" {
 		return errors.New("container ID is required")
@@ -214,6 +262,123 @@ func stopAndRemove(ctx context.Context, docker DockerClient, containerID string)
 	}
 
 	return docker.RemoveContainer(ctx, containerID)
+}
+
+func updatePrimary(ctx context.Context, docker DockerClient, action Action) error {
+	update, ok := action.Spec.(*primaryUpdateSpec)
+	if !ok || update.Desired == nil || update.Actual == nil || update.Actual.ContainerId == "" {
+		return errors.New("update_primary action requires desired and actual primary state")
+	}
+	spec, err := primaryContainerSpec(action)
+	if err != nil {
+		return err
+	}
+
+	if update.Desired.Version != update.Actual.Version || update.Actual.AppliedParams == nil && len(update.Desired.Params) > 0 {
+		if err := stopAndRemove(ctx, docker, update.Actual.ContainerId); err != nil {
+			return fmt.Errorf("remove existing primary: %w", err)
+		}
+		return createPrimary(ctx, docker, spec, update.Desired.Params)
+	}
+
+	configDocker, ok := docker.(primaryConfigDockerClient)
+	if !ok {
+		return errors.New("docker client does not support PostgreSQL configuration updates")
+	}
+	if err := configDocker.WriteConfig(ctx, action.ClusterID, spec.Config); err != nil {
+		return fmt.Errorf("write PostgreSQL config: %w", err)
+	}
+	if update.Actual.Status != "running" {
+		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
+			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
+		}
+		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
+			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
+		}
+		return nil
+	}
+	changed := postgres.ChangedParameters(update.Desired.Params, update.Actual.AppliedParams)
+	rollback := func() error {
+		config, renderErr := postgres.RenderConfig(action.ClusterID, update.Actual.AppliedParams)
+		if renderErr != nil {
+			return renderErr
+		}
+		return configDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
+			RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
+		})
+	}
+
+	switch postgres.ClassifyConfigUpdate(changed) {
+	case postgres.ConfigUpdateReload:
+		slog.Info("reloading PostgreSQL configuration", "cluster_id", action.ClusterID)
+		if _, err := configDocker.ExecContainer(ctx, update.Actual.ContainerId, []string{
+			"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_reload_conf();",
+		}); err != nil {
+			return errors.Join(fmt.Errorf("reload PostgreSQL config: %w", err), rollback())
+		}
+		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
+			rollbackErr := rollback()
+			_, reloadErr := configDocker.ExecContainer(ctx, update.Actual.ContainerId, []string{
+				"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_reload_conf();",
+			})
+			return errors.Join(err, rollbackErr, reloadErr)
+		}
+		return nil
+	case postgres.ConfigUpdateRestart:
+		slog.Info("restarting PostgreSQL for configuration change", "cluster_id", action.ClusterID)
+		if err := docker.StopContainer(ctx, update.Actual.ContainerId); err != nil {
+			return errors.Join(err, rollback())
+		}
+		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
+			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
+		}
+		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
+			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
+		}
+		return nil
+	default:
+		return errors.New("unknown PostgreSQL config update method")
+	}
+}
+
+func rollbackPrimaryConfig(ctx context.Context, configDocker primaryConfigDockerClient, docker DockerClient, update *primaryUpdateSpec) error {
+	config, err := postgres.RenderConfig(update.Desired.Id, update.Actual.AppliedParams)
+	if err != nil {
+		return err
+	}
+	writeErr := configDocker.WriteConfig(ctx, update.Desired.Id, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
+	})
+	if writeErr != nil {
+		return writeErr
+	}
+	stopErr := docker.StopContainer(ctx, update.Actual.ContainerId)
+	startErr := docker.StartContainer(ctx, update.Actual.ContainerId)
+	return errors.Join(stopErr, startErr)
+}
+
+func markPrimaryParamsApplied(ctx context.Context, docker DockerClient, containerID, clusterID string, params map[string]string) error {
+	configDocker, ok := docker.(interface {
+		WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+	})
+	if !ok {
+		return nil
+	}
+	if executor, ok := docker.(interface {
+		ExecContainer(context.Context, string, []string) (string, error)
+	}); ok {
+		if err := postgres.WaitForConfigApplied(ctx, executor, containerID, len(params)); err != nil {
+			return err
+		}
+	}
+	config, err := postgres.RenderConfig(clusterID, params)
+	if err != nil {
+		return err
+	}
+	return configDocker.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PostgresAppliedConfigRelativePath,
+		Content:      config,
+	})
 }
 
 func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) error {
@@ -291,10 +456,17 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	}
 
 	cluster, ok := action.Spec.(*ClusterSpec)
+	if update, updateOK := action.Spec.(*primaryUpdateSpec); updateOK {
+		cluster, ok = update.Desired, update.Desired != nil
+	}
 	if !ok {
 		return orcadocker.ContainerSpec{}, fmt.Errorf("%s action requires ClusterSpec", action.Type)
 	}
 
+	config, err := postgres.RenderConfig(cluster.Id, cluster.Params)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, err
+	}
 	return orcadocker.ContainerSpec{
 		ClusterID: cluster.Id,
 		Kind:      orcadocker.ContainerKindPrimary,
@@ -303,7 +475,11 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 			"POSTGRES_HOST_AUTH_METHOD=trust",
 			"PGDATA=" + orcadocker.VolumeMountPath(cluster.Id) + "/primary",
 		},
+		Command:   []string{"postgres", "-c", "config_file=" + orcadocker.PostgresConfigContainerPath},
 		UseVolume: true,
+		Config: &orcadocker.ConfigMount{
+			RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
+		},
 	}, nil
 }
 
@@ -380,7 +556,7 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 func primaryContainerID(action Action) (string, error) {
 	cluster, ok := action.Spec.(*ActualCluster)
 	if !ok {
-		return "", errors.New("delete_primary action requires ActualCluster")
+		return "", fmt.Errorf("%s action requires ActualCluster", action.Type)
 	}
 
 	return cluster.ContainerId, nil
