@@ -13,27 +13,27 @@ import (
 const createCluster = `-- name: CreateCluster :one
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
-    replica_count, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
+    replica_count, replica_ids, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
     pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
     pgbackrest_incr_interval_seconds
 )
 SELECT $1::text, p.id, h.id, $2::text,
        $3::text, $4::jsonb,
-       $5::integer, $6::boolean,
-       $7::boolean, $8::text,
-       $9::integer, $10::integer,
-       $11::bigint, $12::bigint,
-       $13::bigint
+       $5::integer, $6::jsonb, $7::boolean,
+       $8::boolean, $9::text,
+       $10::integer, $11::integer,
+       $12::bigint, $13::bigint,
+       $14::bigint
 FROM projects p
-JOIN hosts h ON h.id = $14 AND h.user_id = $15
-WHERE p.id = $16 AND p.user_id = $15 AND p.deleted_at IS NULL
+JOIN hosts h ON h.id = $15 AND h.user_id = $16
+WHERE p.id = $17 AND p.user_id = $16 AND p.deleted_at IS NULL
 RETURNING id, project_id, host_id, name, postgres_version, parameters,
           replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at,
           pgbackrest_enabled, pgbackrest_repo_path,
           pgbackrest_retention_full, pgbackrest_retention_diff,
           pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
-          pgbackrest_incr_interval_seconds
+          pgbackrest_incr_interval_seconds, replica_ids
 `
 
 type CreateClusterParams struct {
@@ -42,6 +42,7 @@ type CreateClusterParams struct {
 	PostgresVersion               string          `json:"postgres_version"`
 	Parameters                    json.RawMessage `json:"parameters"`
 	ReplicaCount                  int32           `json:"replica_count"`
+	ReplicaIds                    json.RawMessage `json:"replica_ids"`
 	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
@@ -62,6 +63,7 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		arg.PostgresVersion,
 		arg.Parameters,
 		arg.ReplicaCount,
+		arg.ReplicaIds,
 		arg.PgbouncerEnabled,
 		arg.PgbackrestEnabled,
 		arg.PgbackrestRepoPath,
@@ -94,6 +96,7 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		&i.PgbackrestFullIntervalSeconds,
 		&i.PgbackrestDiffIntervalSeconds,
 		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
 	)
 	return i, err
 }
@@ -104,7 +107,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.id = $1 AND p.user_id = $2
@@ -138,6 +141,7 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 		&i.PgbackrestFullIntervalSeconds,
 		&i.PgbackrestDiffIntervalSeconds,
 		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
 	)
 	return i, err
 }
@@ -148,7 +152,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
@@ -189,6 +193,7 @@ func (q *Queries) ListActiveClustersForProject(ctx context.Context, arg ListActi
 			&i.PgbackrestFullIntervalSeconds,
 			&i.PgbackrestDiffIntervalSeconds,
 			&i.PgbackrestIncrIntervalSeconds,
+			&i.ReplicaIds,
 		); err != nil {
 			return nil, err
 		}
@@ -209,7 +214,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
@@ -250,6 +255,7 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 			&i.PgbackrestFullIntervalSeconds,
 			&i.PgbackrestDiffIntervalSeconds,
 			&i.PgbackrestIncrIntervalSeconds,
+			&i.ReplicaIds,
 		); err != nil {
 			return nil, err
 		}
@@ -315,14 +321,15 @@ SET name = $3,
     postgres_version = $4,
     parameters = $5,
     replica_count = $6,
-    pgbouncer_enabled = $7,
-    pgbackrest_enabled = $8,
-    pgbackrest_repo_path = $9,
-    pgbackrest_retention_full = $10,
-    pgbackrest_retention_diff = $11,
-    pgbackrest_full_interval_seconds = $12,
-    pgbackrest_diff_interval_seconds = $13,
-    pgbackrest_incr_interval_seconds = $14,
+    replica_ids = $7,
+    pgbouncer_enabled = $8,
+    pgbackrest_enabled = $9,
+    pgbackrest_repo_path = $10,
+    pgbackrest_retention_full = $11,
+    pgbackrest_retention_diff = $12,
+    pgbackrest_full_interval_seconds = $13,
+    pgbackrest_diff_interval_seconds = $14,
+    pgbackrest_incr_interval_seconds = $15,
     updated_at = NOW()
 FROM projects p
 WHERE c.id = $1 AND c.project_id = p.id AND p.user_id = $2
@@ -332,7 +339,7 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_enabled, c.pgbackrest_repo_path,
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-          c.pgbackrest_incr_interval_seconds
+          c.pgbackrest_incr_interval_seconds, c.replica_ids
 `
 
 type UpdateClusterParams struct {
@@ -342,6 +349,7 @@ type UpdateClusterParams struct {
 	PostgresVersion               string          `json:"postgres_version"`
 	Parameters                    json.RawMessage `json:"parameters"`
 	ReplicaCount                  int32           `json:"replica_count"`
+	ReplicaIds                    json.RawMessage `json:"replica_ids"`
 	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
@@ -360,6 +368,7 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		arg.PostgresVersion,
 		arg.Parameters,
 		arg.ReplicaCount,
+		arg.ReplicaIds,
 		arg.PgbouncerEnabled,
 		arg.PgbackrestEnabled,
 		arg.PgbackrestRepoPath,
@@ -389,6 +398,7 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		&i.PgbackrestFullIntervalSeconds,
 		&i.PgbackrestDiffIntervalSeconds,
 		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
 	)
 	return i, err
 }

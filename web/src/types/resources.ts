@@ -13,6 +13,7 @@ export interface Cluster {
   postgres_version: string
   parameters: Record<string, string>
   replica_count: number
+  replicas: Array<{ id: string }>
   pgbouncer_enabled: boolean
   created_at: string
   updated_at: string

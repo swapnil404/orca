@@ -46,11 +46,26 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 		desired = desiredStates[0]
 	}
 	results := make([]ApplyResult, 0, len(actions))
+	failedReplicaDeletes := make(map[string]error)
 	for _, action := range actions {
+		key := action.ClusterID + "\x00" + action.ReplicaID
+		if action.Type == ActionCreateReplica {
+			if deleteErr, blocked := failedReplicaDeletes[key]; blocked {
+				results = append(results, ApplyResult{
+					Action: action,
+					Err:    fmt.Errorf("create replica blocked by failed delete in this apply pass: %w", deleteErr),
+				})
+				continue
+			}
+		}
+		err := applyAction(ctx, docker, action, desired)
 		results = append(results, ApplyResult{
 			Action: action,
-			Err:    applyAction(ctx, docker, action, desired),
+			Err:    err,
 		})
+		if action.Type == ActionDeleteReplica && err != nil {
+			failedReplicaDeletes[key] = err
+		}
 	}
 
 	return results
@@ -92,7 +107,11 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 		if err != nil {
 			return err
 		}
-		return stopAndRemove(ctx, docker, containerID)
+		replicaDocker, ok := docker.(postgres.ReplicaDockerClient)
+		if !ok {
+			return errors.New("docker client does not support replica cleanup")
+		}
+		return postgres.DeleteReplica(ctx, replicaDocker, action.ClusterID, action.ReplicaID, containerID)
 	case ActionDeletePgBouncer:
 		containerID, err := pgBouncerContainerID(action)
 		if err != nil {
@@ -126,7 +145,7 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	if !ok {
 		return errors.New("docker client does not support replica provisioning")
 	}
-	cluster, index, err := desiredReplica(desired, action.ClusterID, action.ReplicaID)
+	cluster, err := desiredReplica(desired, action.ClusterID, action.ReplicaID)
 	if err != nil {
 		return err
 	}
@@ -150,7 +169,6 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	_, err = postgres.CreateReplica(ctx, replicaDocker, postgres.ReplicaSpec{
 		ClusterID:       cluster.Id,
 		ReplicaID:       action.ReplicaID,
-		Index:           index,
 		PostgresVersion: cluster.Version,
 		Primary: postgres.PrimaryConnectionInfo{
 			Host: addresses[0],
@@ -159,19 +177,19 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	return err
 }
 
-func desiredReplica(desired *DesiredState, clusterID, replicaID string) (*ClusterSpec, int, error) {
+func desiredReplica(desired *DesiredState, clusterID, replicaID string) (*ClusterSpec, error) {
 	for _, cluster := range desired.Clusters {
 		if cluster == nil || cluster.Id != clusterID {
 			continue
 		}
-		for index, replica := range cluster.Replicas {
+		for _, replica := range cluster.Replicas {
 			if replica != nil && replica.Id == replicaID {
-				return cluster, index + 1, nil
+				return cluster, nil
 			}
 		}
-		return nil, 0, fmt.Errorf("replica %q is not desired for cluster %q", replicaID, clusterID)
+		return nil, fmt.Errorf("replica %q is not desired for cluster %q", replicaID, clusterID)
 	}
-	return nil, 0, fmt.Errorf("cluster %q is not desired", clusterID)
+	return nil, fmt.Errorf("cluster %q is not desired", clusterID)
 }
 
 func createAndStart(ctx context.Context, docker DockerClient, spec orcadocker.ContainerSpec, specErr error) error {
@@ -309,17 +327,29 @@ func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		return orcadocker.ContainerSpec{}, errors.New("create_replica action requires ReplicaSpec")
 	}
 
-	return orcadocker.ContainerSpec{
+	identity, err := postgres.DeriveReplicaIdentity(action.ClusterID, replica.Id)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, err
+	}
+	containerSpec := orcadocker.ContainerSpec{
 		ClusterID: action.ClusterID,
 		Kind:      orcadocker.ContainerKindReplica,
 		ReplicaID: replica.Id,
 		Image:     postgresImage(""),
 		Env: []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"PGDATA=" + orcadocker.VolumeMountPath(action.ClusterID) + "/replicas/" + replica.Id,
+			"PGDATA=" + identity.DataPath,
 		},
 		UseVolume: true,
-	}, nil
+	}
+	name, err := orcadocker.ContainerName(containerSpec)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, err
+	}
+	if name != identity.ContainerName {
+		return orcadocker.ContainerSpec{}, errors.New("replica container identity is inconsistent")
+	}
+	return containerSpec, nil
 }
 
 func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {

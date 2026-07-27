@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,9 +30,35 @@ type PrimaryConnectionInfo struct {
 type ReplicaSpec struct {
 	ClusterID       string
 	ReplicaID       string
-	Index           int
 	Primary         PrimaryConnectionInfo
 	PostgresVersion string
+}
+
+// ReplicaIdentity contains every resource name derived from a stable replica ID.
+type ReplicaIdentity struct {
+	ContainerName string
+	DataPath      string
+	SlotName      string
+}
+
+// DeriveReplicaIdentity derives all persistent replica resource names from one stable ID.
+func DeriveReplicaIdentity(clusterID, replicaID string) (ReplicaIdentity, error) {
+	if replicaID == "" || filepath.Base(replicaID) != replicaID || replicaID == "." || replicaID == ".." {
+		return ReplicaIdentity{}, errors.New("replica ID must be a non-empty path segment")
+	}
+	containerName, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: clusterID,
+		Kind:      orcadocker.ContainerKindReplica,
+		ReplicaID: replicaID,
+	})
+	if err != nil {
+		return ReplicaIdentity{}, err
+	}
+	return ReplicaIdentity{
+		ContainerName: containerName,
+		DataPath:      fmt.Sprintf("%s/replicas/%s", orcadocker.VolumeMountPath(clusterID), replicaID),
+		SlotName:      "replica_" + hex.EncodeToString([]byte(replicaID)),
+	}, nil
 }
 
 // ReplicaDockerClient is the Docker functionality required to create a replica.
@@ -45,14 +73,14 @@ type ReplicaDockerClient interface {
 // ReplicaBootstrapError reports a failed pg_basebackup and any cleanup failure.
 type ReplicaBootstrapError struct {
 	ClusterID  string
-	Index      int
+	ReplicaID  string
 	Err        error
 	CleanupErr error
 }
 
 // Error returns a readable replica bootstrap failure.
 func (e *ReplicaBootstrapError) Error() string {
-	message := fmt.Sprintf("bootstrap replica %d for cluster %q with pg_basebackup: %v", e.Index, e.ClusterID, e.Err)
+	message := fmt.Sprintf("bootstrap replica %q for cluster %q with pg_basebackup: %v", e.ReplicaID, e.ClusterID, e.Err)
 	if e.CleanupErr != nil {
 		message += fmt.Sprintf("; cleanup failed: %v", e.CleanupErr)
 	}
@@ -73,8 +101,15 @@ func CreateReplica(ctx context.Context, docker ReplicaDockerClient, spec Replica
 		return "", err
 	}
 
-	dataPath := replicaDataPath(spec)
-	bootstrapSpec := replicaContainerSpec(spec, true)
+	identity, err := DeriveReplicaIdentity(spec.ClusterID, spec.ReplicaID)
+	if err != nil {
+		return "", err
+	}
+	dataPath := identity.DataPath
+	bootstrapSpec, err := replicaContainerSpec(spec, identity, true)
+	if err != nil {
+		return "", err
+	}
 	bootstrapID, err := docker.CreateContainer(ctx, bootstrapSpec)
 	if err != nil {
 		return "", fmt.Errorf("create replica bootstrap container: %w", err)
@@ -88,15 +123,15 @@ func CreateReplica(ctx context.Context, docker ReplicaDockerClient, spec Replica
 		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, dataPath)
 		return "", errors.Join(fmt.Errorf("prepare replica data directory: %w", err), cleanupErr)
 	}
-	if _, err := docker.ExecContainer(ctx, bootstrapID, baseBackupCommand(spec)); err != nil {
+	if _, err := docker.ExecContainer(ctx, bootstrapID, baseBackupCommand(spec, identity)); err != nil {
 		return "", &ReplicaBootstrapError{
 			ClusterID:  spec.ClusterID,
-			Index:      spec.Index,
+			ReplicaID:  spec.ReplicaID,
 			Err:        err,
 			CleanupErr: cleanupBootstrap(ctx, docker, bootstrapID, dataPath),
 		}
 	}
-	if _, err := docker.ExecContainer(ctx, bootstrapID, writeRecoveryConfigCommand(dataPath, recoveryConfig(spec))); err != nil {
+	if _, err := docker.ExecContainer(ctx, bootstrapID, writeRecoveryConfigCommand(dataPath, recoveryConfig(spec, identity))); err != nil {
 		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, dataPath)
 		return "", errors.Join(fmt.Errorf("write replica recovery config: %w", err), cleanupErr)
 	}
@@ -104,7 +139,11 @@ func CreateReplica(ctx context.Context, docker ReplicaDockerClient, spec Replica
 		return "", fmt.Errorf("remove replica bootstrap container: %w", err)
 	}
 
-	replicaID, err := docker.CreateContainer(ctx, replicaContainerSpec(spec, false))
+	replicaSpec, err := replicaContainerSpec(spec, identity, false)
+	if err != nil {
+		return "", err
+	}
+	replicaID, err := docker.CreateContainer(ctx, replicaSpec)
 	if err != nil {
 		return "", fmt.Errorf("create replica container: %w", err)
 	}
@@ -120,9 +159,6 @@ func validateReplicaSpec(spec ReplicaSpec) error {
 	if spec.ClusterID == "" {
 		return errors.New("cluster ID is required")
 	}
-	if spec.Index < 1 {
-		return errors.New("replica index must be greater than zero")
-	}
 	if spec.ReplicaID == "" {
 		return errors.New("replica ID is required")
 	}
@@ -135,7 +171,7 @@ func validateReplicaSpec(spec ReplicaSpec) error {
 	return nil
 }
 
-func replicaContainerSpec(spec ReplicaSpec, bootstrap bool) orcadocker.ContainerSpec {
+func replicaContainerSpec(spec ReplicaSpec, identity ReplicaIdentity, bootstrap bool) (orcadocker.ContainerSpec, error) {
 	replicaID := spec.ReplicaID
 	command := []string(nil)
 	if bootstrap {
@@ -143,18 +179,30 @@ func replicaContainerSpec(spec ReplicaSpec, bootstrap bool) orcadocker.Container
 		command = []string{"sleep", "infinity"}
 	}
 
-	return orcadocker.ContainerSpec{
+	containerSpec := orcadocker.ContainerSpec{
 		ClusterID: spec.ClusterID,
 		Kind:      orcadocker.ContainerKindReplica,
 		ReplicaID: replicaID,
 		Image:     postgresImageForVersion(spec.PostgresVersion),
 		Env: []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"PGDATA=" + replicaDataPath(spec),
+			"PGDATA=" + identity.DataPath,
 		},
 		Command:   command,
 		UseVolume: true,
 	}
+	name, err := orcadocker.ContainerName(containerSpec)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, err
+	}
+	expectedName := identity.ContainerName
+	if bootstrap {
+		expectedName += bootstrapSuffix
+	}
+	if name != expectedName {
+		return orcadocker.ContainerSpec{}, errors.New("replica container identity is inconsistent")
+	}
+	return containerSpec, nil
 }
 
 func postgresImageForVersion(version string) string {
@@ -162,14 +210,6 @@ func postgresImageForVersion(version string) string {
 		return defaultPostgresImage
 	}
 	return "postgres:" + version
-}
-
-func replicaDataPath(spec ReplicaSpec) string {
-	return fmt.Sprintf("%s/replica-%d", orcadocker.VolumeMountPath(spec.ClusterID), spec.Index)
-}
-
-func replicaSlotName(index int) string {
-	return fmt.Sprintf("replica_%d", index)
 }
 
 func prepareReplicaDataCommand(dataPath string) []string {
@@ -180,7 +220,7 @@ func prepareReplicaDataCommand(dataPath string) []string {
 	}
 }
 
-func baseBackupCommand(spec ReplicaSpec) []string {
+func baseBackupCommand(spec ReplicaSpec, identity ReplicaIdentity) []string {
 	port := spec.Primary.Port
 	if port == 0 {
 		port = defaultPostgresPort
@@ -196,15 +236,15 @@ func baseBackupCommand(spec ReplicaSpec) []string {
 		"--host", spec.Primary.Host,
 		"--port", strconv.Itoa(port),
 		"--username", user,
-		"--pgdata", replicaDataPath(spec),
-		"--slot", replicaSlotName(spec.Index),
+		"--pgdata", identity.DataPath,
+		"--slot", identity.SlotName,
 		"--wal-method", "stream",
 		"--checkpoint", "fast",
 		"--no-password",
 	}
 }
 
-func recoveryConfig(spec ReplicaSpec) string {
+func recoveryConfig(spec ReplicaSpec, identity ReplicaIdentity) string {
 	port := spec.Primary.Port
 	if port == 0 {
 		port = defaultPostgresPort
@@ -218,7 +258,7 @@ func recoveryConfig(spec ReplicaSpec) string {
 	return fmt.Sprintf(
 		"primary_conninfo = %s\nprimary_slot_name = %s\n",
 		quotePostgresConfig(conninfo),
-		quotePostgresConfig(replicaSlotName(spec.Index)),
+		quotePostgresConfig(identity.SlotName),
 	)
 }
 

@@ -1,14 +1,14 @@
 -- name: CreateCluster :one
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
-    replica_count, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
+    replica_count, replica_ids, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
     pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
     pgbackrest_incr_interval_seconds
 )
 SELECT sqlc.arg(cluster_id)::text, p.id, h.id, sqlc.arg(name)::text,
        sqlc.arg(postgres_version)::text, sqlc.arg(parameters)::jsonb,
-       sqlc.arg(replica_count)::integer, sqlc.arg(pgbouncer_enabled)::boolean,
+       sqlc.arg(replica_count)::integer, sqlc.arg(replica_ids)::jsonb, sqlc.arg(pgbouncer_enabled)::boolean,
        sqlc.arg(pgbackrest_enabled)::boolean, sqlc.arg(pgbackrest_repo_path)::text,
        sqlc.arg(pgbackrest_retention_full)::integer, sqlc.arg(pgbackrest_retention_diff)::integer,
        sqlc.arg(pgbackrest_full_interval_seconds)::bigint, sqlc.arg(pgbackrest_diff_interval_seconds)::bigint,
@@ -21,7 +21,7 @@ RETURNING id, project_id, host_id, name, postgres_version, parameters,
           pgbackrest_enabled, pgbackrest_repo_path,
           pgbackrest_retention_full, pgbackrest_retention_diff,
           pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
-          pgbackrest_incr_interval_seconds;
+          pgbackrest_incr_interval_seconds, replica_ids;
 
 -- name: ListClusters :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
@@ -29,7 +29,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
@@ -42,7 +42,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.id = $1 AND p.user_id = $2
@@ -54,14 +54,15 @@ SET name = $3,
     postgres_version = $4,
     parameters = $5,
     replica_count = $6,
-    pgbouncer_enabled = $7,
-    pgbackrest_enabled = $8,
-    pgbackrest_repo_path = $9,
-    pgbackrest_retention_full = $10,
-    pgbackrest_retention_diff = $11,
-    pgbackrest_full_interval_seconds = $12,
-    pgbackrest_diff_interval_seconds = $13,
-    pgbackrest_incr_interval_seconds = $14,
+    replica_ids = $7,
+    pgbouncer_enabled = $8,
+    pgbackrest_enabled = $9,
+    pgbackrest_repo_path = $10,
+    pgbackrest_retention_full = $11,
+    pgbackrest_retention_diff = $12,
+    pgbackrest_full_interval_seconds = $13,
+    pgbackrest_diff_interval_seconds = $14,
+    pgbackrest_incr_interval_seconds = $15,
     updated_at = NOW()
 FROM projects p
 WHERE c.id = $1 AND c.project_id = p.id AND p.user_id = $2
@@ -71,7 +72,7 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_enabled, c.pgbackrest_repo_path,
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-          c.pgbackrest_incr_interval_seconds;
+          c.pgbackrest_incr_interval_seconds, c.replica_ids;
 
 -- name: SoftDeleteCluster :one
 UPDATE clusters c
@@ -87,7 +88,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds
+       c.pgbackrest_incr_interval_seconds, c.replica_ids
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id = $1 AND p.user_id = $2
