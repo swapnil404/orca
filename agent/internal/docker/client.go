@@ -31,6 +31,12 @@ const (
 	PgBouncerConfigRelativePath = "pgbouncer/pgbouncer.ini"
 	// PgBouncerConfigContainerPath is where the generated INI is mounted in PgBouncer.
 	PgBouncerConfigContainerPath = "/etc/pgbouncer/pgbouncer.ini"
+	// PostgresConfigRelativePath is the generated PostgreSQL include path.
+	PostgresConfigRelativePath = "postgres/postgresql.conf"
+	// PostgresConfigContainerPath is where the generated include is mounted.
+	PostgresConfigContainerPath = "/etc/orca/postgresql.conf"
+	// PostgresAppliedConfigRelativePath records the last successfully applied parameters.
+	PostgresAppliedConfigRelativePath = "postgres/applied.conf"
 )
 
 type sdkClient interface {
@@ -56,6 +62,10 @@ type inspectSDKClient interface {
 
 type restartSDKClient interface {
 	ContainerRestart(ctx context.Context, containerID string, options containertypes.StopOptions) error
+}
+
+type volumeListSDKClient interface {
+	VolumeList(ctx context.Context, options volumetypes.ListOptions) (volumetypes.ListResponse, error)
 }
 
 // Client implements DockerClient using the official Docker SDK for Go.
@@ -376,10 +386,17 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 	for _, container := range containers {
 		info, ok := parseContainerSummary(container)
 		if ok {
-			if info.Kind == ContainerKindPgBouncer {
-				config, err := readConfig(c.dataRoot, info.ClusterID, PgBouncerConfigRelativePath)
+			configPath := ""
+			switch info.Kind {
+			case ContainerKindPrimary:
+				configPath = PostgresAppliedConfigRelativePath
+			case ContainerKindPgBouncer:
+				configPath = PgBouncerConfigRelativePath
+			}
+			if configPath != "" {
+				config, err := readConfig(c.dataRoot, info.ClusterID, configPath)
 				if err != nil {
-					return nil, fmt.Errorf("read PgBouncer config for cluster %q: %w", info.ClusterID, err)
+					return nil, fmt.Errorf("read config for cluster %q: %w", info.ClusterID, err)
 				}
 				info.Config = config
 			}
@@ -388,6 +405,33 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 	}
 
 	return infos, nil
+}
+
+// ListOrcaVolumes lists named Orca cluster data volumes.
+func (c *Client) ListOrcaVolumes(ctx context.Context) ([]VolumeInfo, error) {
+	if c.sdk == nil {
+		return nil, errors.New("docker client is nil")
+	}
+	sdk, ok := c.sdk.(volumeListSDKClient)
+	if !ok {
+		return nil, errors.New("docker client does not support volume listing")
+	}
+	volumes, err := sdk.VolumeList(ctx, volumetypes.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]VolumeInfo, 0, len(volumes.Volumes))
+	for _, volume := range volumes.Volumes {
+		if volume == nil || !strings.HasPrefix(volume.Name, orcaNamePrefix) {
+			continue
+		}
+		clusterID, ok := strings.CutSuffix(strings.TrimPrefix(volume.Name, orcaNamePrefix), "-data")
+		if ok && clusterID != "" {
+			result = append(result, VolumeInfo{Name: volume.Name, ClusterID: clusterID})
+		}
+	}
+	return result, nil
 }
 
 // ContainerName returns the Docker container name for an Orca container spec.

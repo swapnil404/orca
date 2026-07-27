@@ -81,6 +81,8 @@ message ActualCluster {
   optional ActualPgBouncer pg_bouncer = 6;
   optional ActualBackup backup = 7;
   repeated string enabled_extensions = 8;
+  map<string, string> applied_params = 9;
+  bool volume_exists = 10;
 }
 
 // ActualReplica describes an observed Postgres replica.

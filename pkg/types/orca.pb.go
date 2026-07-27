@@ -674,6 +674,8 @@ type ActualCluster struct {
 	PgBouncer         *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
 	Backup            *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
 	EnabledExtensions []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	AppliedParams     map[string]string      `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	VolumeExists      bool                   `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -762,6 +764,20 @@ func (x *ActualCluster) GetEnabledExtensions() []string {
 		return x.EnabledExtensions
 	}
 	return nil
+}
+
+func (x *ActualCluster) GetAppliedParams() map[string]string {
+	if x != nil {
+		return x.AppliedParams
+	}
+	return nil
+}
+
+func (x *ActualCluster) GetVolumeExists() bool {
+	if x != nil {
+		return x.VolumeExists
+	}
+	return false
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -1228,7 +1244,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xe3\x02\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\x9c\x04\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1238,7 +1254,13 @@ const file_orca_proto_rawDesc = "" +
 	"\n" +
 	"pg_bouncer\x18\x06 \x01(\v2\x18.orca.v1.ActualPgBouncerH\x00R\tpgBouncer\x88\x01\x01\x122\n" +
 	"\x06backup\x18\a \x01(\v2\x15.orca.v1.ActualBackupH\x01R\x06backup\x88\x01\x01\x12-\n" +
-	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensionsB\r\n" +
+	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensions\x12P\n" +
+	"\x0eapplied_params\x18\t \x03(\v2).orca.v1.ActualCluster.AppliedParamsEntryR\rappliedParams\x12#\n" +
+	"\rvolume_exists\x18\n" +
+	" \x01(\bR\fvolumeExists\x1a@\n" +
+	"\x12AppliedParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
 	"\v_pg_bouncerB\t\n" +
 	"\a_backup\"\xba\x03\n" +
 	"\rActualReplica\x12\x0e\n" +
@@ -1297,7 +1319,7 @@ func file_orca_proto_rawDescGZIP() []byte {
 }
 
 var file_orca_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_orca_proto_goTypes = []any{
 	(ClusterStatus)(0),          // 0: orca.v1.ClusterStatus
 	(*DesiredStateMessage)(nil), // 1: orca.v1.DesiredStateMessage
@@ -1318,6 +1340,7 @@ var file_orca_proto_goTypes = []any{
 	(*HostMetrics)(nil),         // 16: orca.v1.HostMetrics
 	(*ClusterHealth)(nil),       // 17: orca.v1.ClusterHealth
 	nil,                         // 18: orca.v1.ClusterSpec.ParamsEntry
+	nil,                         // 19: orca.v1.ActualCluster.AppliedParamsEntry
 }
 var file_orca_proto_depIdxs = []int32{
 	3,  // 0: orca.v1.DesiredStateMessage.desired_state:type_name -> orca.v1.DesiredState
@@ -1334,14 +1357,15 @@ var file_orca_proto_depIdxs = []int32{
 	12, // 11: orca.v1.ActualCluster.replicas:type_name -> orca.v1.ActualReplica
 	13, // 12: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
 	14, // 13: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
-	16, // 14: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
-	17, // 15: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
-	0,  // 16: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	19, // 14: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
+	16, // 15: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
+	17, // 16: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
+	0,  // 17: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_orca_proto_init() }
@@ -1360,7 +1384,7 @@ func file_orca_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orca_proto_rawDesc), len(file_orca_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
