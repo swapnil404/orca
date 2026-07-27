@@ -147,6 +147,7 @@ func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *Desir
 			if len(desiredCluster.EnabledExtensions) > 0 {
 				results = append(results, ApplyResult{
 					Action: action,
+					Status: ApplyStatusFailed,
 					Err:    fmt.Errorf("docker client does not support extension reconciliation"),
 				})
 			}
@@ -154,7 +155,7 @@ func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *Desir
 		}
 		installed, err := extensions.Installed(ctx, r.extensions, cluster.ContainerId)
 		if err != nil {
-			results = append(results, ApplyResult{Action: action, Err: err})
+			results = append(results, ApplyResult{Action: action, Status: ApplyStatusFailed, Err: err})
 			continue
 		}
 		cluster.EnabledExtensions = installed
