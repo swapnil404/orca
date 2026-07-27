@@ -16,9 +16,22 @@ import (
 // DockerClient is the Docker wrapper interface used by Apply.
 type DockerClient = orcadocker.DockerClient
 
+// ApplyStatus identifies the outcome of an apply action.
+type ApplyStatus string
+
+const (
+	// ApplyStatusSuccess means the action completed successfully.
+	ApplyStatusSuccess ApplyStatus = "success"
+	// ApplyStatusFailed means the action was attempted and failed.
+	ApplyStatusFailed ApplyStatus = "failed"
+	// ApplyStatusSkippedDependency means the action was not attempted because a prerequisite failed.
+	ApplyStatusSkippedDependency ApplyStatus = "skipped_due_to_dependency"
+)
+
 // ApplyResult reports the outcome of executing one action.
 type ApplyResult struct {
 	Action Action
+	Status ApplyStatus
 	Err    error
 }
 
@@ -32,9 +45,11 @@ func (r ApplyResult) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(struct {
 		Action Action
+		Status ApplyStatus
 		Err    *string
 	}{
 		Action: r.Action,
+		Status: r.Status,
 		Err:    applyError,
 	})
 }
@@ -47,23 +62,23 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 	}
 	results := make([]ApplyResult, 0, len(actions))
 	failedReplicaDeletes := make(map[string]error)
-	failedPrimaryActions := make(map[string]error)
+	failedPrimaryActions := make(map[string]struct{})
 	for _, action := range actions {
 		key := action.ClusterID + "\x00" + action.ReplicaID
-		if action.Type == ActionDeleteReplica || action.Type == ActionCreateReplica {
-			if primaryErr, blocked := failedPrimaryActions[action.ClusterID]; blocked {
+		if isPrimaryDependentAction(action.Type) {
+			if _, blocked := failedPrimaryActions[action.ClusterID]; blocked {
 				results = append(results, ApplyResult{
 					Action: action,
-					Err:    fmt.Errorf("replica action blocked by failed primary action in this apply pass: %w", primaryErr),
+					Status: ApplyStatusSkippedDependency,
 				})
 				continue
 			}
 		}
 		if action.Type == ActionCreateReplica {
-			if deleteErr, blocked := failedReplicaDeletes[key]; blocked {
+			if _, blocked := failedReplicaDeletes[key]; blocked {
 				results = append(results, ApplyResult{
 					Action: action,
-					Err:    fmt.Errorf("create replica blocked by failed delete in this apply pass: %w", deleteErr),
+					Status: ApplyStatusSkippedDependency,
 				})
 				continue
 			}
@@ -71,21 +86,33 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 		err := applyAction(ctx, docker, action, desired)
 		results = append(results, ApplyResult{
 			Action: action,
+			Status: applyStatus(err),
 			Err:    err,
 		})
 		if action.Type == ActionDeleteReplica && err != nil {
 			failedReplicaDeletes[key] = err
 		}
-		if isPrimaryAction(action.Type) && err != nil {
-			failedPrimaryActions[action.ClusterID] = err
+		if isPrimaryMutation(action.Type) && err != nil {
+			failedPrimaryActions[action.ClusterID] = struct{}{}
 		}
 	}
 
 	return results
 }
 
-func isPrimaryAction(actionType ActionType) bool {
-	return actionType == ActionCreatePrimary || actionType == ActionUpdatePrimary || actionType == ActionRecoverPrimary
+func applyStatus(err error) ApplyStatus {
+	if err != nil {
+		return ApplyStatusFailed
+	}
+	return ApplyStatusSuccess
+}
+
+func isPrimaryMutation(actionType ActionType) bool {
+	return actionType == ActionCreatePrimary || actionType == ActionUpdatePrimary
+}
+
+func isPrimaryDependentAction(actionType ActionType) bool {
+	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer
 }
 
 func applyAction(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
