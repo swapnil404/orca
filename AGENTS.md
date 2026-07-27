@@ -125,7 +125,7 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 | Variable | Used by | Description |
 |---|---|---|
 | `ORCA_TOKEN` | agent | Auth token for the agent-server tunnel |
-| `ORCA_SERVER_URL` | agent | WebSocket URL of the orchestration server |
+| `ORCA_SERVER_URL` | agent, server | Agent-facing WebSocket URL of the orchestration server; the server uses it in host registration commands |
 | `ORCA_DATA_DIR` | agent | Host path for data volumes |
 | `ORCA_JWT_SECRET` | server | Secret for signing tokens |
 | `DATABASE_URL` | server | Postgres connection string for the server's own metadata DB |
