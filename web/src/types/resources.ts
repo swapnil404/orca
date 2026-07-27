@@ -14,6 +14,7 @@ export interface Cluster {
   parameters: Record<string, string>
   replica_count: number
   replicas: Array<{ id: string }>
+  enabled_extensions: string[]
   pgbouncer_enabled: boolean
   created_at: string
   updated_at: string
@@ -25,6 +26,7 @@ export interface ClusterInput {
   postgres_version: string
   parameters: Record<string, string>
   replica_count: number
+  enabled_extensions: string[]
   pgbouncer_enabled: boolean
 }
 

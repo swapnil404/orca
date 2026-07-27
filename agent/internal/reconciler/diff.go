@@ -56,6 +56,7 @@ type extensionUpdateSpec struct {
 	Desired []string
 	Actual  *ActualCluster
 	Actions []extensions.Action
+	DiffErr error `json:"-"`
 }
 
 // Diff computes the reconciliation actions required to make actual match desired.
@@ -250,7 +251,15 @@ func diffExtensions(desired *ClusterSpec, actual *ActualCluster) []Action {
 		return nil
 	}
 	extensionActions, err := extensions.Diff(desired.EnabledExtensions, actual.EnabledExtensions)
-	if err != nil || len(extensionActions) == 0 {
+	if err != nil {
+		return []Action{{
+			Type: ActionUpdateExtensions, ClusterID: desired.Id,
+			Spec: &extensionUpdateSpec{
+				Desired: append([]string(nil), desired.EnabledExtensions...), Actual: actual, DiffErr: err,
+			},
+		}}
+	}
+	if len(extensionActions) == 0 {
 		return nil
 	}
 
@@ -274,6 +283,9 @@ func extensionUpdate(action Action) (*extensionUpdateSpec, error) {
 	update, ok := action.Spec.(*extensionUpdateSpec)
 	if !ok || update.Actual == nil || update.Actual.ContainerId == "" {
 		return nil, fmt.Errorf("%s action requires extension update state", action.Type)
+	}
+	if update.DiffErr != nil {
+		return nil, update.DiffErr
 	}
 	return update, nil
 }
