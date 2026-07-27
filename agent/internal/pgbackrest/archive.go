@@ -23,7 +23,7 @@ func ConfigureWALArchiving(ctx context.Context, executor PrimaryExecutor, desire
 	if executor == nil {
 		return errors.New("executor is nil")
 	}
-	if _, err := GeneratePgBackRestConfig(*desired); err != nil {
+	if _, err := GeneratePgBackRestConfig(desired); err != nil {
 		return err
 	}
 

@@ -40,9 +40,9 @@ func (r ApplyResult) MarshalJSON() ([]byte, error) {
 }
 
 // Apply executes every action against Docker and reports each result.
-func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredStates ...DesiredState) []ApplyResult {
-	var desired DesiredState
-	if len(desiredStates) > 0 {
+func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredStates ...*DesiredState) []ApplyResult {
+	desired := &DesiredState{}
+	if len(desiredStates) > 0 && desiredStates[0] != nil {
 		desired = desiredStates[0]
 	}
 	results := make([]ApplyResult, 0, len(actions))
@@ -56,7 +56,7 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 	return results
 }
 
-func applyAction(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
+func applyAction(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
 	if docker == nil {
 		return errors.New("docker client is nil")
 	}
@@ -121,7 +121,7 @@ type extensionDockerClient interface {
 	extensions.PrimaryExecutor
 }
 
-func createReplica(ctx context.Context, docker DockerClient, action Action, desired DesiredState) error {
+func createReplica(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
 	replicaDocker, ok := docker.(replicaDockerClient)
 	if !ok {
 		return errors.New("docker client does not support replica provisioning")
@@ -159,7 +159,7 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	return err
 }
 
-func desiredReplica(desired DesiredState, clusterID, replicaID string) (*ClusterSpec, int, error) {
+func desiredReplica(desired *DesiredState, clusterID, replicaID string) (*ClusterSpec, int, error) {
 	for _, cluster := range desired.Clusters {
 		if cluster == nil || cluster.Id != clusterID {
 			continue
@@ -330,7 +330,7 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if !ok {
 		return orcadocker.ContainerSpec{}, fmt.Errorf("%s action requires ClusterSpec", action.Type)
 	}
-	config, err := pgbouncer.GeneratePgBouncerConfig(*cluster)
+	config, err := pgbouncer.GeneratePgBouncerConfig(cluster)
 	if err != nil {
 		return orcadocker.ContainerSpec{}, err
 	}

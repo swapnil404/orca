@@ -51,7 +51,7 @@ type extensionUpdateSpec struct {
 }
 
 // Diff computes the reconciliation actions required to make actual match desired.
-func Diff(desired DesiredState, actual ActualState) []Action {
+func Diff(desired *DesiredState, actual *ActualState) []Action {
 	actions := []Action{}
 	actualClusters := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
@@ -251,7 +251,7 @@ func diffExtensions(desired *ClusterSpec, actual *ActualCluster) []Action {
 }
 
 func generatedPgBouncerConfig(desired *ClusterSpec) (string, bool) {
-	config, err := pgbouncer.GeneratePgBouncerConfig(*desired)
+	config, err := pgbouncer.GeneratePgBouncerConfig(desired)
 	return config, err == nil
 }
 

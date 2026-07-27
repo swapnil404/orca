@@ -14,8 +14,8 @@ const DefaultPath = "/var/orca/state/desired.json"
 
 // StateCache persists the desired state used by reconciliation.
 type StateCache interface {
-	Save(ctx context.Context, state DesiredState) error
-	Load(ctx context.Context) (DesiredState, error)
+	Save(ctx context.Context, state *DesiredState) error
+	Load(ctx context.Context) (*DesiredState, error)
 }
 
 // FileCache stores desired state as a JSON file.
@@ -35,7 +35,7 @@ func NewFileCache(path string) *FileCache {
 }
 
 // Save atomically writes the desired state to disk.
-func (c *FileCache) Save(ctx context.Context, state DesiredState) error {
+func (c *FileCache) Save(ctx context.Context, state *DesiredState) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -84,25 +84,25 @@ func (c *FileCache) Save(ctx context.Context, state DesiredState) error {
 }
 
 // Load reads the desired state from disk. A missing file is an empty state.
-func (c *FileCache) Load(ctx context.Context) (DesiredState, error) {
+func (c *FileCache) Load(ctx context.Context) (*DesiredState, error) {
 	if err := ctx.Err(); err != nil {
-		return DesiredState{}, err
+		return nil, err
 	}
 
 	data, err := os.ReadFile(c.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return DesiredState{}, nil
+		return &DesiredState{}, nil
 	}
 	if err != nil {
-		return DesiredState{}, fmt.Errorf("read desired state: %w", err)
+		return nil, fmt.Errorf("read desired state: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return DesiredState{}, err
+		return nil, err
 	}
 
-	var state DesiredState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return DesiredState{}, fmt.Errorf("decode desired state: %w", err)
+	state := &DesiredState{}
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, fmt.Errorf("decode desired state: %w", err)
 	}
 
 	return state, nil

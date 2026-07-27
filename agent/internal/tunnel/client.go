@@ -24,7 +24,7 @@ const (
 )
 
 type reconcileRunner interface {
-	Reconcile(context.Context, reconciler.DesiredState) (reconciler.Pass, error)
+	Reconcile(context.Context, *reconciler.DesiredState) (reconciler.Pass, error)
 	ReconcileCached(context.Context) (reconciler.Pass, error)
 }
 
@@ -180,7 +180,7 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 			if message.GetDesiredState() == nil {
 				return reconciled, errors.New("desired state is required")
 			}
-			pass, err := c.runner.Reconcile(ctx, *message.GetDesiredState())
+			pass, err := c.runner.Reconcile(ctx, message.GetDesiredState())
 			if err != nil {
 				return reconciled, fmt.Errorf("reconcile desired state: %w", err)
 			}

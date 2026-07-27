@@ -45,9 +45,12 @@ func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers
 }
 
 // Reconcile saves a complete desired state and reconciles Docker against the cached copy.
-func (r *Runner) Reconcile(ctx context.Context, desired DesiredState) (Pass, error) {
+func (r *Runner) Reconcile(ctx context.Context, desired *DesiredState) (Pass, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if desired == nil {
+		return Pass{}, fmt.Errorf("desired state is nil")
+	}
 
 	if err := r.cache.Save(ctx, desired); err != nil {
 		return Pass{}, err
@@ -55,10 +58,10 @@ func (r *Runner) Reconcile(ctx context.Context, desired DesiredState) (Pass, err
 	// Scheduling changes, especially removals, take effect once the snapshot is
 	// durable even if Docker observation fails. A successful pass notifies again
 	// so idempotent setup is retried after newly desired primaries are created.
-	r.notifyObservers(&desired)
+	r.notifyObservers(desired)
 	pass, err := r.reconcileDesired(ctx, desired)
 	if err == nil {
-		r.notifyObservers(&desired)
+		r.notifyObservers(desired)
 	}
 	return pass, err
 }
@@ -73,19 +76,19 @@ func (r *Runner) ReconcileCached(ctx context.Context) (Pass, error) {
 	}
 	pass, err := r.reconcileDesired(ctx, desired)
 	if err == nil {
-		r.notifyObservers(&desired)
+		r.notifyObservers(desired)
 	}
 	return pass, err
 }
 
-func (r *Runner) reconcileDesired(ctx context.Context, desired DesiredState) (Pass, error) {
+func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (Pass, error) {
 	containers, err := r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
 	}
 
 	actual := ActualStateFromContainers(containers)
-	observationResults := r.populateInstalledExtensions(ctx, desired, &actual)
+	observationResults := r.populateInstalledExtensions(ctx, desired, actual)
 	actions := Diff(desired, actual)
 	results := Apply(ctx, r.docker, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
@@ -93,16 +96,16 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired DesiredState) (Pa
 		return Pass{}, err
 	}
 	actual = ActualStateFromContainers(containers)
-	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, &actual)...)
+	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, actual)...)
 	extensionResults := Apply(ctx, r.docker, extensionOnlyActions(Diff(desired, actual)), desired)
 	results = append(observationResults, results...)
 	results = append(results, extensionResults...)
-	results = append(results, r.populateInstalledExtensions(ctx, desired, &actual)...)
-	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, &actual)
+	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
+	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, actual)
 	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
 }
 
-func (r *Runner) populateInstalledExtensions(ctx context.Context, desired DesiredState, actual *ActualState) []ApplyResult {
+func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *DesiredState, actual *ActualState) []ApplyResult {
 	desiredByID := make(map[string]*ClusterSpec, len(desired.Clusters))
 	for _, cluster := range desired.Clusters {
 		if cluster != nil {
@@ -158,7 +161,7 @@ func (r *Runner) notifyObservers(desired *DesiredState) {
 }
 
 // ActualStateFromContainers converts Docker observations into the reconciler's actual state.
-func ActualStateFromContainers(containers []orcadocker.ContainerInfo) ActualState {
+func ActualStateFromContainers(containers []orcadocker.ContainerInfo) *ActualState {
 	clusters := make(map[string]*ActualCluster)
 	order := make([]string, 0)
 	for _, container := range containers {
@@ -187,10 +190,10 @@ func ActualStateFromContainers(containers []orcadocker.ContainerInfo) ActualStat
 	for _, clusterID := range order {
 		actual.Clusters = append(actual.Clusters, clusters[clusterID])
 	}
-	return actual
+	return &actual
 }
 
-func reportFor(desired DesiredState, actual ActualState) *types.AgentReportMessage {
+func reportFor(desired *DesiredState, actual *ActualState) *types.AgentReportMessage {
 	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
 		actualByID[cluster.Id] = cluster
@@ -213,7 +216,7 @@ func reportFor(desired DesiredState, actual ActualState) *types.AgentReportMessa
 	}
 
 	return &types.AgentReportMessage{
-		ActualState: &actual,
+		ActualState: actual,
 		HealthReport: &types.HealthReport{
 			HostMetrics: &types.HostMetrics{},
 			Clusters:    health,
