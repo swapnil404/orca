@@ -9,6 +9,7 @@ import (
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
+	"github.com/swapnil404/orca/agent/internal/pgbackrest"
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 )
@@ -60,43 +61,46 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 	if len(desiredStates) > 0 && desiredStates[0] != nil {
 		desired = desiredStates[0]
 	}
+	return apply(ctx, docker, nil, actions, desired)
+}
+
+func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, actions []Action, desired *DesiredState) []ApplyResult {
 	results := make([]ApplyResult, 0, len(actions))
 	failedReplicaDeletes := make(map[string]error)
 	failedPrimaryActions := make(map[string]struct{})
+	failedBackupDeletes := make(map[string]struct{})
 	for _, action := range actions {
 		key := action.ClusterID + "\x00" + action.ReplicaID
 		if isPrimaryDependentAction(action.Type) {
 			if _, blocked := failedPrimaryActions[action.ClusterID]; blocked {
-				results = append(results, ApplyResult{
-					Action: action,
-					Status: ApplyStatusSkippedDependency,
-				})
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
 				continue
 			}
 		}
 		if action.Type == ActionCreateReplica {
 			if _, blocked := failedReplicaDeletes[key]; blocked {
-				results = append(results, ApplyResult{
-					Action: action,
-					Status: ApplyStatusSkippedDependency,
-				})
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
 				continue
 			}
 		}
-		err := applyAction(ctx, docker, action, desired)
-		results = append(results, ApplyResult{
-			Action: action,
-			Status: applyStatus(err),
-			Err:    err,
-		})
+		if action.Type == ActionDeletePrimary {
+			if _, blocked := failedBackupDeletes[action.ClusterID]; blocked {
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
+				continue
+			}
+		}
+		err := applyAction(ctx, docker, backups, action, desired)
+		results = append(results, ApplyResult{Action: action, Status: applyStatus(err), Err: err})
 		if action.Type == ActionDeleteReplica && err != nil {
 			failedReplicaDeletes[key] = err
 		}
 		if isPrimaryMutation(action.Type) && err != nil {
 			failedPrimaryActions[action.ClusterID] = struct{}{}
 		}
+		if action.Type == ActionDeletePgBackRest && err != nil {
+			failedBackupDeletes[action.ClusterID] = struct{}{}
+		}
 	}
-
 	return results
 }
 
@@ -112,10 +116,11 @@ func isPrimaryMutation(actionType ActionType) bool {
 }
 
 func isPrimaryDependentAction(actionType ActionType) bool {
-	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer
+	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
+		actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
 }
 
-func applyAction(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
+func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, action Action, desired *DesiredState) error {
 	if docker == nil {
 		return errors.New("docker client is nil")
 	}
@@ -149,6 +154,10 @@ func applyAction(ctx context.Context, docker DockerClient, action Action, desire
 		return updatePgBouncer(ctx, docker, action)
 	case ActionUpdateExtensions:
 		return updateExtensions(ctx, docker, action)
+	case ActionCreatePgBackRest, ActionUpdatePgBackRest:
+		return configurePgBackRest(ctx, docker, backups, action)
+	case ActionDeletePgBackRest:
+		return deletePgBackRest(ctx, docker, backups, action)
 	case ActionDeletePrimary:
 		cluster, ok := action.Spec.(*ActualCluster)
 		if !ok {
@@ -196,6 +205,69 @@ type pgBouncerDockerClient interface {
 type extensionDockerClient interface {
 	DockerClient
 	extensions.PrimaryExecutor
+}
+
+type pgBackRestDockerClient interface {
+	DockerClient
+	pgbackrest.PrimaryExecutor
+	WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+}
+
+func configurePgBackRest(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, action Action) error {
+	cluster, ok := action.Spec.(*ClusterSpec)
+	if !ok || cluster.PgBackRest == nil {
+		return fmt.Errorf("%s action requires pgBackRest cluster state", action.Type)
+	}
+	client, ok := docker.(pgBackRestDockerClient)
+	if !ok {
+		return errors.New("docker client does not support pgBackRest reconciliation")
+	}
+	state, err := pgbackrest.ReconciliationState(cluster)
+	if err != nil {
+		return err
+	}
+	if err := pgbackrest.InstallConfig(ctx, client, cluster); err != nil {
+		return fmt.Errorf("install config: %w", err)
+	}
+	if err := pgbackrest.ConfigureWALArchiving(ctx, client, cluster); err != nil {
+		return fmt.Errorf("configure WAL archiving: %w", err)
+	}
+	if err := pgbackrest.InitializeStanza(ctx, client, cluster); err != nil {
+		return fmt.Errorf("initialize stanza: %w", err)
+	}
+	if err := client.WriteConfig(ctx, cluster.Id, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PgBackRestAppliedConfigRelativePath,
+		Content:      state,
+	}); err != nil {
+		return err
+	}
+	if backups != nil {
+		backups.SetSchedule(cluster)
+	}
+	return nil
+}
+
+func deletePgBackRest(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, action Action) error {
+	client, ok := docker.(pgBackRestDockerClient)
+	if !ok {
+		return errors.New("docker client does not support pgBackRest reconciliation")
+	}
+	clusterID := action.ClusterID
+	if backups != nil {
+		backups.RemoveSchedule(clusterID)
+	}
+	if spec, ok := action.Spec.(*pgBackRestDeleteSpec); ok && spec.DeleteCluster {
+		return nil
+	}
+	if err := pgbackrest.DisableWALArchiving(ctx, client, clusterID); err != nil {
+		return err
+	}
+	if err := pgbackrest.RemoveConfig(ctx, client, clusterID); err != nil {
+		return err
+	}
+	return client.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PgBackRestAppliedConfigRelativePath,
+	})
 }
 
 type primaryConfigDockerClient interface {
@@ -301,7 +373,7 @@ func updatePrimary(ctx context.Context, docker DockerClient, action Action) erro
 		return err
 	}
 
-	if update.Desired.Version != update.Actual.Version || update.Actual.AppliedParams == nil && len(update.Desired.Params) > 0 {
+	if primaryRequiresReplacement(update.Desired, update.Actual) {
 		if err := stopAndRemove(ctx, docker, update.Actual.ContainerId); err != nil {
 			return fmt.Errorf("remove existing primary: %w", err)
 		}
@@ -507,7 +579,7 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	return orcadocker.ContainerSpec{
 		ClusterID: cluster.Id,
 		Kind:      orcadocker.ContainerKindPrimary,
-		Image:     postgresImage(cluster.Version),
+		Image:     primaryImage(cluster),
 		Env: []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
 			"PGDATA=" + orcadocker.VolumeMountPath(cluster.Id) + "/primary",
@@ -623,4 +695,14 @@ func postgresImage(version string) string {
 	}
 
 	return "postgres:" + version
+}
+
+func primaryImage(cluster *ClusterSpec) string {
+	if cluster.PgBackRest == nil {
+		return postgresImage(cluster.Version)
+	}
+	if cluster.Version == "" {
+		return "orca-postgres:latest"
+	}
+	return "orca-postgres:" + cluster.Version
 }

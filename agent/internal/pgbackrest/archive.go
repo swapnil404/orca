@@ -31,7 +31,7 @@ func ConfigureWALArchiving(ctx context.Context, executor PrimaryExecutor, desire
 	if err != nil {
 		return err
 	}
-	archiveCommand := fmt.Sprintf("pgbackrest --stanza=%s archive-push %%p", desired.Id)
+	archiveCommand := fmt.Sprintf("pgbackrest --config=%s --stanza=%s archive-push %%p", clusterConfigPath(desired.Id), desired.Id)
 
 	mode, err := executor.ExecContainer(ctx, primary, psqlCommand("SHOW archive_mode"))
 	if err != nil {

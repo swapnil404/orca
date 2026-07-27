@@ -66,6 +66,7 @@ func (s *Server) handleDesiredState(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(pass.Results); err != nil {
 		return
 	}
+	pass.Acknowledge()
 }
 
 func ensureJSONEnd(decoder *json.Decoder) error {

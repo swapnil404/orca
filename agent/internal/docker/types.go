@@ -50,14 +50,15 @@ type ConfigMount struct {
 
 // ContainerInfo describes an Orca container currently visible in Docker.
 type ContainerInfo struct {
-	ID        string
-	Name      string
-	ClusterID string
-	Kind      ContainerKind
-	ReplicaID string
-	Image     string
-	Status    string
-	Config    string
+	ID           string
+	Name         string
+	ClusterID    string
+	Kind         ContainerKind
+	ReplicaID    string
+	Image        string
+	Status       string
+	Config       string
+	BackupConfig string
 }
 
 // VolumeInfo describes an Orca data volume visible in Docker.

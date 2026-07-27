@@ -30,7 +30,7 @@ func main() {
 		address = defaultDevAddress
 	}
 	cache := state.NewFileCache(os.Getenv("ORCA_STATE_PATH"))
-	scheduler := pgbackrest.NewScheduler(cache, dockerClient)
+	scheduler := pgbackrest.NewScheduler(dockerClient)
 	runner := reconciler.NewRunner(cache, dockerClient, scheduler)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

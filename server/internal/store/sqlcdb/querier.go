@@ -16,7 +16,7 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
-	GetAgentReport(ctx context.Context, hostID string) (AgentReport, error)
+	GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
 	GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Host, error)
 	GetProject(ctx context.Context, arg GetProjectParams) (Project, error)

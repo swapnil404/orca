@@ -13,6 +13,15 @@ message DesiredStateMessage {
 message AgentReportMessage {
   ActualState actual_state = 1;
   HealthReport health_report = 2;
+  repeated ReconciliationResult reconciliation_results = 3;
+}
+
+// ReconciliationResult describes the outcome of one agent action.
+message ReconciliationResult {
+  string action = 1;
+  string cluster_id = 2;
+  string status = 3;
+  string error = 4;
 }
 
 // DesiredState is the desired set of clusters managed by the agent.
@@ -83,6 +92,7 @@ message ActualCluster {
   repeated string enabled_extensions = 8;
   map<string, string> applied_params = 9;
   bool volume_exists = 10;
+  string image = 11;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -107,9 +117,10 @@ message ActualPgBouncer {
   optional uint32 max_client_connections = 5;
 }
 
-// ActualBackup describes the latest observed successful backup.
+// ActualBackup describes applied backup configuration and the latest observed success.
 message ActualBackup {
   optional int64 last_success_unix_seconds = 1;
+  string config = 2;
 }
 
 // HealthReport contains host resource usage and per-cluster health.

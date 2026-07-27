@@ -11,11 +11,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// DesiredStateSource loads the last desired state cached by the agent.
-type DesiredStateSource interface {
-	Load(ctx context.Context) (*orcatypes.DesiredState, error)
-}
-
 // BackupType identifies a pgBackRest backup type.
 type BackupType string
 
@@ -35,188 +30,226 @@ type scheduleTicker interface {
 	Stop()
 }
 
-type realTicker struct {
-	*time.Ticker
-}
+type realTicker struct{ *time.Ticker }
 
 func (t realTicker) Chan() <-chan time.Time { return t.C }
+
+// OperationGate serializes scheduled backups with reconciliation passes.
+type OperationGate struct{ token chan struct{} }
+
+// NewOperationGate creates an unlocked operation gate.
+func NewOperationGate() *OperationGate {
+	gate := &OperationGate{token: make(chan struct{}, 1)}
+	gate.token <- struct{}{}
+	return gate
+}
+
+// Acquire waits for exclusive access or context cancellation.
+func (g *OperationGate) Acquire(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-g.token:
+		return nil
+	}
+}
+
+// Release relinquishes exclusive access.
+func (g *OperationGate) Release() { g.token <- struct{}{} }
 
 type scheduledCluster struct {
 	spec   *orcatypes.ClusterSpec
 	ctx    context.Context
 	cancel context.CancelFunc
-	mu     sync.Mutex
 	wg     sync.WaitGroup
 }
 
-// Scheduler runs desired pgBackRest backup schedules without relying on cron.
+// Result reports a completed scheduled backup attempt.
+type Result struct {
+	ClusterID  string
+	BackupType BackupType
+	Err        error
+}
+
+// Scheduler owns ticker workers after configuration has been reconciled successfully.
 type Scheduler struct {
-	source    DesiredStateSource
 	executor  PrimaryExecutor
 	logger    *slog.Logger
 	newTicker func(time.Duration) scheduleTicker
+	gate      *OperationGate
+	root      context.Context
+	cancel    context.CancelFunc
 
-	mu      sync.Mutex
-	desired *orcatypes.DesiredState
-	changed chan struct{}
+	mu          sync.Mutex
+	clusters    map[string]*scheduledCluster
+	results     []Result
+	lastSuccess map[string]time.Time
 }
 
-// NewScheduler creates a backup scheduler backed by the local desired-state cache.
-func NewScheduler(source DesiredStateSource, executor PrimaryExecutor) *Scheduler {
+// NewScheduler creates a backup scheduler.
+func NewScheduler(executor PrimaryExecutor) *Scheduler {
+	root, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		source: source, executor: executor, logger: slog.Default(),
-		newTicker: func(interval time.Duration) scheduleTicker { return realTicker{time.NewTicker(interval)} },
-		changed:   make(chan struct{}, 1),
+		executor: executor, logger: slog.Default(), root: root, cancel: cancel,
+		newTicker:   func(interval time.Duration) scheduleTicker { return realTicker{time.NewTicker(interval)} },
+		clusters:    make(map[string]*scheduledCluster),
+		lastSuccess: make(map[string]time.Time),
 	}
 }
 
-// Update applies a fresh complete desired-state snapshot to the scheduler.
-func (s *Scheduler) Update(desired *orcatypes.DesiredState) {
-	if desired == nil {
+// SetOperationGate configures the gate shared with the reconciliation runner.
+func (s *Scheduler) SetOperationGate(gate *OperationGate) {
+	s.mu.Lock()
+	s.gate = gate
+	s.mu.Unlock()
+}
+
+// SetSchedule replaces ticker workers for a successfully applied cluster configuration.
+func (s *Scheduler) SetSchedule(cluster *orcatypes.ClusterSpec) {
+	if cluster == nil || cluster.PgBackRest == nil {
 		return
 	}
+	copy := proto.Clone(cluster).(*orcatypes.ClusterSpec)
+	intervals := scheduleIntervals(copy.PgBackRest.Schedule)
 	s.mu.Lock()
-	s.desired = proto.Clone(desired).(*orcatypes.DesiredState)
+	previous := s.clusters[cluster.Id]
+	if previous != nil && proto.Equal(previous.spec.PgBackRest, copy.PgBackRest) {
+		s.mu.Unlock()
+		return
+	}
+	clusterCtx, cancel := context.WithCancel(s.root)
+	scheduled := &scheduledCluster{spec: copy, ctx: clusterCtx, cancel: cancel}
+	scheduled.wg.Add(len(intervals))
+	s.clusters[cluster.Id] = scheduled
+	delete(s.lastSuccess, cluster.Id)
+	for backupType, interval := range intervals {
+		go func() {
+			defer scheduled.wg.Done()
+			s.runTicker(scheduled, backupType, interval)
+		}()
+	}
 	s.mu.Unlock()
-	select {
-	case s.changed <- struct{}{}:
-	default:
+	if previous != nil {
+		stopSchedule(previous)
 	}
 }
 
-// Run schedules backups until ctx is canceled.
-func (s *Scheduler) Run(ctx context.Context) error {
-	if s.source == nil {
-		return fmt.Errorf("desired-state source is nil")
+// RemoveSchedule stops ticker workers for a cluster.
+func (s *Scheduler) RemoveSchedule(clusterID string) {
+	s.mu.Lock()
+	cluster := s.clusters[clusterID]
+	delete(s.clusters, clusterID)
+	delete(s.lastSuccess, clusterID)
+	s.mu.Unlock()
+	if cluster != nil {
+		stopSchedule(cluster)
 	}
+}
+
+// Run keeps the scheduler alive until ctx is canceled.
+func (s *Scheduler) Run(ctx context.Context) error {
 	if s.executor == nil {
 		return fmt.Errorf("executor is nil")
 	}
-
-	desired, err := s.source.Load(ctx)
-	if err != nil {
-		s.logger.Warn("load backup schedules from cached desired state", "error", err)
-	}
-	clusters := make(map[string]*scheduledCluster)
-	s.syncSchedules(ctx, clusters, desired)
-	defer cancelSchedules(clusters)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.changed:
-			s.mu.Lock()
-			latest := s.desired
-			s.mu.Unlock()
-			s.syncSchedules(ctx, clusters, latest)
-		}
-	}
+	<-ctx.Done()
+	s.cancel()
+	s.mu.Lock()
+	clusters := s.clusters
+	s.clusters = make(map[string]*scheduledCluster)
+	s.mu.Unlock()
+	cancelSchedules(clusters)
+	return ctx.Err()
 }
 
-func (s *Scheduler) syncSchedules(ctx context.Context, current map[string]*scheduledCluster, desired *orcatypes.DesiredState) {
-	wanted := make(map[string]*orcatypes.ClusterSpec)
-	activeClusters := make(map[string]struct{})
-	if desired == nil {
-		cancelSchedules(current)
-		clear(current)
+// PendingResults returns asynchronous backup outcomes awaiting report delivery.
+func (s *Scheduler) PendingResults() []Result {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Result(nil), s.results...)
+}
+
+// AcknowledgeResults removes outcomes included in a successfully delivered report.
+func (s *Scheduler) AcknowledgeResults(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if count <= 0 {
 		return
 	}
-	for _, cluster := range desired.Clusters {
-		if cluster == nil {
-			continue
-		}
-		activeClusters[cluster.Id] = struct{}{}
-		if cluster.PgBackRest != nil {
-			wanted[cluster.Id] = cluster
-		}
+	if count >= len(s.results) {
+		s.results = nil
+		return
 	}
-
-	for clusterID, scheduled := range current {
-		desiredCluster, exists := wanted[clusterID]
-		if exists && proto.Equal(scheduled.spec.PgBackRest, desiredCluster.PgBackRest) {
-			scheduled.wg.Add(1)
-			go func() {
-				defer scheduled.wg.Done()
-				s.prepare(scheduled.ctx, scheduled)
-			}()
-			delete(wanted, clusterID)
-			continue
-		}
-		stopSchedule(scheduled)
-		delete(current, clusterID)
-		if _, clusterStillExists := activeClusters[clusterID]; clusterStillExists && !exists {
-			if err := DisableWALArchiving(ctx, s.executor, clusterID); err != nil {
-				s.logger.Error("disable pgBackRest WAL archiving", "cluster_id", clusterID, "error", err)
-			}
-		}
-	}
-
-	for clusterID, cluster := range wanted {
-		if _, err := GeneratePgBackRestConfig(cluster); err != nil {
-			s.logger.Error("configure pgBackRest schedule", "cluster_id", clusterID, "error", err)
-			continue
-		}
-		clusterCtx, cancel := context.WithCancel(ctx)
-		scheduled := &scheduledCluster{spec: cluster, ctx: clusterCtx, cancel: cancel}
-		current[clusterID] = scheduled
-		scheduled.wg.Add(1)
-		go func() {
-			defer scheduled.wg.Done()
-			s.prepare(clusterCtx, scheduled)
-		}()
-		for backupType, interval := range scheduleIntervals(cluster.PgBackRest.Schedule) {
-			scheduled.wg.Add(1)
-			go func() {
-				defer scheduled.wg.Done()
-				s.runTicker(clusterCtx, scheduled, backupType, interval)
-			}()
-		}
-	}
+	s.results = append([]Result(nil), s.results[count:]...)
 }
 
-func (s *Scheduler) prepare(ctx context.Context, cluster *scheduledCluster) {
-	cluster.mu.Lock()
-	defer cluster.mu.Unlock()
-	if err := s.prepareLocked(ctx, cluster); err != nil {
-		s.logger.Error("prepare pgBackRest cluster", "cluster_id", cluster.spec.Id, "error", err)
-	}
+// LastSuccess returns the latest successful backup observed by this scheduler process.
+func (s *Scheduler) LastSuccess(clusterID string) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	completedAt, ok := s.lastSuccess[clusterID]
+	return completedAt, ok
 }
 
-func (s *Scheduler) prepareLocked(ctx context.Context, cluster *scheduledCluster) error {
-	if err := InstallConfig(ctx, s.executor, cluster.spec); err != nil {
-		return fmt.Errorf("install config: %w", err)
-	}
-	if err := ConfigureWALArchiving(ctx, s.executor, cluster.spec); err != nil {
-		return fmt.Errorf("configure WAL archiving: %w", err)
-	}
-	if err := InitializeStanza(ctx, s.executor, cluster.spec); err != nil {
-		return fmt.Errorf("initialize stanza: %w", err)
-	}
-	return nil
-}
-
-func (s *Scheduler) runTicker(ctx context.Context, cluster *scheduledCluster, backupType BackupType, interval time.Duration) {
-	// v1 shortcut: ticker state is intentionally in memory only. Agent restarts
-	// reset the interval and can delay the next backup by up to one full interval.
+func (s *Scheduler) runTicker(cluster *scheduledCluster, backupType BackupType, interval time.Duration) {
 	ticker := s.newTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-cluster.ctx.Done():
 			return
 		case <-ticker.Chan():
-			cluster.mu.Lock()
-			err := s.prepareLocked(ctx, cluster)
-			if err == nil {
-				err = RunBackup(ctx, s.executor, cluster.spec.Id, backupType)
+			if err := s.acquire(cluster.ctx); err != nil {
+				return
 			}
-			cluster.mu.Unlock()
+			err := s.prepareAndRun(cluster.ctx, cluster.spec, backupType)
+			s.release()
+			s.record(Result{ClusterID: cluster.spec.Id, BackupType: backupType, Err: err})
 			if err != nil {
 				s.logger.Error("run scheduled pgBackRest backup", "cluster_id", cluster.spec.Id, "type", backupType, "error", err)
 			}
 		}
 	}
+}
+
+func (s *Scheduler) prepareAndRun(ctx context.Context, cluster *orcatypes.ClusterSpec, backupType BackupType) error {
+	if err := InstallConfig(ctx, s.executor, cluster); err != nil {
+		return fmt.Errorf("install config: %w", err)
+	}
+	if err := ConfigureWALArchiving(ctx, s.executor, cluster); err != nil {
+		return fmt.Errorf("configure WAL archiving: %w", err)
+	}
+	if err := InitializeStanza(ctx, s.executor, cluster); err != nil {
+		return fmt.Errorf("initialize stanza: %w", err)
+	}
+	return RunBackup(ctx, s.executor, cluster.Id, backupType)
+}
+
+func (s *Scheduler) acquire(ctx context.Context) error {
+	s.mu.Lock()
+	gate := s.gate
+	s.mu.Unlock()
+	if gate == nil {
+		return nil
+	}
+	return gate.Acquire(ctx)
+}
+
+func (s *Scheduler) release() {
+	s.mu.Lock()
+	gate := s.gate
+	s.mu.Unlock()
+	if gate != nil {
+		gate.Release()
+	}
+}
+
+func (s *Scheduler) record(result Result) {
+	s.mu.Lock()
+	s.results = append(s.results, result)
+	if result.Err == nil {
+		s.lastSuccess[result.ClusterID] = time.Now().UTC()
+	}
+	s.mu.Unlock()
 }
 
 // RunBackup executes one pgBackRest backup against the primary.
@@ -236,7 +269,7 @@ func RunBackup(ctx context.Context, executor Executor, clusterID string, backupT
 	if err != nil {
 		return err
 	}
-	command := []string{"gosu", postgresUser, "pgbackrest", "--stanza=" + clusterID, "--type=" + string(backupType), "backup"}
+	command := []string{"gosu", postgresUser, "pgbackrest", "--config=" + clusterConfigPath(clusterID), "--stanza=" + clusterID, "--type=" + string(backupType), "backup"}
 	if _, err := executor.ExecContainer(ctx, primary, command); err != nil {
 		return fmt.Errorf("run %s backup for stanza %q: %w", backupType, clusterID, err)
 	}

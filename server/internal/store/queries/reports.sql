@@ -1,13 +1,14 @@
 -- name: UpsertAgentReport :exec
-INSERT INTO agent_reports (host_id, actual_state, health_report, reported_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO agent_reports (host_id, actual_state, health_report, reconciliation_results, reported_at)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (host_id) DO UPDATE
 SET actual_state = EXCLUDED.actual_state,
     health_report = EXCLUDED.health_report,
+    reconciliation_results = EXCLUDED.reconciliation_results,
     reported_at = EXCLUDED.reported_at;
 
 -- name: GetAgentReport :one
-SELECT host_id, actual_state, health_report, reported_at
+SELECT host_id, actual_state, health_report, reconciliation_results, reported_at
 FROM agent_reports
 WHERE host_id = $1;
 

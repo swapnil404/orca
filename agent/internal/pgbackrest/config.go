@@ -38,6 +38,20 @@ func GeneratePgBackRestConfig(desired *ClusterDesiredState) (string, error) {
 	return config.String(), nil
 }
 
+// ReconciliationState returns the persisted value used to compare desired and applied backup configuration.
+func ReconciliationState(desired *ClusterDesiredState) (string, error) {
+	config, err := GeneratePgBackRestConfig(desired)
+	if err != nil {
+		return "", err
+	}
+	schedule := desired.PgBackRest.Schedule
+	if schedule == nil {
+		return config + "\n[orca-schedule]\n", nil
+	}
+	return fmt.Sprintf("%s\n[orca-schedule]\nfull=%d\ndiff=%d\nincr=%d\n", config,
+		schedule.FullIntervalSeconds, schedule.DiffIntervalSeconds, schedule.IncrIntervalSeconds), nil
+}
+
 func validateSpec(spec *orcatypes.PgBackRestSpec) error {
 	if spec.RepoPath == "" {
 		return errors.New("repository path is required")

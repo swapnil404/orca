@@ -8,6 +8,7 @@ import (
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
+	"github.com/swapnil404/orca/agent/internal/pgbackrest"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 	"github.com/swapnil404/orca/agent/internal/state"
 	"github.com/swapnil404/orca/pkg/types"
@@ -15,8 +16,16 @@ import (
 
 // Pass contains the action outcomes and observed state from one reconciliation pass.
 type Pass struct {
-	Results []ApplyResult
-	Report  *types.AgentReportMessage
+	Results     []ApplyResult
+	Report      *types.AgentReportMessage
+	acknowledge func()
+}
+
+// Acknowledge marks asynchronous results as successfully delivered.
+func (p Pass) Acknowledge() {
+	if p.acknowledge != nil {
+		p.acknowledge()
+	}
 }
 
 // Runner serializes reconciliation through the shared desired-state cache.
@@ -26,12 +35,8 @@ type Runner struct {
 	healthDatabase postgres.HealthDockerClient
 	extensions     extensions.PrimaryExecutor
 	mu             sync.Mutex
-	observers      []DesiredStateObserver
-}
-
-// DesiredStateObserver receives complete desired-state snapshots after they are cached.
-type DesiredStateObserver interface {
-	Update(*DesiredState)
+	backups        *pgbackrest.Scheduler
+	operations     *pgbackrest.OperationGate
 }
 
 type volumeLister interface {
@@ -39,17 +44,26 @@ type volumeLister interface {
 }
 
 // NewRunner creates a reconciliation runner with explicit cache and Docker dependencies.
-func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, observers ...DesiredStateObserver) *Runner {
+func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, schedulers ...*pgbackrest.Scheduler) *Runner {
 	healthDatabase, _ := docker.(postgres.HealthDockerClient)
 	extensionExecutor, _ := docker.(extensions.PrimaryExecutor)
-	return &Runner{
+	runner := &Runner{
 		cache: cache, docker: docker, healthDatabase: healthDatabase,
-		extensions: extensionExecutor, observers: observers,
+		extensions: extensionExecutor, operations: pgbackrest.NewOperationGate(),
 	}
+	if len(schedulers) > 0 {
+		runner.backups = schedulers[0]
+		runner.backups.SetOperationGate(runner.operations)
+	}
+	return runner
 }
 
 // Reconcile saves a complete desired state and reconciles Docker against the cached copy.
 func (r *Runner) Reconcile(ctx context.Context, desired *DesiredState) (Pass, error) {
+	if err := r.operations.Acquire(ctx); err != nil {
+		return Pass{}, err
+	}
+	defer r.operations.Release()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if desired == nil {
@@ -59,30 +73,22 @@ func (r *Runner) Reconcile(ctx context.Context, desired *DesiredState) (Pass, er
 	if err := r.cache.Save(ctx, desired); err != nil {
 		return Pass{}, err
 	}
-	// Scheduling changes, especially removals, take effect once the snapshot is
-	// durable even if Docker observation fails. A successful pass notifies again
-	// so idempotent setup is retried after newly desired primaries are created.
-	r.notifyObservers(desired)
-	pass, err := r.reconcileDesired(ctx, desired)
-	if err == nil {
-		r.notifyObservers(desired)
-	}
-	return pass, err
+	return r.reconcileDesired(ctx, desired)
 }
 
 // ReconcileCached reconciles Docker against the last desired state received from the server.
 func (r *Runner) ReconcileCached(ctx context.Context) (Pass, error) {
+	if err := r.operations.Acquire(ctx); err != nil {
+		return Pass{}, err
+	}
+	defer r.operations.Release()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	desired, err := r.cache.Load(ctx)
 	if err != nil {
 		return Pass{}, err
 	}
-	pass, err := r.reconcileDesired(ctx, desired)
-	if err == nil {
-		r.notifyObservers(desired)
-	}
-	return pass, err
+	return r.reconcileDesired(ctx, desired)
 }
 
 func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (Pass, error) {
@@ -98,7 +104,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	actual := ActualStateFromDocker(containers, volumes)
 	observationResults := r.populateInstalledExtensions(ctx, desired, actual)
 	actions := Diff(desired, actual)
-	results := Apply(ctx, r.docker, actions, desired)
+	results := apply(ctx, r.docker, r.backups, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
@@ -108,13 +114,22 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		return Pass{}, err
 	}
 	actual = ActualStateFromDocker(containers, volumes)
+	r.ensureBackupSchedules(desired, actual)
 	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, actual)...)
-	extensionResults := Apply(ctx, r.docker, extensionOnlyActions(Diff(desired, actual)), desired)
+	extensionResults := apply(ctx, r.docker, r.backups, extensionOnlyActions(Diff(desired, actual)), desired)
 	results = append(observationResults, results...)
 	results = append(results, extensionResults...)
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
+	backupResults, pendingBackupResults := r.backupResults()
+	results = append(results, backupResults...)
 	postgres.PopulateReplicaHealth(ctx, r.healthDatabase, actual)
-	return Pass{Results: results, Report: reportFor(desired, actual)}, nil
+	r.populateBackupSuccess(actual)
+	pass := Pass{Results: results, Report: reportFor(desired, actual, results)}
+	if pendingBackupResults > 0 {
+		var once sync.Once
+		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
+	}
+	return pass, nil
 }
 
 func (r *Runner) listVolumes(ctx context.Context) ([]orcadocker.VolumeInfo, error) {
@@ -173,10 +188,52 @@ func extensionOnlyActions(actions []Action) []Action {
 	return extensionActions
 }
 
-func (r *Runner) notifyObservers(desired *DesiredState) {
-	for _, observer := range r.observers {
-		if observer != nil {
-			observer.Update(desired)
+func (r *Runner) backupResults() ([]ApplyResult, int) {
+	if r.backups == nil {
+		return nil, 0
+	}
+	queued := r.backups.PendingResults()
+	results := make([]ApplyResult, 0, len(queued))
+	for _, result := range queued {
+		results = append(results, ApplyResult{
+			Action: Action{Type: ActionRunPgBackRestBackup, ClusterID: result.ClusterID, Spec: result.BackupType},
+			Status: applyStatus(result.Err), Err: result.Err,
+		})
+	}
+	return results, len(queued)
+}
+
+func (r *Runner) populateBackupSuccess(actual *ActualState) {
+	if r.backups == nil {
+		return
+	}
+	for _, cluster := range actual.Clusters {
+		if cluster == nil || cluster.Backup == nil {
+			continue
+		}
+		if completedAt, ok := r.backups.LastSuccess(cluster.Id); ok {
+			unixSeconds := completedAt.Unix()
+			cluster.Backup.LastSuccessUnixSeconds = &unixSeconds
+		}
+	}
+}
+
+func (r *Runner) ensureBackupSchedules(desired *DesiredState, actual *ActualState) {
+	if r.backups == nil {
+		return
+	}
+	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
+	for _, cluster := range actual.Clusters {
+		actualByID[cluster.Id] = cluster
+	}
+	for _, cluster := range desired.Clusters {
+		if cluster == nil || cluster.PgBackRest == nil {
+			continue
+		}
+		state, err := pgbackrest.ReconciliationState(cluster)
+		observed := actualByID[cluster.Id]
+		if err == nil && observed != nil && observed.Backup != nil && observed.Backup.Config == state {
+			r.backups.SetSchedule(cluster)
 		}
 	}
 }
@@ -202,8 +259,12 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 		case orcadocker.ContainerKindPrimary:
 			cluster.ContainerId = container.ID
 			cluster.Status = container.Status
+			cluster.Image = container.Image
 			cluster.Version = postgresVersionFromImage(container.Image)
 			cluster.AppliedParams, _ = postgres.ParseConfig(container.Config)
+			if container.BackupConfig != "" {
+				cluster.Backup = &types.ActualBackup{Config: container.BackupConfig}
+			}
 		case orcadocker.ContainerKindReplica:
 			cluster.Replicas = append(cluster.Replicas, &ActualReplica{
 				Id: container.ReplicaID, ContainerId: container.ID, Status: container.Status,
@@ -229,7 +290,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 	return &actual
 }
 
-func reportFor(desired *DesiredState, actual *ActualState) *types.AgentReportMessage {
+func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult) *types.AgentReportMessage {
 	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
 		actualByID[cluster.Id] = cluster
@@ -251,8 +312,20 @@ func reportFor(desired *DesiredState, actual *ActualState) *types.AgentReportMes
 		health = append(health, &types.ClusterHealth{ClusterId: cluster.Id, Status: clusterStatus(cluster)})
 	}
 
+	reconciliationResults := make([]*types.ReconciliationResult, 0, len(results))
+	for _, result := range results {
+		message := ""
+		if result.Err != nil {
+			message = result.Err.Error()
+		}
+		reconciliationResults = append(reconciliationResults, &types.ReconciliationResult{
+			Action: string(result.Action.Type), ClusterId: result.Action.ClusterID,
+			Status: string(result.Status), Error: message,
+		})
+	}
 	return &types.AgentReportMessage{
-		ActualState: actual,
+		ActualState:           actual,
+		ReconciliationResults: reconciliationResults,
 		HealthReport: &types.HealthReport{
 			HostMetrics: &types.HostMetrics{},
 			Clusters:    health,
@@ -277,7 +350,10 @@ func clusterStatus(cluster *ActualCluster) types.ClusterStatus {
 
 func postgresVersionFromImage(image string) string {
 	image = strings.TrimPrefix(image, "docker.io/library/")
-	version, found := strings.CutPrefix(image, "postgres:")
+	version, found := strings.CutPrefix(image, "orca-postgres:")
+	if !found {
+		version, found = strings.CutPrefix(image, "postgres:")
+	}
 	if !found || version == "latest" {
 		return ""
 	}

@@ -2,8 +2,10 @@ package reconciler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/swapnil404/orca/agent/internal/extensions"
+	"github.com/swapnil404/orca/agent/internal/pgbackrest"
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 )
@@ -32,6 +34,14 @@ const (
 	ActionDeletePgBouncer ActionType = "delete_pgbouncer"
 	// ActionUpdateExtensions reconciles extensions on a running Postgres primary.
 	ActionUpdateExtensions ActionType = "update_extensions"
+	// ActionCreatePgBackRest configures a new pgBackRest stanza and schedule.
+	ActionCreatePgBackRest ActionType = "create_pgbackrest"
+	// ActionUpdatePgBackRest updates an existing pgBackRest stanza and schedule.
+	ActionUpdatePgBackRest ActionType = "update_pgbackrest"
+	// ActionDeletePgBackRest disables pgBackRest for a retained primary.
+	ActionDeletePgBackRest ActionType = "delete_pgbackrest"
+	// ActionRunPgBackRestBackup reports an asynchronous scheduled backup attempt.
+	ActionRunPgBackRestBackup ActionType = "run_pgbackrest_backup"
 )
 
 // Action describes a single reconciliation operation.
@@ -50,6 +60,11 @@ type pgBouncerUpdateSpec struct {
 type primaryUpdateSpec struct {
 	Desired *ClusterSpec
 	Actual  *ActualCluster
+}
+
+type pgBackRestDeleteSpec struct {
+	Backup        *ActualBackup
+	DeleteCluster bool
 }
 
 type extensionUpdateSpec struct {
@@ -80,7 +95,8 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 			continue
 		}
 
-		primaryVersionChanged := desiredCluster.Version != actualCluster.Version
+		primaryReplacement := primaryRequiresReplacement(desiredCluster, actualCluster)
+		primaryWillChange := actualCluster.ContainerId == "" || primaryNeedsUpdate(desiredCluster, actualCluster)
 		if actualCluster.ContainerId == "" {
 			actions = append(actions, Action{Type: ActionCreatePrimary, ClusterID: desiredCluster.Id, Spec: desiredCluster})
 		} else if primaryNeedsUpdate(desiredCluster, actualCluster) {
@@ -95,11 +111,12 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 			})
 		}
 
-		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas, primaryVersionChanged)...)
+		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas, primaryReplacement)...)
 		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
 		actions = append(actions, pgBouncerActions...)
 		extensionActions := diffExtensions(desiredCluster, actualCluster)
 		actions = append(actions, extensionActions...)
+		actions = append(actions, diffPgBackRest(desiredCluster, actualCluster.Backup, primaryWillChange)...)
 		delete(actualClusters, desiredCluster.Id)
 	}
 
@@ -135,6 +152,9 @@ func createClusterActions(cluster *ClusterSpec) []Action {
 			Spec:      cluster,
 		})
 	}
+	if cluster.PgBackRest != nil {
+		actions = append(actions, Action{Type: ActionCreatePgBackRest, ClusterID: cluster.Id, Spec: cluster})
+	}
 
 	return actions
 }
@@ -158,6 +178,11 @@ func deleteClusterActions(cluster *ActualCluster) []Action {
 			Spec:      cluster.PgBouncer,
 		})
 	}
+	if cluster.Backup != nil {
+		actions = append(actions, Action{Type: ActionDeletePgBackRest, ClusterID: cluster.Id, Spec: &pgBackRestDeleteSpec{
+			Backup: cluster.Backup, DeleteCluster: true,
+		}})
+	}
 
 	actions = append(actions, Action{
 		Type:      ActionDeletePrimary,
@@ -169,7 +194,13 @@ func deleteClusterActions(cluster *ActualCluster) []Action {
 }
 
 func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
-	return desired.Version != actual.Version || len(postgres.ChangedParameters(desired.Params, actual.AppliedParams)) > 0
+	return primaryRequiresReplacement(desired, actual) || len(postgres.ChangedParameters(desired.Params, actual.AppliedParams)) > 0
+}
+
+func primaryRequiresReplacement(desired *ClusterSpec, actual *ActualCluster) bool {
+	imageMissingPgBackRest := desired.PgBackRest != nil && !strings.HasPrefix(strings.TrimPrefix(actual.Image, "docker.io/library/"), "orca-postgres:")
+	legacyConfig := actual.AppliedParams == nil && len(desired.Params) > 0
+	return desired.Version != actual.Version || imageMissingPgBackRest || legacyConfig
 }
 
 func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
@@ -243,6 +274,23 @@ func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool,
 		}}
 	}
 
+	return nil
+}
+
+func diffPgBackRest(desired *ClusterSpec, actual *ActualBackup, forceUpdate ...bool) []Action {
+	if desired.PgBackRest == nil && actual == nil {
+		return nil
+	}
+	if desired.PgBackRest == nil {
+		return []Action{{Type: ActionDeletePgBackRest, ClusterID: desired.Id, Spec: actual}}
+	}
+	state, err := pgbackrest.ReconciliationState(desired)
+	if actual == nil {
+		return []Action{{Type: ActionCreatePgBackRest, ClusterID: desired.Id, Spec: desired}}
+	}
+	if err != nil || actual.Config != state || len(forceUpdate) > 0 && forceUpdate[0] {
+		return []Action{{Type: ActionUpdatePgBackRest, ClusterID: desired.Id, Spec: desired}}
+	}
 	return nil
 }
 

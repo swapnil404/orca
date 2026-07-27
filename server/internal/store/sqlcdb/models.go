@@ -11,10 +11,11 @@ import (
 )
 
 type AgentReport struct {
-	HostID       string          `json:"host_id"`
-	ActualState  json.RawMessage `json:"actual_state"`
-	HealthReport json.RawMessage `json:"health_report"`
-	ReportedAt   time.Time       `json:"reported_at"`
+	HostID                string          `json:"host_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthReport          json.RawMessage `json:"health_report"`
+	ReportedAt            time.Time       `json:"reported_at"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
 }
 
 type AlertRule struct {
