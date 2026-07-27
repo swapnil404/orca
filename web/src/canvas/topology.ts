@@ -34,7 +34,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
       },
     })
 
-    Array.from({ length: cluster.replica_count }, (_, index) => `${index + 1}`).forEach((replicaID, index) => {
+    cluster.replicas.forEach(({ id: replicaID }, index) => {
       const actual = state?.actual_state?.replicas?.find((replica) => replica.id === replicaID)
       const nodeID = `replica:${cluster.id}:${replicaID}`
       nodes.push({

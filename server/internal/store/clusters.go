@@ -18,10 +18,16 @@ type Cluster struct {
 	PostgresVersion  string            `json:"postgres_version"`
 	Parameters       map[string]string `json:"parameters"`
 	ReplicaCount     int32             `json:"replica_count"`
+	Replicas         []Replica         `json:"replicas"`
 	PgBouncerEnabled bool              `json:"pgbouncer_enabled"`
 	PgBackRest       *PgBackRestConfig `json:"pg_back_rest,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 	UpdatedAt        time.Time         `json:"updated_at"`
+}
+
+// Replica identifies a desired PostgreSQL replica.
+type Replica struct {
+	ID string `json:"id"`
 }
 
 // PgBackRestConfig contains repository, retention, and schedule settings.
@@ -57,6 +63,7 @@ type CreateClusterParams struct {
 	PostgresVersion  string
 	Parameters       map[string]string
 	ReplicaCount     int32
+	Replicas         []Replica
 	PgBouncerEnabled bool
 	PgBackRest       *PgBackRestConfig
 }
@@ -69,6 +76,7 @@ type UpdateClusterParams struct {
 	PostgresVersion  string
 	Parameters       map[string]string
 	ReplicaCount     int32
+	Replicas         []Replica
 	PgBouncerEnabled bool
 	PgBackRest       *PgBackRestConfig
 }
@@ -89,6 +97,10 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 	if err != nil {
 		return Cluster{}, fmt.Errorf("marshal cluster parameters: %w", err)
 	}
+	replicaIDs, err := json.Marshal(replicaIDStrings(params.Replicas))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal replica IDs: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Cluster{}, err
@@ -99,6 +111,7 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 		ClusterID: params.ID, ProjectID: params.ProjectID, HostID: params.HostID,
 		Name: params.Name, PostgresVersion: params.PostgresVersion, Parameters: parameters,
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
+		ReplicaIds:                    replicaIDs,
 		PgbackrestEnabled:             params.PgBackRest != nil,
 		PgbackrestRepoPath:            pgBackRestRepoPath(params.PgBackRest),
 		PgbackrestRetentionFull:       pgBackRestRetentionFull(params.PgBackRest),
@@ -156,6 +169,10 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 	if err != nil {
 		return Cluster{}, fmt.Errorf("marshal cluster parameters: %w", err)
 	}
+	replicaIDs, err := json.Marshal(replicaIDStrings(params.Replicas))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal replica IDs: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Cluster{}, err
@@ -166,6 +183,7 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 		ID: params.ID, UserID: params.UserID, Name: params.Name,
 		PostgresVersion: params.PostgresVersion, Parameters: parameters,
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
+		ReplicaIds:                    replicaIDs,
 		PgbackrestEnabled:             params.PgBackRest != nil,
 		PgbackrestRepoPath:            pgBackRestRepoPath(params.PgBackRest),
 		PgbackrestRetentionFull:       pgBackRestRetentionFull(params.PgBackRest),
@@ -241,10 +259,15 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 	if err := json.Unmarshal(cluster.Parameters, &parameters); err != nil {
 		return Cluster{}, fmt.Errorf("decode cluster parameters: %w", err)
 	}
+	var replicaIDs []string
+	if err := json.Unmarshal(cluster.ReplicaIds, &replicaIDs); err != nil {
+		return Cluster{}, fmt.Errorf("decode replica IDs: %w", err)
+	}
 	result := Cluster{
 		ID: cluster.ID, ProjectID: cluster.ProjectID, HostID: cluster.HostID,
 		Name: cluster.Name, PostgresVersion: cluster.PostgresVersion, Parameters: parameters,
 		ReplicaCount: cluster.ReplicaCount, PgBouncerEnabled: cluster.PgbouncerEnabled,
+		Replicas:  replicasFromIDs(replicaIDs),
 		CreatedAt: cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
 	}
 	if cluster.PgbackrestEnabled {
@@ -272,21 +295,14 @@ func createClusterUpsertState(ctx context.Context, queries *sqlcdb.Queries, clus
 }
 
 func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
-	type replica struct {
-		ID string `json:"id"`
-	}
-	replicas := make([]replica, cluster.ReplicaCount)
-	for i := range replicas {
-		replicas[i].ID = fmt.Sprintf("%d", i+1)
-	}
 	state := struct {
 		ID         string                  `json:"id"`
 		Version    string                  `json:"version"`
 		Params     map[string]string       `json:"params"`
-		Replicas   []replica               `json:"replicas"`
+		Replicas   []Replica               `json:"replicas"`
 		PgBouncer  map[string]string       `json:"pg_bouncer,omitempty"`
 		PgBackRest *pgBackRestDesiredState `json:"pg_back_rest,omitempty"`
-	}{ID: cluster.ID, Version: cluster.PostgresVersion, Params: cluster.Parameters, Replicas: replicas}
+	}{ID: cluster.ID, Version: cluster.PostgresVersion, Params: cluster.Parameters, Replicas: cluster.Replicas}
 	if cluster.PgBouncerEnabled {
 		state.PgBouncer = map[string]string{"pool_mode": "transaction"}
 	}
@@ -307,6 +323,22 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		return nil, fmt.Errorf("marshal cluster desired state: %w", err)
 	}
 	return payload, nil
+}
+
+func replicaIDStrings(replicas []Replica) []string {
+	ids := make([]string, len(replicas))
+	for i, replica := range replicas {
+		ids[i] = replica.ID
+	}
+	return ids
+}
+
+func replicasFromIDs(ids []string) []Replica {
+	replicas := make([]Replica, len(ids))
+	for i, id := range ids {
+		replicas[i].ID = id
+	}
+	return replicas
 }
 
 func pgBackRestRepoPath(config *PgBackRestConfig) string {

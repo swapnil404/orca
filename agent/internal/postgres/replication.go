@@ -79,8 +79,12 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		hbaWasChanged = hbaWasChanged || strings.TrimSpace(output) == hbaChanged
 	}
 
-	for index := range desired.Replicas {
-		slot := fmt.Sprintf("replica_%d", index+1)
+	for _, replica := range desired.Replicas {
+		identity, err := DeriveReplicaIdentity(desired.Id, replica.Id)
+		if err != nil {
+			return err
+		}
+		slot := identity.SlotName
 		query := fmt.Sprintf("SELECT pg_create_physical_replication_slot('%s') WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", slot, slot)
 		if _, err := docker.ExecContainer(ctx, primary, psqlCommand(query)); err != nil {
 			return fmt.Errorf("ensure replication slot %q: %w", slot, err)
@@ -94,6 +98,33 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 	}
 
 	return nil
+}
+
+// DeleteReplica removes a replica container, its data directory, and its primary replication slot.
+func DeleteReplica(ctx context.Context, docker ReplicaDockerClient, clusterID, replicaID, containerID string) error {
+	if docker == nil {
+		return errors.New("docker client is nil")
+	}
+	identity, err := DeriveReplicaIdentity(clusterID, replicaID)
+	if err != nil {
+		return err
+	}
+	stopErr := docker.StopContainer(ctx, containerID)
+	removeErr := docker.RemoveContainer(ctx, containerID)
+	if removeErr != nil {
+		return errors.Join(stopErr, removeErr)
+	}
+	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: clusterID,
+		Kind:      orcadocker.ContainerKindPrimary,
+	})
+	if err != nil {
+		return err
+	}
+	_, dataErr := docker.ExecContainer(ctx, primary, []string{"rm", "-rf", "--", identity.DataPath})
+	dropSlot := fmt.Sprintf("SELECT pg_drop_replication_slot('%s') WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", identity.SlotName, identity.SlotName)
+	_, slotErr := docker.ExecContainer(ctx, primary, psqlCommand(dropSlot))
+	return errors.Join(stopErr, dataErr, slotErr)
 }
 
 func waitForPrimary(ctx context.Context, docker DockerClient, primary string) error {

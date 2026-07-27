@@ -196,10 +196,16 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to generate cluster ID")
 		return
 	}
+	replicas, err := generateReplicas(h.random, request.ReplicaCount)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate replica ID")
+		return
+	}
 	cluster, err := h.store.CreateCluster(r.Context(), store.CreateClusterParams{
 		ID: id, UserID: userID, ProjectID: r.PathValue("projectID"), HostID: request.HostID,
 		Name: strings.TrimSpace(request.Name), PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters: normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
+		Replicas:         replicas,
 		PgBouncerEnabled: request.PgBouncerEnabled,
 		PgBackRest:       request.PgBackRest,
 	})
@@ -250,10 +256,21 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "host_id cannot be changed")
 		return
 	}
+	current, err := h.store.GetCluster(r.Context(), userID, r.PathValue("clusterID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	replicas, err := resizeReplicas(h.random, current.Replicas, request.ReplicaCount)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate replica ID")
+		return
+	}
 	cluster, err := h.store.UpdateCluster(r.Context(), store.UpdateClusterParams{
 		ID: r.PathValue("clusterID"), UserID: userID, Name: strings.TrimSpace(request.Name),
 		PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters:      normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
+		Replicas:         replicas,
 		PgBouncerEnabled: request.PgBouncerEnabled,
 		PgBackRest:       request.PgBackRest,
 	})
@@ -263,6 +280,25 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
 	writeJSON(w, http.StatusOK, cluster)
+}
+
+func generateReplicas(random io.Reader, count int32) ([]store.Replica, error) {
+	return resizeReplicas(random, nil, count)
+}
+
+func resizeReplicas(random io.Reader, current []store.Replica, count int32) ([]store.Replica, error) {
+	if count <= int32(len(current)) {
+		return append([]store.Replica(nil), current[:count]...), nil
+	}
+	replicas := append([]store.Replica(nil), current...)
+	for int32(len(replicas)) < count {
+		id, err := randomID(random)
+		if err != nil {
+			return nil, err
+		}
+		replicas = append(replicas, store.Replica{ID: id})
+	}
+	return replicas, nil
 }
 
 func (h *ResourceHandler) deleteCluster(w http.ResponseWriter, r *http.Request) {
