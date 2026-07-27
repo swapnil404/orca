@@ -28,3 +28,6 @@ type ActualReplica = orcatypes.ActualReplica
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.
 type ActualPgBouncer = orcatypes.ActualPgBouncer
+
+// ActualBackup describes observed applied backup configuration and backup state.
+type ActualBackup = orcatypes.ActualBackup

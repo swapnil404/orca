@@ -217,6 +217,7 @@ func writeReport(connection *websocket.Conn, pass reconciler.Pass) error {
 	if err := connection.WriteMessage(websocket.BinaryMessage, report); err != nil {
 		return fmt.Errorf("send agent report: %w", err)
 	}
+	pass.Acknowledge()
 	return connection.SetWriteDeadline(time.Time{})
 }
 

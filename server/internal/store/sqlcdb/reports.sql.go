@@ -22,18 +22,27 @@ func (q *Queries) DeleteClusterReportsForHost(ctx context.Context, hostID string
 }
 
 const getAgentReport = `-- name: GetAgentReport :one
-SELECT host_id, actual_state, health_report, reported_at
+SELECT host_id, actual_state, health_report, reconciliation_results, reported_at
 FROM agent_reports
 WHERE host_id = $1
 `
 
-func (q *Queries) GetAgentReport(ctx context.Context, hostID string) (AgentReport, error) {
+type GetAgentReportRow struct {
+	HostID                string          `json:"host_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthReport          json.RawMessage `json:"health_report"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	ReportedAt            time.Time       `json:"reported_at"`
+}
+
+func (q *Queries) GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error) {
 	row := q.db.QueryRowContext(ctx, getAgentReport, hostID)
-	var i AgentReport
+	var i GetAgentReportRow
 	err := row.Scan(
 		&i.HostID,
 		&i.ActualState,
 		&i.HealthReport,
+		&i.ReconciliationResults,
 		&i.ReportedAt,
 	)
 	return i, err
@@ -126,19 +135,21 @@ func (q *Queries) ListMetricClusterReports(ctx context.Context, projectID string
 }
 
 const upsertAgentReport = `-- name: UpsertAgentReport :exec
-INSERT INTO agent_reports (host_id, actual_state, health_report, reported_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO agent_reports (host_id, actual_state, health_report, reconciliation_results, reported_at)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (host_id) DO UPDATE
 SET actual_state = EXCLUDED.actual_state,
     health_report = EXCLUDED.health_report,
+    reconciliation_results = EXCLUDED.reconciliation_results,
     reported_at = EXCLUDED.reported_at
 `
 
 type UpsertAgentReportParams struct {
-	HostID       string          `json:"host_id"`
-	ActualState  json.RawMessage `json:"actual_state"`
-	HealthReport json.RawMessage `json:"health_report"`
-	ReportedAt   time.Time       `json:"reported_at"`
+	HostID                string          `json:"host_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthReport          json.RawMessage `json:"health_report"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	ReportedAt            time.Time       `json:"reported_at"`
 }
 
 func (q *Queries) UpsertAgentReport(ctx context.Context, arg UpsertAgentReportParams) error {
@@ -146,6 +157,7 @@ func (q *Queries) UpsertAgentReport(ctx context.Context, arg UpsertAgentReportPa
 		arg.HostID,
 		arg.ActualState,
 		arg.HealthReport,
+		arg.ReconciliationResults,
 		arg.ReportedAt,
 	)
 	return err

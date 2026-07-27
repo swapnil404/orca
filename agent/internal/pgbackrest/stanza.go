@@ -55,5 +55,5 @@ func primaryContainerName(clusterID string) (string, error) {
 }
 
 func pgBackRestCommand(stanza, operation string) []string {
-	return []string{"gosu", postgresUser, "pgbackrest", "--stanza=" + stanza, operation}
+	return []string{"gosu", postgresUser, "pgbackrest", "--config=" + clusterConfigPath(stanza), "--stanza=" + stanza, operation}
 }

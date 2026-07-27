@@ -109,9 +109,9 @@ func validateRecoveryRepository(desired *ClusterDesiredState) error {
 }
 
 func recoveryContainerSpec(desired *ClusterDesiredState, config string) orcadocker.ContainerSpec {
-	image := "postgres:latest"
+	image := "orca-postgres:latest"
 	if desired.Version != "" {
-		image = "postgres:" + desired.Version
+		image = "orca-postgres:" + desired.Version
 	}
 	return orcadocker.ContainerSpec{
 		ClusterID: desired.Id,
@@ -122,7 +122,7 @@ func recoveryContainerSpec(desired *ClusterDesiredState, config string) orcadock
 		UseVolume: true,
 		Config: &orcadocker.ConfigMount{
 			RelativePath:  configRelativePath,
-			ContainerPath: configPath,
+			ContainerPath: recoveryConfigPath,
 			Content:       config,
 		},
 	}
@@ -133,6 +133,7 @@ func restoreCommand(clusterID string, target time.Time) []string {
 		"sh", "-c",
 		`install -d -m 0700 -o postgres -g postgres "$1" && shift && exec gosu postgres pgbackrest "$@"`,
 		"sh", orcadocker.VolumeMountPath(clusterID) + "/primary",
+		"--config=" + recoveryConfigPath,
 		"--stanza=" + clusterID,
 		"--delta",
 		"--type=time",

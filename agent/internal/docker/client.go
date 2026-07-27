@@ -37,6 +37,8 @@ const (
 	PostgresConfigContainerPath = "/etc/orca/postgresql.conf"
 	// PostgresAppliedConfigRelativePath records the last successfully applied parameters.
 	PostgresAppliedConfigRelativePath = "postgres/applied.conf"
+	// PgBackRestAppliedConfigRelativePath records the last successfully applied backup configuration.
+	PgBackRestAppliedConfigRelativePath = "pgbackrest/applied.conf"
 )
 
 type sdkClient interface {
@@ -399,6 +401,13 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 					return nil, fmt.Errorf("read config for cluster %q: %w", info.ClusterID, err)
 				}
 				info.Config = config
+			}
+			if info.Kind == ContainerKindPrimary {
+				backupConfig, err := readConfig(c.dataRoot, info.ClusterID, PgBackRestAppliedConfigRelativePath)
+				if err != nil {
+					return nil, fmt.Errorf("read pgBackRest config for cluster %q: %w", info.ClusterID, err)
+				}
+				info.BackupConfig = backupConfig
 			}
 			infos = append(infos, info)
 		}

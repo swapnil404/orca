@@ -21,12 +21,13 @@ const (
 
 // HostReport is the latest actual state and health reported by one host.
 type HostReport struct {
-	HostID       string
-	ActualState  *types.ActualState
-	HealthReport *types.HealthReport
-	LastSeen     time.Time
-	Status       string
-	Stale        bool
+	HostID                string
+	ActualState           *types.ActualState
+	HealthReport          *types.HealthReport
+	ReconciliationResults []*types.ReconciliationResult
+	LastSeen              time.Time
+	Status                string
+	Stale                 bool
 }
 
 // ClusterReport is the latest actual state and health reported for one cluster.
@@ -59,6 +60,10 @@ func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *
 	if err != nil {
 		return fmt.Errorf("marshal health report: %w", err)
 	}
+	reconciliationResults, err := json.Marshal(report.GetReconciliationResults())
+	if err != nil {
+		return fmt.Errorf("marshal reconciliation results: %w", err)
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -67,7 +72,8 @@ func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
 	if err := queries.UpsertAgentReport(ctx, sqlcdb.UpsertAgentReportParams{
-		HostID: hostID, ActualState: actualState, HealthReport: healthReport, ReportedAt: receivedAt,
+		HostID: hostID, ActualState: actualState, HealthReport: healthReport,
+		ReconciliationResults: reconciliationResults, ReportedAt: receivedAt,
 	}); err != nil {
 		return fmt.Errorf("store host report: %w", err)
 	}
@@ -133,6 +139,9 @@ func (s *Postgres) GetHostReport(ctx context.Context, hostID string, now time.Ti
 	}
 	if err := protojson.Unmarshal(row.HealthReport, report.HealthReport); err != nil {
 		return HostReport{}, fmt.Errorf("decode health report: %w", err)
+	}
+	if err := json.Unmarshal(row.ReconciliationResults, &report.ReconciliationResults); err != nil {
+		return HostReport{}, fmt.Errorf("decode reconciliation results: %w", err)
 	}
 	report.Stale = reportIsStale(report.LastSeen, now, DefaultReportStalenessWindow)
 	if report.Stale {
