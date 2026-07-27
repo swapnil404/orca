@@ -446,16 +446,26 @@ func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) er
 	case pgbouncer.UpdateMethodRestart:
 		slog.Info("restarting PgBouncer for configuration change", "cluster_id", action.ClusterID)
 		if err := docker.StopContainer(ctx, update.Actual.ContainerId); err != nil {
-			rollbackErr := pgBouncerDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
-				RelativePath:  spec.Config.RelativePath,
-				ContainerPath: spec.Config.ContainerPath,
-				Content:       update.Actual.Config,
-			})
+			rollbackErr := pgBouncerDocker.WriteConfig(context.WithoutCancel(ctx), action.ClusterID, previousPgBouncerConfig(spec, update.Actual.Config))
 			return errors.Join(err, rollbackErr)
 		}
-		return docker.StartContainer(ctx, update.Actual.ContainerId)
+		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
+			recoveryCtx := context.WithoutCancel(ctx)
+			rollbackErr := pgBouncerDocker.WriteConfig(recoveryCtx, action.ClusterID, previousPgBouncerConfig(spec, update.Actual.Config))
+			recoveryErr := docker.StartContainer(recoveryCtx, update.Actual.ContainerId)
+			return errors.Join(err, rollbackErr, recoveryErr)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown PgBouncer update method %q", method)
+	}
+}
+
+func previousPgBouncerConfig(spec orcadocker.ContainerSpec, content string) *orcadocker.ConfigMount {
+	return &orcadocker.ConfigMount{
+		RelativePath:  spec.Config.RelativePath,
+		ContainerPath: spec.Config.ContainerPath,
+		Content:       content,
 	}
 }
 

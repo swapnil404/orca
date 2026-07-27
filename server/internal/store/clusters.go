@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	orcatypes "github.com/swapnil404/orca/pkg/types"
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
+
+const defaultPgBouncerMaxConnections = 100
 
 // Cluster is a desired Postgres cluster assigned to a host.
 type Cluster struct {
@@ -296,15 +299,20 @@ func createClusterUpsertState(ctx context.Context, queries *sqlcdb.Queries, clus
 
 func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 	state := struct {
-		ID         string                  `json:"id"`
-		Version    string                  `json:"version"`
-		Params     map[string]string       `json:"params"`
-		Replicas   []Replica               `json:"replicas"`
-		PgBouncer  map[string]string       `json:"pg_bouncer,omitempty"`
-		PgBackRest *pgBackRestDesiredState `json:"pg_back_rest,omitempty"`
+		ID         string                    `json:"id"`
+		Version    string                    `json:"version"`
+		Params     map[string]string         `json:"params"`
+		Replicas   []Replica                 `json:"replicas"`
+		PgBouncer  *orcatypes.PgBouncerSpec  `json:"pg_bouncer,omitempty"`
+		Databases  []*orcatypes.DatabaseSpec `json:"databases,omitempty"`
+		PgBackRest *pgBackRestDesiredState   `json:"pg_back_rest,omitempty"`
 	}{ID: cluster.ID, Version: cluster.PostgresVersion, Params: cluster.Parameters, Replicas: cluster.Replicas}
 	if cluster.PgBouncerEnabled {
-		state.PgBouncer = map[string]string{"pool_mode": "transaction"}
+		state.PgBouncer = &orcatypes.PgBouncerSpec{
+			PoolMode:       "transaction",
+			MaxConnections: defaultPgBouncerMaxConnections,
+		}
+		state.Databases = []*orcatypes.DatabaseSpec{{Name: "postgres"}}
 	}
 	if cluster.PgBackRest != nil {
 		state.PgBackRest = &pgBackRestDesiredState{
