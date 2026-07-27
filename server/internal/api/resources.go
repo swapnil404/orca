@@ -173,13 +173,14 @@ func (h *ResourceHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 }
 
 type clusterRequest struct {
-	HostID           string                  `json:"host_id"`
-	Name             string                  `json:"name"`
-	PostgresVersion  string                  `json:"postgres_version"`
-	Parameters       map[string]string       `json:"parameters"`
-	ReplicaCount     int32                   `json:"replica_count"`
-	PgBouncerEnabled bool                    `json:"pgbouncer_enabled"`
-	PgBackRest       *store.PgBackRestConfig `json:"pg_back_rest"`
+	HostID            string                  `json:"host_id"`
+	Name              string                  `json:"name"`
+	PostgresVersion   string                  `json:"postgres_version"`
+	Parameters        map[string]string       `json:"parameters"`
+	ReplicaCount      int32                   `json:"replica_count"`
+	EnabledExtensions []string                `json:"enabled_extensions"`
+	PgBouncerEnabled  bool                    `json:"pgbouncer_enabled"`
+	PgBackRest        *store.PgBackRestConfig `json:"pg_back_rest"`
 }
 
 func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) {
@@ -205,9 +206,10 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		ID: id, UserID: userID, ProjectID: r.PathValue("projectID"), HostID: request.HostID,
 		Name: strings.TrimSpace(request.Name), PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters: normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
-		Replicas:         replicas,
-		PgBouncerEnabled: request.PgBouncerEnabled,
-		PgBackRest:       request.PgBackRest,
+		Replicas:          replicas,
+		EnabledExtensions: request.EnabledExtensions,
+		PgBouncerEnabled:  request.PgBouncerEnabled,
+		PgBackRest:        request.PgBackRest,
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -270,9 +272,10 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		ID: r.PathValue("clusterID"), UserID: userID, Name: strings.TrimSpace(request.Name),
 		PostgresVersion: strings.TrimSpace(request.PostgresVersion),
 		Parameters:      normalizeParameters(request.Parameters), ReplicaCount: request.ReplicaCount,
-		Replicas:         replicas,
-		PgBouncerEnabled: request.PgBouncerEnabled,
-		PgBackRest:       request.PgBackRest,
+		Replicas:          replicas,
+		EnabledExtensions: request.EnabledExtensions,
+		PgBouncerEnabled:  request.PgBouncerEnabled,
+		PgBackRest:        request.PgBackRest,
 	})
 	if err != nil {
 		writeStoreError(w, err)

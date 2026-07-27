@@ -49,6 +49,7 @@ type Cluster struct {
 	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
 	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
 	ReplicaIds                    json.RawMessage `json:"replica_ids"`
+	EnabledExtensions             json.RawMessage `json:"enabled_extensions"`
 }
 
 type ClusterReport struct {
