@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	// MetricClusterUp reports whether a cluster primary is running.
+	// MetricClusterUp reports whether a cluster primary is ready to accept PostgreSQL connections.
 	MetricClusterUp = "orca_cluster_up"
 	// MetricReplicaReplicationLagBytes reports replica lag in bytes.
 	MetricReplicaReplicationLagBytes = "orca_replica_replication_lag_bytes"
@@ -31,7 +31,7 @@ func currentMetricValues(reports []store.MetricClusterReport, now time.Time) []m
 	values := make([]metricValue, 0, len(reports))
 	for _, report := range reports {
 		up := 0.0
-		if !report.Stale && report.ActualState != nil && report.ActualState.GetStatus() == "running" {
+		if !report.Stale && report.ActualState != nil && report.ActualState.GetPostgresReady() && (report.Health == "healthy" || report.Health == "degraded") {
 			up = 1
 		}
 		values = append(values, metricValue{
