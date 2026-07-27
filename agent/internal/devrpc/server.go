@@ -63,6 +63,12 @@ func (s *Server) handleDesiredState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	for _, result := range pass.Results {
+		if result.Status == reconciler.ApplyStatusFailed {
+			w.WriteHeader(http.StatusInternalServerError)
+			break
+		}
+	}
 	if err := json.NewEncoder(w).Encode(pass.Results); err != nil {
 		return
 	}

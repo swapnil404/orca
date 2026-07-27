@@ -207,7 +207,19 @@ func writeReport(connection *websocket.Conn, pass reconciler.Pass) error {
 	if pass.Report == nil {
 		return errors.New("reconciler returned no agent report")
 	}
-	report, err := proto.Marshal(pass.Report)
+	reportMessage := proto.Clone(pass.Report).(*types.AgentReportMessage)
+	reportMessage.ReconciliationResults = make([]*types.ReconciliationResult, 0, len(pass.Results))
+	for _, result := range pass.Results {
+		message := ""
+		if result.Err != nil {
+			message = result.Err.Error()
+		}
+		reportMessage.ReconciliationResults = append(reportMessage.ReconciliationResults, &types.ReconciliationResult{
+			Action: string(result.Action.Type), ClusterId: result.Action.ClusterID,
+			Status: string(result.Status), Error: message,
+		})
+	}
+	report, err := proto.Marshal(reportMessage)
 	if err != nil {
 		return fmt.Errorf("encode agent report: %w", err)
 	}
