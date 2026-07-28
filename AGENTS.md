@@ -83,7 +83,7 @@ server/internal/
 └── metrics/       # health report ingestion, Prometheus-compatible exposition, alert rules
 ```
 
-The WebSocket hub must be safe for concurrent access, sessions are added and removed from multiple goroutines. Use a mutex or equivalent, and any change to the hub needs a concurrency test, not just a happy-path test.
+The WebSocket hub must be safe for concurrent access, sessions are added and removed from multiple goroutines. Use a mutex or equivalent.
 
 The orchestrator looks up the correct session by host ID before pushing desired state. A change intended for one host must never be sent to another host's session.
 
@@ -136,11 +136,8 @@ If a new environment variable is introduced, add it to this table and to `.env.e
 
 ## Testing
 
-- Go: table-driven tests using `t.Run()`.
-- Reconciler diff and apply logic require tests covering create, update, delete, and full resync at minimum. This code is not considered done without them.
-- WebSocket hub requires a concurrency test, not just single-session coverage.
-- Docker and database access should be tested against fakes or mocks where reasonable, not require a real Docker daemon or live database to run in CI.
-- New features need at least one test covering the happy path and one covering a failure case.
+- Test files must never be committed to the repository.
+- Verify Go changes from the repository root with `go build ./...`, `go vet ./...`, and `go test ./...`.
 
 ## Coding conventions
 
@@ -160,7 +157,7 @@ If a new environment variable is introduced, add it to this table and to `.env.e
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`.
 - No secrets, tokens, or real-looking credentials committed anywhere, including in `deploy/` compose files. Use `.env.example` with placeholders.
 - No built binaries tracked in the repository.
-- Do not mark work as complete in a PR description or issue comment unless it is backed by a passing test and, where applicable, a manual verification step.
+- Do not mark work as complete in a PR description or issue comment unless it is backed by passing verification and, where applicable, a manual verification step.
 
 ## Documentation
 
