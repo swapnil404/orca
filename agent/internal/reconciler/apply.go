@@ -68,6 +68,7 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 	results := make([]ApplyResult, 0, len(actions))
 	failedReplicaDeletes := make(map[string]error)
 	failedPrimaryActions := make(map[string]struct{})
+	failedDependentDeletes := make(map[string]struct{})
 	failedBackupDeletes := make(map[string]struct{})
 	for _, action := range actions {
 		key := action.ClusterID + "\x00" + action.ReplicaID
@@ -84,6 +85,10 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 			}
 		}
 		if action.Type == ActionDeletePrimary {
+			if _, blocked := failedDependentDeletes[action.ClusterID]; blocked {
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
+				continue
+			}
 			if _, blocked := failedBackupDeletes[action.ClusterID]; blocked {
 				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
 				continue
@@ -93,6 +98,9 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 		results = append(results, ApplyResult{Action: action, Status: applyStatus(err), Err: err})
 		if action.Type == ActionDeleteReplica && err != nil {
 			failedReplicaDeletes[key] = err
+		}
+		if isPrimaryDependentDelete(action.Type) && err != nil {
+			failedDependentDeletes[action.ClusterID] = struct{}{}
 		}
 		if isPrimaryMutation(action.Type) && err != nil {
 			failedPrimaryActions[action.ClusterID] = struct{}{}
@@ -112,12 +120,16 @@ func applyStatus(err error) ApplyStatus {
 }
 
 func isPrimaryMutation(actionType ActionType) bool {
-	return actionType == ActionCreatePrimary || actionType == ActionUpdatePrimary
+	return actionType == ActionCreatePrimary || actionType == ActionUpdatePrimary || actionType == ActionRecoverPrimary
 }
 
 func isPrimaryDependentAction(actionType ActionType) bool {
 	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
-		actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
+		actionType == ActionUpdateExtensions || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
+}
+
+func isPrimaryDependentDelete(actionType ActionType) bool {
+	return actionType == ActionDeleteReplica || actionType == ActionDeletePgBouncer
 }
 
 func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, action Action, desired *DesiredState) error {
