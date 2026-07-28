@@ -1,7 +1,10 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +23,10 @@ import (
 	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	postgresimage "github.com/swapnil404/orca/agent/images/postgres"
 )
 
 const (
@@ -47,6 +52,7 @@ type sdkClient interface {
 	ContainerStop(ctx context.Context, containerID string, options containertypes.StopOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options containertypes.RemoveOptions) error
 	ContainerList(ctx context.Context, options containertypes.ListOptions) ([]dockertypes.Container, error)
+	ImageBuild(ctx context.Context, buildContext io.Reader, options dockertypes.ImageBuildOptions) (dockertypes.ImageBuildResponse, error)
 	ImagePull(ctx context.Context, ref string, options imagetypes.PullOptions) (io.ReadCloser, error)
 	VolumeCreate(ctx context.Context, options volumetypes.CreateOptions) (volumetypes.Volume, error)
 	VolumeRemove(ctx context.Context, volumeID string, force bool) error
@@ -144,7 +150,7 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 	}
 	created, err := c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
 	if errdefs.IsNotFound(err) {
-		if err := c.pullImage(ctx, spec.Image); err != nil {
+		if err := c.ensureMissingImage(ctx, spec.Image); err != nil {
 			return "", err
 		}
 		created, err = c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
@@ -154,6 +160,65 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 	}
 
 	return created.ID, nil
+}
+
+func (c *Client) ensureMissingImage(ctx context.Context, image string) error {
+	if strings.HasPrefix(image, "orca-postgres:") {
+		return c.buildOrcaPostgresImage(ctx, image)
+	}
+	return c.pullImage(ctx, image)
+}
+
+func (c *Client) buildOrcaPostgresImage(ctx context.Context, image string) error {
+	version := strings.TrimPrefix(image, "orca-postgres:")
+	if version == "" || strings.ContainsAny(version, "/:@") {
+		return fmt.Errorf("build pgBackRest-enabled PostgreSQL image %q: invalid PostgreSQL version tag", image)
+	}
+
+	var contextBuffer bytes.Buffer
+	tarWriter := tar.NewWriter(&contextBuffer)
+	dockerfile := postgresimage.Dockerfile()
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: int64(len(dockerfile))}); err != nil {
+		return fmt.Errorf("prepare build context for %q: %w", image, err)
+	}
+	if _, err := tarWriter.Write(dockerfile); err != nil {
+		return fmt.Errorf("prepare build context for %q: %w", image, err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		return fmt.Errorf("prepare build context for %q: %w", image, err)
+	}
+
+	response, err := c.sdk.ImageBuild(ctx, &contextBuffer, dockertypes.ImageBuildOptions{
+		Tags:       []string{image},
+		PullParent: true,
+		Remove:     true,
+		BuildArgs:  map[string]*string{"POSTGRES_VERSION": &version},
+	})
+	if err != nil {
+		return fmt.Errorf("build pgBackRest-enabled PostgreSQL image %q: %w", image, err)
+	}
+	if response.Body == nil {
+		return fmt.Errorf("build pgBackRest-enabled PostgreSQL image %q: Docker returned an empty response", image)
+	}
+	defer response.Body.Close()
+
+	decoder := json.NewDecoder(response.Body)
+	for {
+		var message jsonmessage.JSONMessage
+		if err := decoder.Decode(&message); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return fmt.Errorf("read build response for pgBackRest-enabled PostgreSQL image %q: %w", image, err)
+		}
+		if message.Error != nil {
+			return fmt.Errorf("build pgBackRest-enabled PostgreSQL image %q: %s", image, message.Error.Message)
+		}
+		if message.ErrorMessage != "" {
+			return fmt.Errorf("build pgBackRest-enabled PostgreSQL image %q: %s", image, message.ErrorMessage)
+		}
+	}
+
+	return nil
 }
 
 // WriteConfig writes generated container configuration to the host.
