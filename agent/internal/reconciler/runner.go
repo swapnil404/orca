@@ -109,7 +109,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		return Pass{}, err
 	}
 	actual := ActualStateFromDocker(containers, volumes)
-	observationResults := r.populateInstalledExtensions(ctx, desired, actual)
+	r.populateInstalledExtensions(ctx, desired, actual)
 	actions := Diff(desired, actual)
 	results := apply(ctx, r.docker, r.backups, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
@@ -122,9 +122,8 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	}
 	actual = ActualStateFromDocker(containers, volumes)
 	r.ensureBackupSchedules(desired, actual)
-	observationResults = append(observationResults, r.populateInstalledExtensions(ctx, desired, actual)...)
+	r.populateInstalledExtensions(ctx, desired, actual)
 	extensionResults := apply(ctx, r.docker, r.backups, extensionOnlyActions(Diff(desired, actual)), desired)
-	results = append(observationResults, results...)
 	results = append(results, extensionResults...)
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
 	backupResults, pendingBackupResults := r.backupResults()
