@@ -120,7 +120,7 @@ func CreateReplica(ctx context.Context, docker ReplicaDockerClient, spec Replica
 	}
 
 	if _, err := docker.ExecContainer(ctx, bootstrapID, prepareReplicaDataCommand(dataPath)); err != nil {
-		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, dataPath)
+		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, spec.ClusterID, identity)
 		return "", errors.Join(fmt.Errorf("prepare replica data directory: %w", err), cleanupErr)
 	}
 	if _, err := docker.ExecContainer(ctx, bootstrapID, baseBackupCommand(spec, identity)); err != nil {
@@ -128,11 +128,11 @@ func CreateReplica(ctx context.Context, docker ReplicaDockerClient, spec Replica
 			ClusterID:  spec.ClusterID,
 			ReplicaID:  spec.ReplicaID,
 			Err:        err,
-			CleanupErr: cleanupBootstrap(ctx, docker, bootstrapID, dataPath),
+			CleanupErr: cleanupBootstrap(ctx, docker, bootstrapID, spec.ClusterID, identity),
 		}
 	}
 	if _, err := docker.ExecContainer(ctx, bootstrapID, writeRecoveryConfigCommand(dataPath, recoveryConfig(spec, identity))); err != nil {
-		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, dataPath)
+		cleanupErr := cleanupBootstrap(ctx, docker, bootstrapID, spec.ClusterID, identity)
 		return "", errors.Join(fmt.Errorf("write replica recovery config: %w", err), cleanupErr)
 	}
 	if err := removeContainer(ctx, docker, bootstrapID); err != nil {
@@ -280,9 +280,17 @@ func writeRecoveryConfigCommand(dataPath, config string) []string {
 	}
 }
 
-func cleanupBootstrap(ctx context.Context, docker ReplicaDockerClient, containerID, dataPath string) error {
-	_, dataErr := docker.ExecContainer(ctx, containerID, []string{"rm", "-rf", "--", dataPath})
-	return errors.Join(dataErr, removeContainer(ctx, docker, containerID))
+func cleanupBootstrap(ctx context.Context, docker ReplicaDockerClient, containerID, clusterID string, identity ReplicaIdentity) error {
+	_, dataErr := docker.ExecContainer(ctx, containerID, []string{"rm", "-rf", "--", identity.DataPath})
+	containerErr := removeContainer(ctx, docker, containerID)
+	primary, nameErr := orcadocker.ContainerName(orcadocker.ContainerSpec{
+		ClusterID: clusterID,
+		Kind:      orcadocker.ContainerKindPrimary,
+	})
+	if nameErr != nil {
+		return errors.Join(dataErr, containerErr, nameErr)
+	}
+	return errors.Join(dataErr, containerErr, dropReplicationSlot(ctx, docker, primary, identity.SlotName))
 }
 
 func removeContainer(ctx context.Context, docker ReplicaDockerClient, containerID string) error {
