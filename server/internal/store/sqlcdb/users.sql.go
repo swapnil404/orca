@@ -10,6 +10,49 @@ import (
 	"database/sql"
 )
 
+const createOAuthIdentity = `-- name: CreateOAuthIdentity :one
+INSERT INTO oauth_identities (provider, provider_user_id, provider_email, user_id)
+VALUES ($1, $2, NULLIF($3::text, ''), $4)
+RETURNING provider, provider_user_id, provider_email, user_id, created_at
+`
+
+type CreateOAuthIdentityParams struct {
+	Provider       string `json:"provider"`
+	ProviderUserID string `json:"provider_user_id"`
+	ProviderEmail  string `json:"provider_email"`
+	UserID         string `json:"user_id"`
+}
+
+func (q *Queries) CreateOAuthIdentity(ctx context.Context, arg CreateOAuthIdentityParams) (OauthIdentity, error) {
+	row := q.db.QueryRowContext(ctx, createOAuthIdentity,
+		arg.Provider,
+		arg.ProviderUserID,
+		arg.ProviderEmail,
+		arg.UserID,
+	)
+	var i OauthIdentity
+	err := row.Scan(
+		&i.Provider,
+		&i.ProviderUserID,
+		&i.ProviderEmail,
+		&i.UserID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createOAuthUser = `-- name: CreateOAuthUser :one
+INSERT INTO users (id)
+VALUES ($1)
+RETURNING id
+`
+
+func (q *Queries) CreateOAuthUser(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, createOAuthUser, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createPasswordUser = `-- name: CreatePasswordUser :one
 INSERT INTO users (id, email, password_hash)
 VALUES ($1, LOWER($2), $3)
@@ -33,6 +76,24 @@ func (q *Queries) CreatePasswordUser(ctx context.Context, arg CreatePasswordUser
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getOAuthIdentityUserID = `-- name: GetOAuthIdentityUserID :one
+SELECT user_id
+FROM oauth_identities
+WHERE provider = $1 AND provider_user_id = $2
+`
+
+type GetOAuthIdentityUserIDParams struct {
+	Provider       string `json:"provider"`
+	ProviderUserID string `json:"provider_user_id"`
+}
+
+func (q *Queries) GetOAuthIdentityUserID(ctx context.Context, arg GetOAuthIdentityUserIDParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getOAuthIdentityUserID, arg.Provider, arg.ProviderUserID)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
