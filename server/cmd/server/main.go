@@ -33,11 +33,16 @@ const (
 )
 
 type config struct {
-	databaseURL string
-	port        int
-	serverURL   string
-	logLevel    slog.Level
-	jwtSecret   string
+	databaseURL        string
+	port               int
+	serverURL          string
+	logLevel           slog.Level
+	jwtSecret          string
+	githubClientID     string
+	githubClientSecret string
+	googleClientID     string
+	googleClientSecret string
+	oauthCallbackBase  string
 }
 
 func main() {
@@ -83,6 +88,25 @@ func loadConfig() (config, error) {
 	if err != nil || (parsedServerURL.Scheme != "ws" && parsedServerURL.Scheme != "wss") || parsedServerURL.Host == "" {
 		return config{}, errors.New("ORCA_SERVER_URL must be a ws:// or wss:// URL")
 	}
+	oauthCallbackBase := *parsedServerURL
+	if oauthCallbackBase.Scheme == "ws" {
+		oauthCallbackBase.Scheme = "http"
+	} else {
+		oauthCallbackBase.Scheme = "https"
+	}
+	oauthCallbackBase.Path = ""
+	oauthCallbackBase.RawPath = ""
+	oauthCallbackBase.RawQuery = ""
+	oauthCallbackBase.Fragment = ""
+
+	githubClientID, githubClientSecret := os.Getenv("ORCA_GITHUB_CLIENT_ID"), os.Getenv("ORCA_GITHUB_CLIENT_SECRET")
+	if err := validateOAuthCredentials("GITHUB", githubClientID, githubClientSecret); err != nil {
+		return config{}, err
+	}
+	googleClientID, googleClientSecret := os.Getenv("ORCA_GOOGLE_CLIENT_ID"), os.Getenv("ORCA_GOOGLE_CLIENT_SECRET")
+	if err := validateOAuthCredentials("GOOGLE", googleClientID, googleClientSecret); err != nil {
+		return config{}, err
+	}
 
 	logLevel := slog.LevelInfo
 	switch value := os.Getenv("ORCA_LOG_LEVEL"); value {
@@ -97,7 +121,19 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("ORCA_LOG_LEVEL must be debug, info, warn, or error")
 	}
 
-	return config{databaseURL: databaseURL, port: port, serverURL: serverURL, logLevel: logLevel, jwtSecret: jwtSecret}, nil
+	return config{
+		databaseURL: databaseURL, port: port, serverURL: serverURL, logLevel: logLevel, jwtSecret: jwtSecret,
+		githubClientID: githubClientID, githubClientSecret: githubClientSecret,
+		googleClientID: googleClientID, googleClientSecret: googleClientSecret,
+		oauthCallbackBase: strings.TrimSuffix(oauthCallbackBase.String(), "/"),
+	}, nil
+}
+
+func validateOAuthCredentials(provider, clientID, clientSecret string) error {
+	if (clientID == "") != (clientSecret == "") {
+		return fmt.Errorf("ORCA_%s_CLIENT_ID and ORCA_%s_CLIENT_SECRET must be set together", provider, provider)
+	}
+	return nil
 }
 
 func run(ctx context.Context, configuration config) error {
@@ -123,18 +159,23 @@ func run(ctx context.Context, configuration config) error {
 	}
 	hub := ws.NewHub()
 	desiredStates := orchestrator.New(metadata, hub)
-	projectEvents := api.NewProjectEventHandler(metadata)
+	projectEvents := api.NewProjectEventHandler(metadata, tokens)
 	agentHandler := ws.NewAgentHandler(hub, metadata, desiredStates)
 	agentHandler.SetReportNotifier(projectEvents)
 
 	protected := http.NewServeMux()
 	api.NewResourceHandler(metadata, desiredStates).RegisterRoutes(protected)
 	protected.Handle("POST /hosts", api.NewHostRegistrationHandler(metadata, configuration.serverURL))
-	projectEvents.RegisterRoutes(protected)
 	metrics.NewHandler(metadata).RegisterRoutes(protected)
 
 	mux := http.NewServeMux()
 	api.NewUserAuthHandler(metadata, tokens).RegisterRoutes(mux)
+	api.NewOAuthHandler(metadata, tokens, api.OAuthConfig{
+		CallbackBaseURL: configuration.oauthCallbackBase, CookieSecret: configuration.jwtSecret,
+		GitHubClientID: configuration.githubClientID, GitHubClientSecret: configuration.githubClientSecret,
+		GoogleClientID: configuration.googleClientID, GoogleClientSecret: configuration.googleClientSecret,
+	}).RegisterRoutes(mux)
+	projectEvents.RegisterRoutes(mux)
 	mux.Handle("GET /agent", agentHandler)
 	mux.Handle("/", tokens.Middleware(protected))
 

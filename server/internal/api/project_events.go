@@ -5,16 +5,23 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/swapnil404/orca/pkg/types"
+	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
 )
 
 const maxFrontendMessageBytes = 64 * 1024
+
+const (
+	projectEventsProtocol = "orca.jwt"
+	jwtProtocolPrefix     = "orca.jwt.token."
+)
 
 type projectEventStore interface {
 	GetProject(context.Context, string, string) (store.Project, error)
@@ -48,6 +55,7 @@ type projectClient struct {
 // ProjectEventHandler serves project-scoped frontend WebSocket subscriptions.
 type ProjectEventHandler struct {
 	store         projectEventStore
+	tokens        *auth.JWTManager
 	now           func() time.Time
 	upgrader      websocket.Upgrader
 	mu            sync.Mutex
@@ -55,9 +63,10 @@ type ProjectEventHandler struct {
 }
 
 // NewProjectEventHandler creates a frontend WebSocket endpoint and report notifier.
-func NewProjectEventHandler(state projectEventStore) *ProjectEventHandler {
+func NewProjectEventHandler(state projectEventStore, tokens *auth.JWTManager) *ProjectEventHandler {
 	return &ProjectEventHandler{
 		store:         state,
+		tokens:        tokens,
 		now:           time.Now,
 		subscriptions: make(map[string]map[*projectClient]struct{}),
 	}
@@ -70,8 +79,9 @@ func (h *ProjectEventHandler) RegisterRoutes(mux *http.ServeMux) {
 
 // ServeHTTP authenticates, scopes, and upgrades a frontend project subscription.
 func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requireUserID(w, r)
-	if !ok {
+	userID, selectedProtocol, err := h.authenticateSubprotocol(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	projectID := r.PathValue("projectID")
@@ -80,7 +90,8 @@ func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	connection, err := h.upgrader.Upgrade(w, r, nil)
+	responseHeaders := http.Header{"Sec-WebSocket-Protocol": []string{selectedProtocol}}
+	connection, err := h.upgrader.Upgrade(w, r, responseHeaders)
 	if err != nil {
 		return
 	}
@@ -100,6 +111,18 @@ func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+}
+
+func (h *ProjectEventHandler) authenticateSubprotocol(r *http.Request) (string, string, error) {
+	protocols := websocket.Subprotocols(r)
+	if len(protocols) != 2 || protocols[0] != projectEventsProtocol || !strings.HasPrefix(protocols[1], jwtProtocolPrefix) {
+		return "", "", errors.New("JWT WebSocket subprotocol is required")
+	}
+	userID, err := h.tokens.Validate(strings.TrimPrefix(protocols[1], jwtProtocolPrefix))
+	if err != nil {
+		return "", "", err
+	}
+	return userID, projectEventsProtocol, nil
 }
 
 // NotifyHostReport publishes fresh snapshots after a host report is committed.

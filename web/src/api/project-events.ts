@@ -1,6 +1,7 @@
 import type { ProjectStateSnapshot } from '../types/resources'
+import { getAuthToken } from './auth'
 
-export type ProjectSocketFactory = (url: string) => WebSocket
+export type ProjectSocketFactory = (url: string, protocols: string[]) => WebSocket
 
 interface ProjectEventClientOptions {
   projectID: string
@@ -40,14 +41,19 @@ function parseSnapshot(data: unknown): ProjectStateSnapshot | null {
 }
 
 export function connectProjectEvents(options: ProjectEventClientOptions): ProjectEventConnection {
-  const socketFactory = options.socketFactory ?? ((url) => new WebSocket(url))
+  const socketFactory = options.socketFactory ?? ((url, protocols) => new WebSocket(url, protocols))
   let socket: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let closed = false
   let reconnectDelay = 1_000
 
   const connect = () => {
-    socket = socketFactory(projectEventsURL(options.projectID))
+    const token = getAuthToken()
+    if (!token) {
+      options.onConnectionChange?.(false)
+      return
+    }
+    socket = socketFactory(projectEventsURL(options.projectID), ['orca.jwt', `orca.jwt.token.${token}`])
     socket.addEventListener('open', () => {
       reconnectDelay = 1_000
       options.onConnectionChange?.(true)
