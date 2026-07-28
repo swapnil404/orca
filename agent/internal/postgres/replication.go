@@ -100,7 +100,7 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 	return nil
 }
 
-// DeleteReplica removes a replica container, its data directory, and its primary replication slot.
+// DeleteReplica stops a replica, cleans up its data and replication slot, then removes its container.
 func DeleteReplica(ctx context.Context, docker ReplicaDockerClient, clusterID, replicaID, containerID string) error {
 	if docker == nil {
 		return errors.New("docker client is nil")
@@ -109,10 +109,8 @@ func DeleteReplica(ctx context.Context, docker ReplicaDockerClient, clusterID, r
 	if err != nil {
 		return err
 	}
-	stopErr := docker.StopContainer(ctx, containerID)
-	removeErr := docker.RemoveContainer(ctx, containerID)
-	if removeErr != nil {
-		return errors.Join(stopErr, removeErr)
+	if err := docker.StopContainer(ctx, containerID); err != nil {
+		return err
 	}
 	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
 		ClusterID: clusterID,
@@ -122,9 +120,17 @@ func DeleteReplica(ctx context.Context, docker ReplicaDockerClient, clusterID, r
 		return err
 	}
 	_, dataErr := docker.ExecContainer(ctx, primary, []string{"rm", "-rf", "--", identity.DataPath})
-	dropSlot := fmt.Sprintf("SELECT pg_drop_replication_slot('%s') WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", identity.SlotName, identity.SlotName)
-	_, slotErr := docker.ExecContainer(ctx, primary, psqlCommand(dropSlot))
-	return errors.Join(stopErr, dataErr, slotErr)
+	slotErr := dropReplicationSlot(ctx, docker, primary, identity.SlotName)
+	if err := errors.Join(dataErr, slotErr); err != nil {
+		return err
+	}
+	return docker.RemoveContainer(ctx, containerID)
+}
+
+func dropReplicationSlot(ctx context.Context, docker ReplicaDockerClient, primary, slotName string) error {
+	dropSlot := fmt.Sprintf("SELECT pg_drop_replication_slot('%s') WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", slotName, slotName)
+	_, err := docker.ExecContainer(ctx, primary, psqlCommand(dropSlot))
+	return err
 }
 
 func waitForPrimary(ctx context.Context, docker DockerClient, primary string) error {
