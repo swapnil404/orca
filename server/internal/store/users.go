@@ -16,6 +16,7 @@ type User struct {
 	PasswordHash sql.NullString
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
 }
 
 // UserIDForOAuthIdentity returns an existing identity's user or atomically creates an OAuth-only user.
@@ -79,9 +80,20 @@ func (s *Postgres) UserByEmail(ctx context.Context, email string) (User, error) 
 	return userFromSQLC(user), nil
 }
 
+// UserIsActive reports whether userID identifies a user that has not been deleted.
+func (s *Postgres) UserIsActive(ctx context.Context, userID string) (bool, error) {
+	return s.queries.UserIsActive(ctx, userID)
+}
+
+// SoftDeleteUser marks an active user as deleted.
+func (s *Postgres) SoftDeleteUser(ctx context.Context, userID string) error {
+	_, err := s.queries.SoftDeleteUser(ctx, userID)
+	return err
+}
+
 func userFromSQLC(user sqlcdb.User) User {
 	return User{
 		ID: user.ID, Email: user.Email, PasswordHash: user.PasswordHash,
-		CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt,
+		CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, DeletedAt: user.DeletedAt,
 	}
 }

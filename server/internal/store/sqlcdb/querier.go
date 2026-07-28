@@ -38,12 +38,14 @@ type Querier interface {
 	SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterParams) (SoftDeleteClusterRow, error)
 	SoftDeleteClustersForProject(ctx context.Context, arg SoftDeleteClustersForProjectParams) error
 	SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectParams) (string, error)
+	SoftDeleteUser(ctx context.Context, id string) (string, error)
 	UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (AlertRule, error)
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpsertAgentReport(ctx context.Context, arg UpsertAgentReportParams) error
 	UpsertClusterReport(ctx context.Context, arg UpsertClusterReportParams) (int64, error)
+	UserIsActive(ctx context.Context, id string) (bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

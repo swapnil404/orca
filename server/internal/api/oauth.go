@@ -18,6 +18,7 @@ import (
 
 type oauthStore interface {
 	UserIDForOAuthIdentity(context.Context, string, string, string, string) (string, error)
+	UserIsActive(context.Context, string) (bool, error)
 }
 
 // OAuthConfig configures the supported Goth providers and callback origin.
@@ -96,6 +97,15 @@ func (h *OAuthHandler) callback(w http.ResponseWriter, r *http.Request) {
 	userID, err := h.store.UserIDForOAuthIdentity(r.Context(), provider, providerUser.UserID, providerUser.Email, newUserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store OAuth identity")
+		return
+	}
+	active, err := h.store.UserIsActive(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify OAuth account")
+		return
+	}
+	if !active {
+		writeError(w, http.StatusUnauthorized, "OAuth account is unavailable")
 		return
 	}
 	token, err := h.tokens.IssueToken(userID)

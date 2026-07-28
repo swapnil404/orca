@@ -19,6 +19,7 @@ import (
 type userAuthStore interface {
 	CreatePasswordUser(context.Context, string, string, string) (store.User, error)
 	UserByEmail(context.Context, string) (store.User, error)
+	SoftDeleteUser(context.Context, string) error
 }
 
 // UserAuthHandler serves email/password registration and login.
@@ -37,6 +38,11 @@ func NewUserAuthHandler(users userAuthStore, tokens *auth.JWTManager) *UserAuthH
 func (h *UserAuthHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/register", h.register)
 	mux.HandleFunc("POST /auth/login", h.login)
+}
+
+// RegisterProtectedRoutes registers authenticated account routes.
+func (h *UserAuthHandler) RegisterProtectedRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("DELETE /account", h.deleteAccount)
 }
 
 type credentialsRequest struct {
@@ -87,6 +93,18 @@ func (h *UserAuthHandler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeToken(w, http.StatusOK, user.ID)
+}
+
+func (h *UserAuthHandler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.store.SoftDeleteUser(r.Context(), userID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *UserAuthHandler) writeToken(w http.ResponseWriter, status int, userID string) {
