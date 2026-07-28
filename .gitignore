@@ -1,3 +1,12 @@
 web/.tanstack/
 web/dist/
 web/node_modules/
+
+.env
+
+# Local Go build and test output
+bin/
+agent/cmd/agent/agent
+server/cmd/server/server
+*.test
+*.out

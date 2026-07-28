@@ -1,101 +1,84 @@
 # Orca
 
-Orca is a self-hosted Postgres orchestration and control platform. You run a small agent on your own server. The agent connects out to Orca's control plane over an encrypted tunnel, and from there you manage your Postgres infrastructure through a web UI: clusters, replicas, connection pooling, backups, and extensions.
+Orca is an in-development, self-hosted Postgres orchestration and control platform. Its agent runs on infrastructure you control, keeps the last desired state locally, and reconciles Docker resources without requiring an inbound connection from the control plane. Orca stores desired state and reported health, not user database data.
 
-Orca never runs your database. Your data stays on your own infrastructure. Orca stores what you want your infrastructure to look like, pushes that down to the agent, and the agent does the actual work through Docker.
+The backend and agent contain most of the current functionality. The web application is a read-only topology and status view; it does not yet provide the management workflows described below.
 
-## Why this exists
+## Current status
 
-Managed Postgres works fine until you can't use it: compliance requirements, data residency, cost at scale, or wanting your database on hardware you control. Orca gives you the control plane experience, a canvas UI, one click to add a replica, live topology and health, without handing your data to a third party.
+Implemented in the backend and agent:
 
-## How it works
+- Full desired-state snapshots over an agent-initiated WebSocket connection, including full resync after reconnecting.
+- Local desired-state caching and periodic reconciliation while the control plane is unavailable.
+- Postgres primary lifecycle and streaming-replica provisioning, observation, and deletion.
+- PgBouncer lifecycle with a fixed backend-generated configuration.
+- pgBackRest configuration and scheduled full, differential, and incremental backups.
+- Reconciliation of a limited set of Postgres extensions when the selected image contains them.
+- Agent health reports, persisted reconciliation results, and Prometheus-compatible server metrics.
+- Backend CRUD for projects and clusters, plus a backend endpoint that registers a host and returns an agent token and `docker run` command.
+- Agent token authentication for the control-plane tunnel.
 
-1. You add a host from the UI. This generates a token and a `docker run` command.
-2. You run that command on your server. The agent starts, authenticates with the token, and opens an outbound connection to Orca's server. Nothing on your server needs to accept inbound traffic.
-3. You configure a Postgres cluster in the UI: primary, replicas, connection pooling, backup schedule, extensions. That configuration is stored as desired state and pushed down to your agent over the same connection.
-4. The agent compares desired state against what's actually running in Docker and reconciles the difference: starting, updating, or removing containers as needed.
-5. The agent reports back what's actually running, along with health metrics. The UI reflects it in real time.
+Incomplete or not yet exposed as a usable product workflow:
 
-If the connection between your agent and Orca drops and comes back, the agent doesn't try to replay everything it missed. Orca sends the full current desired state again, and the agent reconciles against that. This keeps the system correct after long disconnects, without relying on an event log staying intact.
+- Browser account creation, login, and authenticated user sessions are not wired into the running server. User-auth work is still landing; agent-token authentication is the part currently in use.
+- The web UI displays projects and topology but is read-only. It cannot create or edit projects, hosts, clusters, replicas, pools, backups, or extensions.
+- Host registration exists as a backend endpoint, not as a UI flow, and host listing and management are not implemented.
+- Point-in-time recovery code exists in the agent but has no API, tunnel operation, CLI, or UI entry point.
+- Extension controls are not connected to the UI, and the supplied Postgres images do not bundle every supported extension package.
+- Alert rule storage and server-side evaluation exist, but there is no alert API, UI, or notification delivery. This is not yet operational alerting.
 
-## What you can run
+## Architecture
 
-- **Primary and replicas.** Streaming replication, add or remove replicas from the canvas.
-- **Connection pooling.** PgBouncer, per-database or standalone pools.
-- **Backups.** pgBackRest, full, differential, and WAL backups, with point-in-time recovery.
-- **Extensions.** Enable common extensions (pgvector, PostGIS, TimescaleDB, pg_partman, and others) per cluster from the UI.
-- **Health and metrics.** Live status per node in the canvas, backed by Prometheus-compatible metrics and alerting on your infrastructure.
+1. The agent starts on a user-controlled Linux host and authenticates to the control plane with an agent token.
+2. The agent opens the outbound WebSocket connection. The server never initiates a connection to the user's host.
+3. The server sends a complete desired-state snapshot for that host.
+4. The agent compares desired state with Docker state and independently applies each required create, update, or delete action.
+5. The agent reports observed topology, health, and reconciliation outcomes to the server.
 
-## Requirements
+After a disconnect, the server sends the full current desired state rather than replaying missed changes. While disconnected, the agent continues reconciling from its local cache.
 
-- A server you control, running Ubuntu (or any Linux distro with Docker support)
-- Docker installed and running on that server
-- Root or sudo access to run the agent container, since it needs access to the Docker socket
-- An Orca account
+## Running the components
 
-## Quickstart
+This repository is currently suitable for development and direct API integration, not the earlier advertised account-and-click quickstart. The server requires `DATABASE_URL`; the agent can run in local development mode or connect with `ORCA_SERVER_URL` and `ORCA_TOKEN`. See `.env.example` for every environment variable read by the agent and server.
 
-1. **Create an account and a project** at the Orca web UI.
-2. **Click "Add host."** You'll get back a `docker run` command with a token baked in, something like:
+A registered agent is run with the host's generated token and control-plane URL, for example:
 
-   ```
-   docker run -d \
-     -e ORCA_TOKEN=your_token_here \
-     -e ORCA_SERVER_URL=wss://your-orca-server.example/agent \
-     -v /var/run/docker.sock:/var/run/docker.sock \
-     -v /proc:/host/proc:ro \
-     -v /var/orca/data:/var/orca/data \
-     orca/agent
-   ```
+```sh
+docker run -d \
+  -e ORCA_TOKEN=replace-with-agent-token \
+  -e ORCA_SERVER_URL=wss://your-orca-server.example/agent \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /proc:/host/proc:ro \
+  -v /var/orca/data:/var/orca/data \
+  orca/agent
+```
 
-3. **Run that command on your server.** The agent starts, connects to Orca, and your host shows up as live in the UI within a few seconds. You don't need to open any inbound ports, the agent only connects out.
-4. **Add a Postgres cluster** from the canvas. Set a name, version, and config, then confirm.
-5. **Watch it come up.** The agent pulls the Postgres image, starts the container, and the node in the canvas goes from pending to healthy once it's up.
-6. **Add replicas, pooling, backups, or extensions** the same way, configure it in the UI, the agent reconciles it on your host.
-
-## What Orca does and doesn't do
-
-- Orca stores your desired configuration and your infrastructure's reported health. It does not store your Postgres data, and it does not run your database.
-- If your server loses connection to Orca, your database keeps running. You just won't be able to push config changes until it reconnects.
-- When the agent reconnects after being offline, it re-syncs against the full current desired state, not a queue of missed changes. Nothing gets replayed twice or lost.
-- Removing a cluster, replica, or pool from the UI actually removes the corresponding container and data volume on your host. There's no separate confirmation step on the server, deletion in the UI is the source of truth.
+No inbound agent port is required. The exact registration command currently comes from `POST /hosts`; there is no registration screen in the web application yet.
 
 ## Project structure
 
-```
+```text
 orca/
-├── agent/    # runs on your host, reconciles Docker state against desired state
-├── server/   # control plane: API, WebSocket hub, desired state store, metrics
-├── web/      # canvas UI
-├── pkg/      # shared types between agent and server
-├── proto/    # agent <-> server message definitions
-├── deploy/   # docker compose for local dev
-└── scripts/  # dev and migration scripts
+├── agent/    # Docker reconciliation and outbound tunnel client
+├── server/   # REST API, WebSocket hub, desired-state store, metrics
+├── web/      # read-only canvas and status UI
+├── pkg/      # shared Go types
+├── proto/    # agent/server tunnel message definitions
+├── deploy/   # local deployment assets
+└── scripts/  # migrations and development scripts
 ```
 
-## FAQ
+## Development
 
-**Do I need to expose any ports on my server?**
-No. The agent connects out to Orca, Orca never connects in to your server.
+Go changes are verified from the repository root with:
 
-**What happens to my database if Orca's servers go down?**
-Your Postgres containers keep running exactly as they are. The agent just won't receive new config changes until Orca is reachable again.
+```sh
+go build ./...
+go vet ./...
+go test ./...
+```
 
-**Can I run multiple hosts under one account?**
-Yes. Each host runs its own agent and gets its own token. You can manage them all from the same project.
-
-**What Postgres versions are supported?**
-Check the version selector in the canvas for the current supported list.
-
-**Can I use my own Postgres image instead of the default?**
-Not yet, this is on the roadmap.
-
-**Is there a CLI?**
-Not yet, this is on the roadmap.
-
-## Local development
-
-See `docs/` for architecture and local setup instructions.
+Architecture and implementation notes are in `ARCHITECTURE.md` and `docs/`.
 
 ## License
 
