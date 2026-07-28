@@ -17,10 +17,11 @@ Implemented in the backend and agent:
 - Agent health reports, persisted reconciliation results, and Prometheus-compatible server metrics.
 - Backend CRUD for projects and clusters, plus a backend endpoint that registers a host and returns an agent token and `docker run` command.
 - Agent token authentication for the control-plane tunnel.
+- Email/password account registration and login, GitHub/Google OAuth, JWT-protected REST routes, and authenticated project event WebSockets.
 
 Incomplete or not yet exposed as a usable product workflow:
 
-- Browser account creation, login, and authenticated user sessions are not wired into the running server. User-auth work is still landing; agent-token authentication is the part currently in use.
+- The web UI has no account registration or login screens yet. The authentication API is available, but the current UI only consumes a JWT already stored by a client.
 - The web UI displays projects and topology but is read-only. It cannot create or edit projects, hosts, clusters, replicas, pools, backups, or extensions.
 - Host registration exists as a backend endpoint, not as a UI flow, and host listing and management are not implemented.
 - Point-in-time recovery code exists in the agent but has no API, tunnel operation, CLI, or UI entry point.
@@ -39,7 +40,18 @@ After a disconnect, the server sends the full current desired state rather than 
 
 ## Running the components
 
-This repository is currently suitable for development and direct API integration, not the earlier advertised account-and-click quickstart. The server requires `DATABASE_URL`; the agent can run in local development mode or connect with `ORCA_SERVER_URL` and `ORCA_TOKEN`. See `.env.example` for every environment variable read by the agent and server.
+This repository is currently suitable for development and direct API integration, not the earlier advertised account-and-click quickstart. The server requires `DATABASE_URL` and a nonempty `ORCA_JWT_SECRET`; the agent can run in local development mode or connect with `ORCA_SERVER_URL` and `ORCA_TOKEN`. See `.env.example` for every environment variable read by the agent and server.
+
+### OAuth apps for local development
+
+GitHub and Google OAuth are optional. For either provider, set both its client ID and client secret; the server rejects a half-configured pair. The callback origin is derived from `ORCA_SERVER_URL` by converting `ws` to `http` or `wss` to `https` and removing the `/agent` path.
+
+Create OAuth applications with these callback URLs when the server runs at the default local URL:
+
+- GitHub: `http://localhost:8080/auth/github/callback`
+- Google: `http://localhost:8080/auth/google/callback`
+
+Both providers require the callback URL to be registered even when it points to localhost. Set `ORCA_GITHUB_CLIENT_ID` and `ORCA_GITHUB_CLIENT_SECRET` for GitHub, and `ORCA_GOOGLE_CLIENT_ID` and `ORCA_GOOGLE_CLIENT_SECRET` for Google. Begin a login at `GET /auth/github` or `GET /auth/google`; a successful callback returns the same JWT response shape as email/password authentication.
 
 A registered agent is run with the host's generated token and control-plane URL, for example:
 
