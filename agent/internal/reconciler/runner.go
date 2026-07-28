@@ -131,9 +131,9 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	results = append(results, backupResults...)
 	postgres.PopulateHealth(ctx, r.healthDatabase, actual)
 	pgbouncer.PopulateStatus(ctx, r.pgBouncer, actual)
-	r.populateBackupSuccess(ctx, actual)
+	backupObservationErrors := r.populateBackupSuccess(ctx, actual)
 	hostMetrics, _ := r.hostMetrics.Collect()
-	pass := Pass{Results: results, Report: reportFor(desired, actual, results, hostMetrics)}
+	pass := Pass{Results: results, Report: reportFor(desired, actual, results, hostMetrics, backupObservationErrors)}
 	if pendingBackupResults > 0 {
 		var once sync.Once
 		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
@@ -212,15 +212,22 @@ func (r *Runner) backupResults() ([]ApplyResult, int) {
 	return results, len(queued)
 }
 
-func (r *Runner) populateBackupSuccess(ctx context.Context, actual *ActualState) {
+func (r *Runner) populateBackupSuccess(ctx context.Context, actual *ActualState) map[string]error {
+	errorsByCluster := make(map[string]error)
 	for _, cluster := range actual.Clusters {
 		if cluster == nil || cluster.Backup == nil {
 			continue
 		}
-		if unixSeconds, ok, err := pgbackrest.LastSuccessfulBackup(ctx, r.healthDatabase, cluster.ContainerId, cluster.Id); err == nil && ok {
+		unixSeconds, ok, err := pgbackrest.LastSuccessfulBackup(ctx, r.healthDatabase, cluster.ContainerId, cluster.Id)
+		if err != nil {
+			errorsByCluster[cluster.Id] = err
+			continue
+		}
+		if ok {
 			cluster.Backup.LastSuccessUnixSeconds = &unixSeconds
 		}
 	}
+	return errorsByCluster
 }
 
 func (r *Runner) ensureBackupSchedules(desired *DesiredState, actual *ActualState) {
@@ -295,7 +302,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 	return &actual
 }
 
-func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult, hostMetrics *types.HostMetrics) *types.AgentReportMessage {
+func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult, hostMetrics *types.HostMetrics, backupObservationErrors ...map[string]error) *types.AgentReportMessage {
 	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
 		actualByID[cluster.Id] = cluster
@@ -304,9 +311,13 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 	health := make([]*types.ClusterHealth, 0, len(desired.Clusters)+len(actual.Clusters))
 	seen := make(map[string]struct{}, len(desired.Clusters))
 	for _, cluster := range desired.Clusters {
+		var backupObservationFailed bool
+		if len(backupObservationErrors) > 0 {
+			backupObservationFailed = backupObservationErrors[0][cluster.Id] != nil
+		}
 		health = append(health, &types.ClusterHealth{
 			ClusterId: cluster.Id,
-			Status:    clusterStatus(cluster, actualByID[cluster.Id]),
+			Status:    clusterStatus(cluster, actualByID[cluster.Id], backupObservationFailed),
 		})
 		seen[cluster.Id] = struct{}{}
 	}
@@ -338,7 +349,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 	}
 }
 
-func clusterStatus(desired *ClusterSpec, cluster *ActualCluster) types.ClusterStatus {
+func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservationFailed ...bool) types.ClusterStatus {
 	if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" || cluster.PostgresReady == nil || !cluster.GetPostgresReady() {
 		return types.ClusterStatus_CLUSTER_STATUS_DOWN
 	}
@@ -364,6 +375,12 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster) types.ClusterSt
 	}
 	if desired != nil && desired.PgBouncer != nil && cluster.PgBouncer == nil {
 		return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+	}
+	if desired != nil && desired.PgBackRest != nil {
+		expected, err := pgbackrest.ReconciliationState(desired)
+		if err != nil || cluster.Backup == nil || cluster.Backup.Config != expected || len(backupObservationFailed) > 0 && backupObservationFailed[0] {
+			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+		}
 	}
 	return types.ClusterStatus_CLUSTER_STATUS_HEALTHY
 }
