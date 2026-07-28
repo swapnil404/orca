@@ -11,12 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/swapnil404/orca/server/internal/api"
+	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/metrics"
 	"github.com/swapnil404/orca/server/internal/orchestrator"
 	"github.com/swapnil404/orca/server/internal/store"
@@ -35,6 +37,7 @@ type config struct {
 	port        int
 	serverURL   string
 	logLevel    slog.Level
+	jwtSecret   string
 }
 
 func main() {
@@ -57,6 +60,10 @@ func loadConfig() (config, error) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		return config{}, errors.New("DATABASE_URL is required")
+	}
+	jwtSecret := os.Getenv("ORCA_JWT_SECRET")
+	if strings.TrimSpace(jwtSecret) == "" {
+		return config{}, errors.New("ORCA_JWT_SECRET is required")
 	}
 
 	port := defaultPort
@@ -90,7 +97,7 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("ORCA_LOG_LEVEL must be debug, info, warn, or error")
 	}
 
-	return config{databaseURL: databaseURL, port: port, serverURL: serverURL, logLevel: logLevel}, nil
+	return config{databaseURL: databaseURL, port: port, serverURL: serverURL, logLevel: logLevel, jwtSecret: jwtSecret}, nil
 }
 
 func run(ctx context.Context, configuration config) error {
@@ -110,18 +117,26 @@ func run(ctx context.Context, configuration config) error {
 	}
 
 	metadata := store.NewPostgres(database)
+	tokens, err := auth.NewJWTManager(configuration.jwtSecret)
+	if err != nil {
+		return err
+	}
 	hub := ws.NewHub()
 	desiredStates := orchestrator.New(metadata, hub)
 	projectEvents := api.NewProjectEventHandler(metadata)
 	agentHandler := ws.NewAgentHandler(hub, metadata, desiredStates)
 	agentHandler.SetReportNotifier(projectEvents)
 
+	protected := http.NewServeMux()
+	api.NewResourceHandler(metadata, desiredStates).RegisterRoutes(protected)
+	protected.Handle("POST /hosts", api.NewHostRegistrationHandler(metadata, configuration.serverURL))
+	projectEvents.RegisterRoutes(protected)
+	metrics.NewHandler(metadata).RegisterRoutes(protected)
+
 	mux := http.NewServeMux()
-	api.NewResourceHandler(metadata, desiredStates).RegisterRoutes(mux)
-	mux.Handle("POST /hosts", api.NewHostRegistrationHandler(metadata, configuration.serverURL))
-	projectEvents.RegisterRoutes(mux)
+	api.NewUserAuthHandler(metadata, tokens).RegisterRoutes(mux)
 	mux.Handle("GET /agent", agentHandler)
-	metrics.NewHandler(metadata).RegisterRoutes(mux)
+	mux.Handle("/", tokens.Middleware(protected))
 
 	evaluator := metrics.NewEvaluator(metadata, metadata, 0)
 	go evaluator.Run(runCtx)
