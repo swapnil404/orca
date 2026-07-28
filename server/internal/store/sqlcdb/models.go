@@ -80,6 +80,14 @@ type Host struct {
 	ConnectedAt    sql.NullTime `json:"connected_at"`
 }
 
+type OauthIdentity struct {
+	Provider       string         `json:"provider"`
+	ProviderUserID string         `json:"provider_user_id"`
+	ProviderEmail  sql.NullString `json:"provider_email"`
+	UserID         string         `json:"user_id"`
+	CreatedAt      time.Time      `json:"created_at"`
+}
+
 type Project struct {
 	ID        string       `json:"id"`
 	UserID    string       `json:"user_id"`
@@ -87,4 +95,12 @@ type Project struct {
 	CreatedAt time.Time    `json:"created_at"`
 	UpdatedAt time.Time    `json:"updated_at"`
 	DeletedAt sql.NullTime `json:"deleted_at"`
+}
+
+type User struct {
+	ID           string         `json:"id"`
+	Email        sql.NullString `json:"email"`
+	PasswordHash sql.NullString `json:"password_hash"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }

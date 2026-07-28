@@ -13,6 +13,7 @@ type Querier interface {
 	CreateCluster(ctx context.Context, arg CreateClusterParams) (Cluster, error)
 	CreateDesiredState(ctx context.Context, arg CreateDesiredStateParams) (DesiredState, error)
 	CreateHost(ctx context.Context, arg CreateHostParams) (Host, error)
+	CreatePasswordUser(ctx context.Context, arg CreatePasswordUserParams) (User, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
@@ -20,6 +21,7 @@ type Querier interface {
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
 	GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Host, error)
 	GetProject(ctx context.Context, arg GetProjectParams) (Project, error)
+	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	ListActiveClustersForProject(ctx context.Context, arg ListActiveClustersForProjectParams) ([]Cluster, error)
 	ListAlertRulesForEvaluation(ctx context.Context) ([]AlertRule, error)
 	ListAlertRulesForProject(ctx context.Context, arg ListAlertRulesForProjectParams) ([]AlertRule, error)

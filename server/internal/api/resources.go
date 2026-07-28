@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
 )
 
@@ -17,11 +18,9 @@ const maxBackupIntervalSeconds = int64((1<<63 - 1) / 1_000_000_000)
 
 const maxRequestBodyBytes = 1 << 20
 
-type userIDContextKey struct{}
-
 // WithUserID associates an authenticated user ID with a request context.
 func WithUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, userIDContextKey{}, userID)
+	return auth.WithUserID(ctx, userID)
 }
 
 type resourceStore interface {
@@ -347,8 +346,8 @@ func clusterHostIDs(clusters []store.Cluster) []string {
 }
 
 func requireUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	userID, ok := r.Context().Value(userIDContextKey{}).(string)
-	if !ok || strings.TrimSpace(userID) == "" {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return "", false
 	}
