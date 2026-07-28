@@ -14,18 +14,26 @@ const tokenLifetime = 24 * time.Hour
 
 type userIDContextKey struct{}
 
+type userStore interface {
+	UserIsActive(context.Context, string) (bool, error)
+}
+
 // JWTManager issues and validates control-plane user tokens.
 type JWTManager struct {
 	secret []byte
 	now    func() time.Time
+	users  userStore
 }
 
 // NewJWTManager creates a JWT manager using an HS256 signing secret.
-func NewJWTManager(secret string) (*JWTManager, error) {
+func NewJWTManager(secret string, users userStore) (*JWTManager, error) {
 	if strings.TrimSpace(secret) == "" {
 		return nil, errors.New("ORCA_JWT_SECRET is required")
 	}
-	return &JWTManager{secret: []byte(secret), now: time.Now}, nil
+	if users == nil {
+		return nil, errors.New("user store is required")
+	}
+	return &JWTManager{secret: []byte(secret), now: time.Now, users: users}, nil
 }
 
 // IssueToken creates a signed user token with a fixed lifetime.
@@ -51,7 +59,7 @@ func (m *JWTManager) Middleware(next http.Handler) http.Handler {
 			writeUnauthorized(w)
 			return
 		}
-		userID, err := m.Validate(parts[1])
+		userID, err := m.Authenticate(r.Context(), parts[1])
 		if err != nil {
 			writeUnauthorized(w)
 			return
@@ -60,8 +68,20 @@ func (m *JWTManager) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// Validate verifies a token and returns its subject user ID.
-func (m *JWTManager) Validate(value string) (string, error) {
+// Authenticate validates a token and verifies that its subject is still an active user.
+func (m *JWTManager) Authenticate(ctx context.Context, value string) (string, error) {
+	userID, err := m.validate(value)
+	if err != nil {
+		return "", err
+	}
+	active, err := m.users.UserIsActive(ctx, userID)
+	if err != nil || !active {
+		return "", errors.New("invalid JWT")
+	}
+	return userID, nil
+}
+
+func (m *JWTManager) validate(value string) (string, error) {
 	token, err := jwt.ParseWithClaims(value, &jwt.RegisteredClaims{}, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected JWT signing algorithm")

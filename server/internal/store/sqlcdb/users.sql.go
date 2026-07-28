@@ -56,7 +56,7 @@ func (q *Queries) CreateOAuthUser(ctx context.Context, id string) (string, error
 const createPasswordUser = `-- name: CreatePasswordUser :one
 INSERT INTO users (id, email, password_hash)
 VALUES ($1, LOWER($2), $3)
-RETURNING id, email, password_hash, created_at, updated_at
+RETURNING id, email, password_hash, created_at, updated_at, deleted_at
 `
 
 type CreatePasswordUserParams struct {
@@ -74,6 +74,7 @@ func (q *Queries) CreatePasswordUser(ctx context.Context, arg CreatePasswordUser
 		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -97,9 +98,10 @@ func (q *Queries) GetOAuthIdentityUserID(ctx context.Context, arg GetOAuthIdenti
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at
+SELECT id, email, password_hash, created_at, updated_at, deleted_at
 FROM users
 WHERE LOWER(email) = LOWER($1)
+  AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error) {
@@ -111,6 +113,35 @@ func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error
 		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :one
+UPDATE users
+SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id
+`
+
+func (q *Queries) SoftDeleteUser(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, softDeleteUser, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
+const userIsActive = `-- name: UserIsActive :one
+SELECT EXISTS (
+    SELECT 1
+    FROM users
+    WHERE id = $1 AND deleted_at IS NULL
+) AS active
+`
+
+func (q *Queries) UserIsActive(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, userIsActive, id)
+	var active bool
+	err := row.Scan(&active)
+	return active, err
 }

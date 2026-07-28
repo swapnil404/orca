@@ -118,7 +118,7 @@ func (h *ProjectEventHandler) authenticateSubprotocol(r *http.Request) (string, 
 	if len(protocols) != 2 || protocols[0] != projectEventsProtocol || !strings.HasPrefix(protocols[1], jwtProtocolPrefix) {
 		return "", "", errors.New("JWT WebSocket subprotocol is required")
 	}
-	userID, err := h.tokens.Validate(strings.TrimPrefix(protocols[1], jwtProtocolPrefix))
+	userID, err := h.tokens.Authenticate(r.Context(), strings.TrimPrefix(protocols[1], jwtProtocolPrefix))
 	if err != nil {
 		return "", "", err
 	}

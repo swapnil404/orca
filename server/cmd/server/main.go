@@ -153,7 +153,7 @@ func run(ctx context.Context, configuration config) error {
 	}
 
 	metadata := store.NewPostgres(database)
-	tokens, err := auth.NewJWTManager(configuration.jwtSecret)
+	tokens, err := auth.NewJWTManager(configuration.jwtSecret, metadata)
 	if err != nil {
 		return err
 	}
@@ -164,12 +164,14 @@ func run(ctx context.Context, configuration config) error {
 	agentHandler.SetReportNotifier(projectEvents)
 
 	protected := http.NewServeMux()
+	userAuth := api.NewUserAuthHandler(metadata, tokens)
+	userAuth.RegisterProtectedRoutes(protected)
 	api.NewResourceHandler(metadata, desiredStates).RegisterRoutes(protected)
 	protected.Handle("POST /hosts", api.NewHostRegistrationHandler(metadata, configuration.serverURL))
 	metrics.NewHandler(metadata).RegisterRoutes(protected)
 
 	mux := http.NewServeMux()
-	api.NewUserAuthHandler(metadata, tokens).RegisterRoutes(mux)
+	userAuth.RegisterRoutes(mux)
 	api.NewOAuthHandler(metadata, tokens, api.OAuthConfig{
 		CallbackBaseURL: configuration.oauthCallbackBase, CookieSecret: configuration.jwtSecret,
 		GitHubClientID: configuration.githubClientID, GitHubClientSecret: configuration.githubClientSecret,
