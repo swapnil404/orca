@@ -128,6 +128,10 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 | `ORCA_SERVER_URL` | agent, server | Agent-facing WebSocket URL of the orchestration server; the server uses it in host registration commands |
 | `ORCA_DATA_DIR` | agent | Host path for data volumes |
 | `ORCA_JWT_SECRET` | server | Secret for signing tokens |
+| `ORCA_GITHUB_CLIENT_ID` | server | GitHub OAuth application client ID |
+| `ORCA_GITHUB_CLIENT_SECRET` | server | GitHub OAuth application client secret |
+| `ORCA_GOOGLE_CLIENT_ID` | server | Google OAuth application client ID |
+| `ORCA_GOOGLE_CLIENT_SECRET` | server | Google OAuth application client secret |
 | `DATABASE_URL` | server | Postgres connection string for the server's own metadata DB |
 | `ORCA_PORT` | server | HTTP port |
 | `ORCA_LOG_LEVEL` | agent, server | Log level: debug, info, warn, error |

@@ -3,17 +3,22 @@ package metrics
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
 )
 
 type reportStore interface {
 	ListMetricClusterReports(context.Context, string, time.Time) ([]store.MetricClusterReport, error)
+	GetProject(context.Context, string, string) (store.Project, error)
+	ListProjects(context.Context, string) ([]store.Project, error)
 }
 
 // Handler serves global and project-filtered Prometheus metrics.
@@ -35,8 +40,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	now := h.now().UTC()
-	reports, err := h.store.ListMetricClusterReports(r.Context(), r.PathValue("projectID"), now)
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	reports, err := h.ownedReports(r.Context(), userID, r.PathValue("projectID"), now)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "resource not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to load metrics", http.StatusInternalServerError)
 		return
 	}
@@ -92,4 +106,27 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
+}
+
+func (h *Handler) ownedReports(ctx context.Context, userID, projectID string, now time.Time) ([]store.MetricClusterReport, error) {
+	if projectID != "" {
+		if _, err := h.store.GetProject(ctx, userID, projectID); err != nil {
+			return nil, err
+		}
+		return h.store.ListMetricClusterReports(ctx, projectID, now)
+	}
+
+	projects, err := h.store.ListProjects(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	reports := make([]store.MetricClusterReport, 0)
+	for _, project := range projects {
+		projectReports, err := h.store.ListMetricClusterReports(ctx, project.ID, now)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, projectReports...)
+	}
+	return reports, nil
 }

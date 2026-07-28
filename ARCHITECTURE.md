@@ -1,1 +1,13 @@
 Alert-rule evaluation does not replace the deferred email alert channel; instead, rules determine when an alert fires, while email is a separate notification sink that those alerts may feed into later. Keeping evaluation independent from delivery preserves a single, testable source of alert state, avoids coupling health-data processing to provider-specific email behavior and failures, and allows future sinks such as webhooks or paging systems to consume the same evaluated alerts without duplicating rule logic.
+
+## Authentication
+
+Control-plane users are stored separately from credentials. A user may have a nullable bcrypt `password_hash` and zero or more rows in `oauth_identities`; each OAuth identity is keyed by provider and provider user ID. This normalized shape allows another OAuth provider to be added without adding provider-specific columns to `users`. Provider emails are informational identity metadata and are not used to link accounts.
+
+`POST /auth/register` and `POST /auth/login` provide email/password authentication. GitHub and Google use Goth through `GET /auth/{provider}` and `GET /auth/{provider}/callback`. Every successful path calls the same JWT issuer, producing an HS256 token whose subject is the user ID and whose expiry is 24 hours after issuance. The server refuses to start without `ORCA_JWT_SECRET`. REST clients send the token as `Authorization: Bearer <JWT>`.
+
+Project event WebSockets authenticate during the HTTP upgrade because browser WebSocket APIs cannot set an Authorization header. The browser offers two subprotocol values, `orca.jwt` and `orca.jwt.token.<JWT>`. The server validates the prefixed JWT before upgrading and returns `Sec-WebSocket-Protocol: orca.jwt` when it accepts the connection. It then uses the JWT subject in the existing project ownership lookup before subscribing the socket.
+
+OAuth callbacks only resolve an existing `(provider, provider_user_id)` identity or create a new OAuth-only user and identity. Linking a second provider to an already-authenticated user is deferred until there is a dedicated authenticated, CSRF-protected linking flow; matching provider email alone never links accounts.
+
+Both metrics endpoints require JWT authentication. `/projects/{projectID}/metrics` verifies ownership with the same user ID plus project ID lookup as other project resources. `/metrics` aggregates only projects returned by the authenticated user's project listing.
