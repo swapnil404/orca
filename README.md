@@ -34,37 +34,41 @@ Active agent sessions, frontend subscriptions, desired-state push routing, and a
 
 ### Prerequisites
 
-- Go 1.25 or newer.
-- PostgreSQL and `psql` for the server metadata database.
-- A running Docker daemon accessible to the agent.
-- Node.js and npm if working on the web application.
+- Docker with the Compose plugin.
+- Node.js and npm for the web application.
+- Go 1.25 or newer when running the server or agent outside Compose.
+- `psql` when running migrations outside Compose.
 
-There is no checked-in `deploy/` directory, Compose environment, agent Dockerfile, or published-image configuration. The repository-supported development path runs the Go components from source.
+The development Compose stack runs Postgres, the Go API, and a Caddy same-origin proxy. Vite and the agent run from source on the host.
 
 ### Database And Environment
 
-1. Create the `orca` metadata database and a role with permission to create its schema objects.
-2. Create and load a local environment file. Orca does not load `.env` automatically.
+1. Create the local environment file and replace `ORCA_JWT_SECRET` with a random value.
 
 ```sh
 cp .env.example .env
-# Replace DATABASE_URL, ORCA_JWT_SECRET, and other placeholders first.
-set -a
-. ./.env
-set +a
+openssl rand -hex 32
 ```
 
-3. Apply migrations before starting the server. The server and sqlc do not apply them automatically.
+2. Install the web dependencies.
 
 ```sh
-./scripts/migrate.sh
+make setup
 ```
 
-4. Start the server.
+3. Start Postgres, apply migrations, build the API, and run the API plus proxy.
 
 ```sh
-go run ./server/cmd/server
+make dev
 ```
+
+Use `make dev-detach` instead to leave the backend stack running in the background. In another terminal, start Vite:
+
+```sh
+make dev-web
+```
+
+Open `http://localhost:3000`, not Vite's direct `5173` address. Use `make stop` to stop the backend stack. `make dev-migrate` can be rerun independently and is idempotent.
 
 ### Create A User And Host
 
@@ -90,7 +94,7 @@ The generated command currently names `orca/agent`, but this checkout has no age
 
 ```sh
 export ORCA_TOKEN='token-from-the-generated-command'
-export ORCA_SERVER_URL='ws://localhost:8080/agent'
+export ORCA_SERVER_URL='ws://localhost:3000/agent'
 export ORCA_STATE_PATH='/var/orca/state/desired.json'
 go run ./agent/cmd/agent
 ```
@@ -101,9 +105,9 @@ Ensure the parent directory of `ORCA_STATE_PATH` is writable and persistent if d
 
 GitHub and Google OAuth are optional; email/password auth works without them. A provider is enabled only when both its client ID and secret are set, and startup rejects a half-configured pair.
 
-For GitHub, create an OAuth App, set its application URL to `http://localhost:8080`, and register `http://localhost:8080/auth/github/callback` as the authorization callback URL.
+For GitHub, create an OAuth App, set its application URL to `http://localhost:3000`, and register `http://localhost:3000/auth/github/callback` as the authorization callback URL.
 
-For Google, configure the consent screen, create a Web application OAuth client, and register `http://localhost:8080/auth/google/callback` as an authorized redirect URI.
+For Google, configure the consent screen, create a Web application OAuth client, and register `http://localhost:3000/auth/google/callback` as an authorized redirect URI.
 
 Set the matching `ORCA_GITHUB_*` or `ORCA_GOOGLE_*` variables before starting the server. The login page begins authentication at `GET /auth/github` or `GET /auth/google`. A successful callback establishes the browser session cookie and redirects to the project list. Linking a provider to an already-authenticated account is still deferred.
 
@@ -112,13 +116,10 @@ OAuth callback origins use the scheme and authority of `ORCA_SERVER_URL`, transl
 ### Web Application
 
 ```sh
-cd web
-npm ci
-npm run typecheck
-npm run dev
+make dev-web
 ```
 
-The client uses same-origin relative REST and WebSocket URLs, but the checked-in Vite configuration has no API proxy and the Go server does not serve the built frontend. A same-origin reverse proxy is therefore required to use the UI against a separately running API. Route `/auth/*` and JSON/WebSocket requests to the Go server while leaving document requests such as `/`, `/login`, `/signup`, and `/projects/{id}` with TanStack Start. Browser authentication uses an httpOnly `orca.session` cookie; the API's bearer-token response remains available for non-browser clients.
+The checked-in Caddy development proxy routes `/auth/*`, JSON API requests, agent traffic, and project WebSockets to the Go server while routing document requests to Vite. Browser authentication uses an httpOnly `orca.session` cookie; the API's bearer-token response remains available for non-browser clients. Production deployments need equivalent same-origin routing.
 
 ## Environment Variables
 

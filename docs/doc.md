@@ -60,7 +60,7 @@ The web UI lists existing projects and renders desired primary, replica, and PgB
 
 The project page opens a JSON WebSocket separate from the protobuf agent tunnel. It receives full snapshots after reports are committed and replaces the latest actual-state snapshot in the frontend store. Desired topology is loaded by REST; resource mutations do not themselves publish a refreshed desired topology to an already-open browser page.
 
-The frontend provides email/password registration and login plus GitHub/Google OAuth initiation. Its API URLs and browser session cookie are same-origin, while the checked-in Vite configuration has no API proxy and the Go server does not serve frontend assets. Deployments therefore need a same-origin reverse proxy that distinguishes frontend documents from JSON API and WebSocket requests.
+The frontend provides email/password registration and login plus GitHub/Google OAuth initiation. Its API URLs and browser session cookie are same-origin. The development Compose stack includes Caddy routing for frontend documents, JSON API requests, OAuth, agent traffic, and project WebSockets; production deployments need equivalent same-origin routing.
 
 ## Server Architecture
 
