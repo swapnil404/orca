@@ -1,0 +1,41 @@
+@font-face {
+  font-family: 'Geist';
+  src: url('../../node_modules/geist/dist/fonts/geist-sans/Geist-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../../node_modules/geist/dist/fonts/geist-mono/GeistMono-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --bg: #0A0A0B;
+  --panel: #0E0E10;
+  --card: #151517;
+  --border: #2A2A2E;
+  --border-soft: #1F1F22;
+  --text: #EDEDF0;
+  --text-2: #9797A1;
+  --text-3: #5C5C63;
+  --accent: #F5FF3D;
+  --healthy: #3FB950;
+  --warning: #D29922;
+  --critical: #F85149;
+  --streaming: #58A6FF;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 300ms;
+  --font-sans: 'Geist', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+}

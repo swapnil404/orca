@@ -7,7 +7,7 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - Agents initiate an outbound WebSocket and receive complete desired-state snapshots; the server never connects inbound and never substitutes event replay for a reconnect snapshot.
 - The agent caches desired state before applying it and can reconcile without a server connection.
 - Durable control-plane state and agent reports live in Postgres through sqlc; active WebSocket connections remain process-local.
-- Email/password and optional GitHub/Google OAuth issue the same 24-hour HS256 JWT. Protected REST requests and new project-WebSocket handshakes verify that the subject is still active.
+- Email/password and optional GitHub/Google OAuth issue the same 24-hour HS256 JWT. Non-browser clients use bearer tokens; the browser uses an httpOnly same-origin cookie for REST, SSR guards, and project WebSockets. Every new authentication verifies that the subject is still active.
 - OAuth identities are keyed by provider and provider user ID. Provider email is metadata and is not trusted for implicit account linking.
 - Agent/server tunnel messages use protobuf; frontend REST and WebSocket shapes do not.
 - Alert evaluation is separate from report ingestion, metrics exposition, and future notification delivery.
@@ -17,7 +17,6 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - **Single server instance:** agent sessions, desired-state push routing, frontend subscriptions, and alert debounce state are process-local, so multiple instances can miss pushes and notifications without cross-instance coordination.
 - **Duplicate agent sessions:** registering a newer connection replaces the hub entry but does not close the older socket, so both connections can continue reporting until the older one exits.
 - **OAuth provider linking:** attaching another provider to an already-authenticated user is deferred because it requires an authenticated, CSRF-protected linking flow; separate providers currently create separate users unless the exact provider identity already exists.
-- **OAuth browser completion:** callbacks return raw JWT JSON instead of redirecting into the web app because no login UI or browser token-completion flow exists.
 - **Login timing side channel:** unknown, deleted, and OAuth-only users skip bcrypt comparison while password users do not, so timing can reveal whether an active password credential exists.
 - **Duplicate authentication header lines:** REST auth uses `Header.Get("Authorization")` and project WebSocket parsing ultimately uses one combined `Sec-WebSocket-Protocol` value, so duplicate field lines are not explicitly rejected and may be interpreted differently by intermediaries.
 - **Soft-delete scope:** deletion revokes future user JWT authentications but does not close existing project WebSockets, revoke agent tokens, remove owned resources, or make email/OAuth identities reusable.
@@ -30,6 +29,6 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - **Backup image trust:** missing `orca-postgres:<version>` images are built automatically, but existing tags are not inspected and builds require Docker and external parent/package access.
 - **PITR exposure and coordination:** recovery is only an internal package function and does not coordinate replicas, PgBouncer, or the reconciliation/backup operation gate; a production entry point is deferred until those safety boundaries are designed.
 - **PITR failure cleanup:** failures after restore begins intentionally leave the primary stopped, and a process crash can leave a temporary restore container that ordinary observation does not classify for cleanup, because automatic restart could expose partially restored data.
-- **Read-only web product:** the UI has no login, host, mutation, backup, extension, PITR, alert, or persisted-layout workflow; implementing UI controls before their complete persistence/auth contracts would overstate product behavior.
+- **Read-only web product:** beyond login and signup, the UI has no host, mutation, backup, extension, PITR, alert, or persisted-layout workflow; implementing controls before their complete persistence contracts would overstate product behavior.
 - **Development packaging:** there is no checked-in agent Dockerfile, Compose deployment, or frontend/API proxy, so local development currently requires source execution and external same-origin web routing.
 - **Automated coverage:** there are no committed Go or frontend tests, so reconciler resource paths, auth/store/API behavior, backup/PITR behavior, and WebSocket concurrency have no behavioral or race-test safety net.

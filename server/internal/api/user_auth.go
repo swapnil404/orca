@@ -38,6 +38,7 @@ func NewUserAuthHandler(users userAuthStore, tokens *auth.JWTManager) *UserAuthH
 func (h *UserAuthHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/register", h.register)
 	mux.HandleFunc("POST /auth/login", h.login)
+	mux.Handle("GET /auth/session", h.tokens.Middleware(http.HandlerFunc(h.session)))
 }
 
 // RegisterProtectedRoutes registers authenticated account routes.
@@ -107,12 +108,24 @@ func (h *UserAuthHandler) deleteAccount(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *UserAuthHandler) session(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, struct {
+		UserID string `json:"user_id"`
+	}{UserID: userID})
+}
+
 func (h *UserAuthHandler) writeToken(w http.ResponseWriter, status int, userID string) {
 	token, err := h.tokens.IssueToken(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to issue token")
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, struct {
 		Token string `json:"token"`
 	}{Token: token})

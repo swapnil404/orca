@@ -93,7 +93,7 @@ The server uses `sqlc` for all query access to its own Postgres metadata databas
 
 ### Auth
 
-Email/password and optional GitHub/Google OAuth through Goth issue JWTs. Protected REST routes use JWT middleware, and project WebSockets authenticate with the `orca.jwt` plus `orca.jwt.token.<JWT>` subprotocol pair. Soft-deleted users are rejected on future JWT authentications. Provider linking is deliberately deferred until there is an authenticated, CSRF-protected linking flow; never link accounts from provider email alone.
+Email/password and optional GitHub/Google OAuth through Goth issue JWTs. Protected REST routes accept explicit bearer tokens or the httpOnly `orca.session` browser cookie. Project WebSockets accept that cookie while preserving the `orca.jwt` plus `orca.jwt.token.<JWT>` subprotocol contract for bearer clients. Soft-deleted users are rejected on future JWT authentications. Provider linking is deliberately deferred until there is an authenticated, CSRF-protected linking flow; never link accounts from provider email alone.
 
 ### Metrics and alerts
 
@@ -134,6 +134,7 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 | `ORCA_GITHUB_CLIENT_SECRET` | server | GitHub OAuth application client secret |
 | `ORCA_GOOGLE_CLIENT_ID` | server | Google OAuth application client ID |
 | `ORCA_GOOGLE_CLIENT_SECRET` | server | Google OAuth application client secret |
+| `ORCA_API_URL` | web server | Go API origin used by TanStack Start server functions; defaults to `http://127.0.0.1:8080` |
 | `DATABASE_URL` | server | Postgres connection string for the server's own metadata DB |
 | `ORCA_PORT` | server | HTTP port |
 | `ORCA_LOG_LEVEL` | server | Log level: debug, info, warn, error |

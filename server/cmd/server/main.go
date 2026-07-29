@@ -153,7 +153,7 @@ func run(ctx context.Context, configuration config) error {
 	}
 
 	metadata := store.NewPostgres(database)
-	tokens, err := auth.NewJWTManager(configuration.jwtSecret, metadata)
+	tokens, err := auth.NewJWTManager(configuration.jwtSecret, metadata, configuration.oauthCallbackBase)
 	if err != nil {
 		return err
 	}

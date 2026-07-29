@@ -1,4 +1,5 @@
 export { ApiError } from './client'
-export { clearAuthToken, getAuthToken, storeAuthToken } from './auth'
+export { getSession, login, logout, signup, startOAuth } from './auth'
+export type { AuthResult, OAuthProvider, Session } from './auth'
 export { connectProjectEvents } from './project-events'
 export * from './resources'

@@ -14,13 +14,13 @@ Orca's server stores control-plane users, projects, hosts, desired cluster state
 
 ## Authentication
 
-`POST /auth/register` creates an email/password user with a bcrypt hash. `POST /auth/login` verifies that hash. Both return a 24-hour HS256 JWT whose subject is the user ID. `ORCA_JWT_SECRET` is required at startup. Protected REST routes use `JWTManager.Middleware`, which validates `Authorization: Bearer <JWT>`, requires expiry and a nonempty subject, and checks the database on every request to ensure the user is still active.
+`POST /auth/register` creates an email/password user with a bcrypt hash. `POST /auth/login` verifies that hash. Both return a 24-hour HS256 JWT whose subject is the user ID for non-browser clients. TanStack Start server functions exchange those responses for an httpOnly, same-site `orca.session` browser cookie without exposing the JWT to browser JavaScript. `ORCA_JWT_SECRET` is required at startup. Protected REST routes accept either `Authorization: Bearer <JWT>` or the browser cookie, require expiry and a nonempty subject, and check the database on every request to ensure the user is still active. Unsafe cookie-authenticated requests with a cross-origin `Origin` are rejected; explicit bearer clients remain non-ambient.
 
-GitHub and Google OAuth use Goth. A provider is enabled only when both its client ID and secret are configured. `GET /auth/{provider}` starts the flow and `GET /auth/{provider}/callback` resolves an identity by `(provider, provider_user_id)` or creates a new OAuth-only user, then issues the same JWT shape. Provider email is metadata and never causes implicit linking. Linking a provider to an already-authenticated user is deliberately deferred pending an authenticated, CSRF-protected flow, as documented in `server/internal/api/oauth.go`.
+GitHub and Google OAuth use Goth. A provider is enabled only when both its client ID and secret are configured. `GET /auth/{provider}` starts the flow and `GET /auth/{provider}/callback` resolves an identity by `(provider, provider_user_id)` or creates a new OAuth-only user, then issues the same JWT shape into the browser session cookie and redirects to `/`. Provider email is metadata and never causes implicit linking. Linking a provider to an already-authenticated user is deliberately deferred pending an authenticated, CSRF-protected flow, as documented in `server/internal/api/oauth.go`.
 
-OAuth callbacks currently return raw `{"token":"..."}` JSON. They do not redirect into the frontend or store the token for the browser because the web application has no login flow.
+`GET /auth/session` validates the active browser or bearer session and returns only the user ID. The pathless authenticated frontend route calls it through a TanStack Start server function before protected route loaders run, so unauthenticated document requests redirect before protected content renders.
 
-Browser project WebSockets cannot set `Authorization`, so the client offers exactly `orca.jwt` and `orca.jwt.token.<JWT>` as subprotocol values. The server validates the token and project ownership before upgrading, and selects only `orca.jwt` in the response.
+Browser project WebSockets authenticate with the same-origin session cookie sent during the upgrade. The original exact `orca.jwt` plus `orca.jwt.token.<JWT>` subprotocol contract remains supported for existing bearer clients. The server validates the token and project ownership before upgrading.
 
 `DELETE /account` soft-deletes the user. The active-user lookup rejects that user's JWT on future REST requests and future project-WebSocket handshakes; password and OAuth login also reject the deleted account. Soft deletion does not close an already-established project WebSocket, revoke agent tokens, delete owned infrastructure, or release the user's email/OAuth identities for reuse.
 
@@ -60,7 +60,7 @@ The web UI lists existing projects and renders desired primary, replica, and PgB
 
 The project page opens a JSON WebSocket separate from the protobuf agent tunnel. It receives full snapshots after reports are committed and replaces the latest actual-state snapshot in the frontend store. Desired topology is loaded by REST; resource mutations do not themselves publish a refreshed desired topology to an already-open browser page.
 
-The frontend has no registration/login UI and expects a JWT already stored under `orca.jwt`. Its API URLs are same-origin, while the checked-in Vite configuration has no API proxy and the Go server does not serve frontend assets.
+The frontend provides email/password registration and login plus GitHub/Google OAuth initiation. Its API URLs and browser session cookie are same-origin, while the checked-in Vite configuration has no API proxy and the Go server does not serve frontend assets. Deployments therefore need a same-origin reverse proxy that distinguishes frontend documents from JSON API and WebSocket requests.
 
 ## Server Architecture
 
