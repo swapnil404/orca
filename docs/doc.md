@@ -1,241 +1,81 @@
-# Architecture
+# Implementation Architecture
 
-## Overview
+This document describes behavior confirmed in the current code. Product workflows that are not exposed by the current web application are identified explicitly.
 
-Orca is split into two halves that never trust each other more than necessary.
+## System Boundary
 
-**Control plane (Orca's servers):** stores desired state, exposes the API and web UI, tracks which hosts are online, and pushes configuration changes down to agents. It holds no Postgres data.
+Orca's server stores control-plane users, projects, hosts, desired cluster state, agent reports, reconciliation results, and alert-rule state in its own Postgres database. It does not store user database contents. The agent runs Postgres-related Docker containers on the user's host and initiates every connection to the control plane; the server never opens a connection to that host.
 
-**Self-hosted (the user's infrastructure):** runs the agent, which runs the user's actual Postgres containers, replicas, connection pooling, and backups via Docker.
+| Component | Current responsibility |
+|---|---|
+| Agent | Cache desired state, observe Docker, reconcile resources, schedule backups, and report actual state |
+| Server | Authenticate users and agents, persist metadata and reports, expose REST/metrics, and route WebSocket snapshots |
+| Web UI | Read-only project topology and latest persisted status view |
 
-This split exists so that a user's data never has to leave their own infrastructure, and so Orca's control plane never needs a way into a user's host. That second property shapes the transport layer directly: connections are always initiated by the agent, never by the server.
+## Authentication
 
-## Components
+`POST /auth/register` creates an email/password user with a bcrypt hash. `POST /auth/login` verifies that hash. Both return a 24-hour HS256 JWT whose subject is the user ID. `ORCA_JWT_SECRET` is required at startup. Protected REST routes use `JWTManager.Middleware`, which validates `Authorization: Bearer <JWT>`, requires expiry and a nonempty subject, and checks the database on every request to ensure the user is still active.
 
-| Component | Runs where | Responsibility |
-|---|---|---|
-| Agent | User's host | Reconciles Docker state to match desired state |
-| Server | Orca's infrastructure | Stores desired state, tracks actual state, exposes API |
-| Web UI | Browser | Canvas for configuring infrastructure, real-time topology view |
+GitHub and Google OAuth use Goth. A provider is enabled only when both its client ID and secret are configured. `GET /auth/{provider}` starts the flow and `GET /auth/{provider}/callback` resolves an identity by `(provider, provider_user_id)` or creates a new OAuth-only user, then issues the same JWT shape. Provider email is metadata and never causes implicit linking. Linking a provider to an already-authenticated user is deliberately deferred pending an authenticated, CSRF-protected flow, as documented in `server/internal/api/oauth.go`.
 
-## Registration flow
+OAuth callbacks currently return raw `{"token":"..."}` JSON. They do not redirect into the frontend or store the token for the browser because the web application has no login flow.
 
-1. A user adds a host from the web UI. The server issues a token tied to that user and generates a `docker run` command containing it.
-2. The user runs that command on their own infrastructure. The agent container starts with the token as an environment variable and Docker socket access mounted in.
-3. The agent opens an outbound WebSocket connection to the server, authenticates with the token, and reports its capabilities.
-4. The server validates the token, associates the resulting session with the correct host, and the host becomes visible in the UI.
+Browser project WebSockets cannot set `Authorization`, so the client offers exactly `orca.jwt` and `orca.jwt.token.<JWT>` as subprotocol values. The server validates the token and project ownership before upgrading, and selects only `orca.jwt` in the response.
 
-No inbound port is ever required on the user's host for this to work.
+`DELETE /account` soft-deletes the user. The active-user lookup rejects that user's JWT on future REST requests and future project-WebSocket handshakes; password and OAuth login also reject the deleted account. Soft deletion does not close an already-established project WebSocket, revoke agent tokens, delete owned infrastructure, or release the user's email/OAuth identities for reuse.
 
-## Desired state flow
+## Desired State And Reconnection
 
-1. A user makes a change in the canvas UI, for example adding a replica.
-2. The frontend calls the REST API.
-3. The API validates the request and writes the new desired state to the store.
-4. The orchestrator looks up the WebSocket session belonging to the correct host and pushes the updated desired state down that connection.
-5. The agent receives the desired state, diffs it against what's actually running, and applies the difference through the Docker SDK.
-6. The agent reports the resulting actual state and health back over the same connection.
-7. The server updates its record of actual state. The frontend, which holds its own WebSocket connection to the server, reflects the update in the canvas without a full reload.
+Cluster mutations are available through authenticated REST APIs, not through the current canvas. A committed cluster change appends desired state in the same metadata transaction, after which the local orchestrator attempts to send the host's complete current desired state through the active agent session.
 
-## The agent's reconciliation loop
+The agent writes each received snapshot atomically to its local cache before reconciliation. It observes Docker, computes the ordinary create/update/delete diff, applies actions, observes Docker again, and reports post-apply state and individual action results. Apply continues after unrelated failures; known dependants are reported as skipped when their prerequisite failed.
 
-The agent does not act on individual commands from the server. It receives a full desired state, computes a diff against the current actual state (queried from Docker), and applies whatever changes that diff requires. This makes the agent idempotent by construction, pushing the same desired state twice produces no further changes the second time.
+While connected, cached reconciliation also runs every 30 seconds. During disconnection and connection backoff, the agent continues reconciling from the cache. After reconnecting, periodic reporting waits until a fresh complete server snapshot has been cached and reconciled. There is no event replay or delta-sync path.
 
-The loop:
-1. Read desired state from the local cache.
-2. Query Docker for actual running containers and their status.
-3. Diff desired against actual, producing a list of actions: create, update, delete.
-4. Apply those actions through the Docker SDK.
-5. Report the new actual state and health back to the server.
+## Resources
 
-This runs on a timer and also triggers immediately whenever a new desired state message arrives.
+Containers use `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, and temporary `orca-<cluster-id>-pgbackrest` names. Each cluster has an explicit Docker named volume mounted inside managed containers at `/var/orca/data/<cluster-id>`; this is not a host bind path. Orphan volumes remain observable and deletion is retried on later passes.
 
-`agent/internal/reconciler.Runner` owns this path for both the production tunnel and the development RPC harness. A server snapshot is written atomically to the local desired-state cache before Docker is queried. The runner observes Docker again after applying every action and builds the `AgentReportMessage` from that post-apply observation; individual apply failures remain independent and are included in both the development result and the tunnel report while the reported actual state reflects what is actually running.
+Primaries use deterministic Orca-owned Postgres parameter configuration. Parameter changes are classified as reloadable or restart-required. A version change currently replaces the primary container while preserving its data volume; this is not a valid PostgreSQL major-version migration because no `pg_upgrade` or dump/restore path exists.
 
-`agent/internal/tunnel.Client` connects to `ORCA_SERVER_URL`, sends `ORCA_TOKEN` as the first JSON WebSocket frame, then exchanges binary protobuf messages. Each `DesiredStateMessage` is a complete snapshot and triggers the shared runner immediately. The resulting `AgentReportMessage` is sent on the same connection. While connected, the client also runs the cached reconciliation path every 30 seconds and reports each result.
+Replicas are provisioned with a base backup and streaming-replication configuration. Reported replica state includes connectivity, streaming state, lag bytes, and lag classification. PgBouncer configuration is generated from desired pool settings and includes read aliases for replica meshes.
 
-The loop provisions primaries, streaming replicas, and PgBouncer end to end. pgBackRest configures WAL archiving and runs desired interval-based backup schedules in the agent process. Extension provisioning reconciles the supported per-cluster extension list against each running primary.
+The extensions package manages `pgvector`, `powa`, `timescaledb`, `pg_partman`, and `postgis` when the selected primary image provides their files and libraries. It preserves unmanaged extensions and preload libraries.
 
-## The reconnection rule and split-brain avoidance
+## Backups And PITR
 
-This is the correctness property the rest of the system depends on. If the agent's connection to the server drops, the agent continues operating from its local cache of the last known desired state. It does not require the server to be reachable to keep running Postgres correctly, it simply stops receiving new configuration changes until the connection is restored.
+pgBackRest is reconciled as create/update/delete state. Applying it installs configuration, enables WAL archiving, initializes the stanza, records applied state, and starts interval workers for desired full, differential, and incremental schedules. Scheduled operations share an exclusive gate with reconciliation and their results are queued for a later agent report.
 
-When the connection is restored, the server does not attempt to replay a log of what changed while the agent was offline. It sends the full current desired state, as it exists right now, in one message. The agent reconciles against that as it would any other desired state update.
+Backup-enabled primaries use `orca-postgres:<version>`, built from `agent/images/postgres/Dockerfile`. If that image is absent, container creation automatically builds it through the Docker API using the corresponding official Postgres parent image; manual `make postgres-image POSTGRES_VERSION=17` is optional. The automatic build requires Docker build support and access to the parent image and Debian package repositories. Existing images are trusted by tag and are not inspected for pgBackRest. Disabling backups does not currently replace an existing Orca image with the official image.
 
-The tunnel retries connection and authentication failures with exponential backoff from one second to 30 seconds. Between attempts it reconciles from the local cache, without waiting on server availability. On a new connection, periodic reporting remains paused until the server's fresh full desired-state snapshot has been cached and reconciled, so stale pre-disconnect state cannot be reported ahead of the reconnect snapshot.
+`pgbackrest.RestoreToTime` implements local-repository PITR. It validates that the repository is inside the shared cluster volume, stops the primary, restores in a temporary pgBackRest container with `--delta --type=time --target-action=pause`, restarts Postgres, waits for paused recovery, resumes replay, and waits for read-write state. A failure before restore starts restarts the untouched primary; a failure after restore starts leaves the primary stopped because `PGDATA` may be partially rewritten.
 
-This avoids split-brain scenarios where the agent and server disagree about history. There is no history to disagree about, only a current desired state and a current actual state, reconciled on every pass. An agent that has been offline for five minutes and an agent that has been offline for five days go through the exact same reconnection path.
+PITR has no API, tunnel message, CLI, development RPC, or UI caller. It also does not coordinate replicas or PgBouncer and does not acquire the scheduler/reconciler operation gate, so any future caller must provide that coordination.
 
-## Data model
+## Actual State And Web UI
 
-**Desired state** describes what the user wants to exist: which clusters, their Postgres version and configuration, their replicas, and whether connection pooling or backups are configured. It is owned by the server and pushed to agents.
+Agent reports are transactionally persisted before frontend subscribers are notified. Report reads mark data older than two minutes stale and return cluster health as `unknown`; no expiry worker is required.
 
-**Actual state** describes what is really running, as reported by the agent after querying Docker directly. It is owned by the agent and reported to the server.
+The web UI lists existing projects and renders desired primary, replica, and PgBouncer nodes at deterministic, non-persistent positions. Nodes cannot be dragged or connected. Selecting a node opens a read-only panel. Status badges are derived from persisted agent observations, server health, and report staleness rather than hardcoded values. pgBackRest and extensions have only unused placeholder panels and are not represented as usable controls.
 
-The server never assumes actual state without a report from the agent confirming it. An endpoint that would otherwise need to guess or fake a status must instead reflect only what has actually been confirmed.
+The project page opens a JSON WebSocket separate from the protobuf agent tunnel. It receives full snapshots after reports are committed and replaces the latest actual-state snapshot in the frontend store. Desired topology is loaded by REST; resource mutations do not themselves publish a refreshed desired topology to an already-open browser page.
 
-The server considers an agent report current for two minutes. Status reads compute staleness from the report's `reported_at` timestamp; after that window host reports are marked stale and per-cluster health is returned as `unknown`. This is deliberately a read-time check, so no background expiry job is required and a last known report remains available for diagnostics without being presented as current health.
+The frontend has no registration/login UI and expects a JWT already stored under `orca.jwt`. Its API URLs are same-origin, while the checked-in Vite configuration has no API proxy and the Go server does not serve frontend assets.
 
-## Container and volume conventions
+## Server Architecture
 
-Postgres-related containers run as siblings to the agent container, not nested inside it, communicating through the Docker socket mounted from the host.
+Durable data lives in Postgres through sqlc-generated queries and plain SQL migrations. Run `./scripts/migrate.sh` before server startup; neither the server nor sqlc applies migrations automatically.
 
-- Containers are namespaced by cluster ID: `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, `orca-<cluster-id>-pgbackrest`.
-- Data volumes are named and explicit, mounted at `/var/orca/data/<cluster-id>/` on the host. Anonymous volumes are not used, since named volumes are what allow data to survive container restarts and agent upgrades.
+The active agent hub uses an `RWMutex`, sessions serialize desired-state writes, the orchestrator serializes pushes per host, and frontend project subscriptions use their own mutex. These make one process safe for concurrent access, but there are no automated race tests.
 
-The agent observes these named volumes independently from containers. Cluster deletion therefore remains pending until the volume removal succeeds; if an attached container blocks removal, a later reconciliation pass still sees the orphaned volume and retries it after the remaining container has been removed.
+The hub, frontend subscription map, desired-state push routing, and alert debounce windows are process-local. If an API request reaches one server while its target agent is connected to another, the first process persists the mutation but cannot push it through the second process's hub. Frontend report notifications have the same limitation. The current deployment model is therefore one server instance; horizontal scaling requires cross-instance session routing/pub-sub and coordinated alert evaluation.
 
-## Provisioning scope
+## Tests
 
-The reconciler's diff and apply logic, and the tunnel and reconnection behavior described above, are service-agnostic: they operate on whatever actions a spec produces, not specifically on primaries. Extending provisioning beyond the primary is additive work within `agent/internal`, not a change to the reconciliation model itself.
+The current repository contains no committed Go `*_test.go` files and no frontend test framework or test files. No package has behavioral test coverage. `go test ./...` compiles all Go packages but does not verify behavior.
 
-**Replicas** (`agent/internal/postgres`): a replica action must configure real streaming replication against the cluster's primary, not just start a second Postgres container with the same image. Actual state reporting for a replica includes replication status (streaming, lagging, disconnected), not just container running/stopped, so the canvas can distinguish a replica that's up from a replica that's healthy. Replication lag is `known` below 16 MiB, `lagging` from 16 MiB, and `critical` from 1 GiB; lagging and critical replicas degrade cluster health.
+There is no reconciler suite covering create, update, delete, or empty-actual full resync for primaries, replicas, PgBouncer, pgBackRest, or extensions. There are also no tests for primary replacement failure ordering, replica cleanup, the extension second pass, automatic image building, backup scheduling/PITR, API/store behavior, JWT/OAuth behavior, project events, or hub/session concurrency.
 
-When the desired PostgreSQL version changes, the primary is replaced first while preserving its named data volume. Existing replicas are then updated serially in action order: each old replica container, replication slot, and replica data directory is removed before a fresh base backup is taken from the updated primary. Reusing a replica data directory across PostgreSQL major versions is unsafe, while a stop/start alone would leave the old image and data in place, so this rebuild is the rolling update boundary supported by the current reconciler.
+## Protocol Boundary
 
-**PostgreSQL parameters** are rendered deterministically into an Orca-owned configuration file that includes the image-generated `postgresql.conf` before applying desired overrides. The file is bind-mounted into the primary. Changed settings classified by PostgreSQL as start-time settings use an explicit restart-required table; other changes call `pg_reload_conf()`. Version changes and legacy containers without the managed configuration mount are replaced only after the existing named primary container has been stopped and removed.
-
-**PgBouncer** (`agent/internal/pgbouncer`): generates a pool configuration from the cluster's `PgBouncerSpec` (pool mode, connection limits, and reserve pool settings) and manages the PgBouncer container's lifecycle alongside the primary and its replicas. Each desired database gets an alias targeting the primary. When replicas exist, it also gets a `<database>_read` alias whose deterministic host mesh targets all replica containers with round-robin selection.
-
-**pgBackRest** (`agent/internal/pgbackrest`): backup configuration is a normal reconciled resource. The agent compares desired settings with the last successfully applied configuration, emits create, update, or delete actions, enables or disables WAL archiving, initializes the stanza, and only then transitions full, differential, and incremental ticker workers. An unchanged snapshot emits no pgBackRest action. Ticker backup operations use the same exclusive operation gate as a reconciliation pass, so they cannot overlap primary replacement, configuration, or restart. Asynchronous backup outcomes are queued into the next pass result and tunnel report. Last-run timestamps remain in memory; restarting the agent resets each interval and can delay the next backup by up to one configured interval.
-
-PostgreSQL primaries with backups enabled and temporary recovery containers use the locally built `orca-postgres:<version>` image because `archive_command` and backup commands execute inside PostgreSQL's container. Primaries without pgBackRest and replicas continue using the official image. `agent/images/postgres/Dockerfile` derives from the matching official `postgres:<version>` image and installs the distribution `pgbackrest` package. Build every backup-enabled PostgreSQL version before starting the agent with `make postgres-image POSTGRES_VERSION=17`. Tag the default build as `orca-postgres:latest` when clusters omit a version. A backup-only sidecar is intentionally not used because it would not provide the `pgbackrest` binary to the primary's `archive_command`.
-
-### Point-in-time recovery
-
-Point-in-time recovery is an agent package operation with no REST or UI entry point. A caller invokes `pgbackrest.RestoreToTime(ctx, dockerClient, clusterSpec, target)` with a non-zero `time.Time`. The cluster must have valid pgBackRest settings, and its local `repo1-path` must be inside `/var/orca/data/<cluster-id>/`. This is required because both the primary and the temporary restore container mount the same explicit `orca-<cluster-id>-data` volume at that path. Recovery validates this before stopping PostgreSQL; repositories outside the shared volume are rejected rather than beginning downtime with an inaccessible backup.
-
-The as-built recovery sequence is:
-
-1. Generate and validate the current stanza configuration and recovery repository path.
-2. Stop `orca-<cluster-id>-primary` through the Docker SDK.
-3. Create and start `orca-<cluster-id>-pgbackrest` from the cluster's configured `orca-postgres:<version>` image. It runs `sleep infinity`, mounts the cluster data volume, sets `PGDATA` to `/var/orca/data/<cluster-id>/primary`, and bind-mounts the generated pgBackRest configuration at `/etc/pgbackrest/pgbackrest.conf`.
-4. In that restore container, recreate a missing primary data directory as `0700 postgres:postgres`, then run `gosu postgres pgbackrest --stanza=<cluster-id> --delta --type=time --target=<timestamp-with-offset> --target-action=pause restore`. `--delta` restores over an existing primary data directory and also permits the destructive-test case where the directory has been removed. `pause` deliberately prevents automatic promotion at the target.
-5. Stop and remove the temporary pgBackRest container, then start the normal primary container. PostgreSQL starts with the recovery files written by pgBackRest and replays archived WAL.
-6. Poll PostgreSQL for `pg_is_in_recovery()` and `pg_is_wal_replay_paused()`. A successful SQL connection proves the restored database has reached consistency; recovery only advances after both values are true, proving that replay reached and paused at the requested target.
-7. Execute `pg_wal_replay_resume()`, then poll until `pg_is_in_recovery()` is false and `transaction_read_only` is `off`. Only then does `RestoreToTime` return success. Both polling phases have a two-minute timeout and honor caller cancellation.
-
-If setup fails before `pgbackrest restore` starts, the temporary container is removed and the untouched primary is restarted. Once restore has started, failures remove the temporary container but deliberately leave the primary stopped because `--delta` may have partially rewritten `PGDATA`; automatically starting that directory could expose an incomplete restore. Failures after the restored primary starts are returned with the primary's current state left available for diagnosis.
-
-**Extensions** (`agent/internal/extensions`): enables or disables `pgvector`, `powa`, `timescaledb`, `pg_partman`, and `postgis` per cluster by querying `pg_extension` in the running primary's `postgres` database. Extensions present in `ClusterSpec.enabled_extensions` but absent from the query result are enabled with `CREATE EXTENSION IF NOT EXISTS`; managed extensions absent from desired state are disabled with `DROP EXTENSION IF EXISTS`. The pure extension-list diff classifies changes using an explicit restart requirement table. `pgvector`, `postgis`, and plain `pg_partman` are hot-applied; the optional `pg_partman_bgw` worker is not managed. PoWA and TimescaleDB changes reconcile `shared_preload_libraries` around one batched primary restart: drops run before the preload edit and creates run after PostgreSQL is ready again. Unmanaged preload libraries and extensions are preserved. The primary image must provide the selected extensions' control files and libraries.
-
-Each of these follows the same naming and volume conventions already established for the primary. None of them changes the core reconciliation loop, hub, or reconnection behavior described elsewhere in this document, they extend what a `ClusterSpec` can describe and what the apply step knows how to execute.
-
-## Server internals
-
-The server is stateless with respect to its own process, all durable state lives in its own Postgres metadata database, accessed through a `sqlc`-generated typed query layer. Multiple server instances can run behind a load balancer without coordination between them, since coordination state (which host is connected to which instance) lives in the WebSocket hub of whichever instance holds that connection, not in a shared in-memory structure.
-
-The WebSocket hub maintains a map from host ID to the active session for that host. It must be safe under concurrent reads and writes, since sessions connect, disconnect, and receive pushes from different goroutines simultaneously.
-
-### Metadata database
-
-The server metadata schema is defined by ordered, plain SQL migrations in `server/migrations/`. Run them with:
-
-```sh
-DATABASE_URL=postgres://... ./scripts/migrate.sh
-```
-
-The script records applied filenames in `schema_migrations` and applies each new migration in a transaction. sqlc does not apply or otherwise manage migrations.
-
-sqlc is configured in `server/sqlc.yaml`. Its source queries are grouped by resource:
-
-- `server/internal/store/queries/hosts.sql`
-- `server/internal/store/queries/projects.sql`
-- `server/internal/store/queries/clusters.sql`
-- `server/internal/store/queries/desired_states.sql`
-- `server/internal/store/queries/reports.sql`
-
-Run generation from the server module:
-
-```sh
-cd server
-sqlc generate
-```
-
-Generated typed functions and models are written to `server/internal/store/sqlcdb/`. The handwritten store in `server/internal/store/hosts.go`, `projects.go`, and `clusters.go` only calls those generated functions. Multi-write operations use the generated `WithTx` support; the store does not contain handwritten row scanning.
-
-Projects are owned by a user. Clusters belong to a project and one of that same user's hosts. Ownership is included in the SQL predicates for reads and mutations so an ID from another user behaves as not found.
-
-Projects and clusters use soft deletion. Every cluster create or update appends an `upsert` row to `desired_states` in the same transaction. Every cluster delete appends a `delete` row containing an explicit `exists: false` tombstone. Deleting a project performs the same operation for each active cluster before soft-deleting the project. The latest record per cluster determines the current full desired state for a host; clusters whose latest record is a tombstone are omitted. Historical rows are retained for diagnostics, but agents receive current state rather than event replay.
-
-### Resource API
-
-`server/internal/api/resources.go` registers these authenticated routes:
-
-| Method | Path | Operation |
-|---|---|---|
-| `POST` | `/projects` | Create a project |
-| `GET` | `/projects` | List owned projects |
-| `GET` | `/projects/{projectID}` | Get an owned project |
-| `PUT` | `/projects/{projectID}` | Update an owned project |
-| `DELETE` | `/projects/{projectID}` | Delete an owned project and tombstone its clusters |
-| `POST` | `/projects/{projectID}/clusters` | Create a cluster on an owned host |
-| `GET` | `/projects/{projectID}/clusters` | List clusters in an owned project |
-| `GET` | `/clusters/{clusterID}` | Get an owned cluster |
-| `PUT` | `/clusters/{clusterID}` | Update an owned cluster and desired state |
-| `DELETE` | `/clusters/{clusterID}` | Delete an owned cluster and write a tombstone |
-| `GET` | `/projects/{projectID}/events` | Upgrade to a project-scoped frontend WebSocket |
-
-Authentication middleware supplies the verified identity with `api.WithUserID`; handlers never accept a user ID from JSON or a path. Host registration uses the same context identity so host ownership can be checked when a cluster is created.
-
-### Frontend project events
-
-`server/internal/api/project_events.go` owns the frontend WebSocket endpoint. It is separate from the protobuf agent tunnel: browser clients connect to `GET /projects/{projectID}/events`, and the server verifies that the authenticated user owns that project before upgrading the connection. A connection subscribes to exactly the project in its URL.
-
-Every message is a full JSON snapshot rather than a delta:
-
-```json
-{
-  "type": "project_state",
-  "project_id": "project-id",
-  "clusters": [
-    {
-      "cluster_id": "cluster-id",
-      "host_id": "host-id",
-      "actual_state": {},
-      "health": "healthy",
-      "last_seen": "2026-07-21T12:00:00Z",
-      "stale": false
-    }
-  ]
-}
-```
-
-The handler sends a fresh snapshot as part of registering every connection. Snapshot loading and subscription registration are serialized with report publication, so a reconnect either includes a concurrently committed report in its initial snapshot or receives a subsequent snapshot for it. No missed-event queue or replay is used.
-
-After `StoreAgentReport` commits, the agent WebSocket handler calls the configured report notifier. `ProjectEventHandler.NotifyHostReport` resolves the active projects assigned to that host and publishes only to clients subscribed to those project IDs. Server construction wires the two handlers explicitly:
-
-```go
-projectEvents := api.NewProjectEventHandler(metadataStore)
-projectEvents.RegisterRoutes(mux)
-agentHandler.SetReportNotifier(projectEvents)
-```
-
-### Metrics and alerting
-
-`server/internal/metrics` exposes the latest persisted agent reports in Prometheus format at `GET /metrics` and, filtered by project, at `GET /projects/{projectID}/metrics`. The exposition includes cluster availability, per-replica lag, PgBouncer pool utilization when connection counters are reported, and backup age and last-success time when a backup observation is reported; it reads the same `cluster_reports` snapshots written by agent-report ingestion rather than maintaining another ingestion path. Alert rule definitions and their current evaluation state are stored in `alert_rules`, independently from cluster desired state. A ticker-driven evaluator reads those same persisted observations, tracks each rule's duration-before-firing window in memory, and persists only transitions between `ok` and `firing`; restarting the evaluator resets an in-progress debounce window but does not lose persisted firing state. Evaluation remains separate from ingestion and exposition so each concern is independently testable.
-
-### Database tests
-
-Store integration tests use an isolated schema in a real Postgres database and apply the migration files before exercising the generated queries. They are opt-in so ordinary unit tests do not require Docker or a database:
-
-```sh
-cd server
-TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/store -v
-```
-
-The configured database user must be able to create and drop schemas. API tests use a fake store and cover authentication, user scoping, successful mutation, and not-found behavior.
-
-## Frontend
-
-The web UI holds its own WebSocket connection to the server, separate from the agent-server tunnel, used to receive real-time topology and health updates and reflect them in the canvas. All outbound requests from the frontend, configuration changes, host registration, and so on, go through the REST API, not through this connection.
-
-## What proto is for, and isn't
-
-`proto/` defines the message contract exclusively between agent and server, sent over the WebSocket tunnel. It is not used for REST request or response shapes, those are defined and validated within the server's own API layer. Keeping this boundary clean avoids the tunnel contract growing to accommodate concerns that only the frontend needs.
-
-## Non-goals for the current architecture
-
-- The server does not, and should not, ever initiate a connection to a user's host.
-- The agent does not persist a log of past desired states or replay history on reconnect.
-- `pkg/` contains shared types only. Business logic belongs in the module that owns the relevant data, not in the shared package.
+`proto/` defines binary messages only for the agent-server tunnel. REST request/response and browser event shapes remain in `server/internal/api`. Agent and server share types through `pkg/` and do not import each other's internal packages.

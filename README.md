@@ -1,88 +1,159 @@
 # Orca
 
-Orca is an in-development, self-hosted Postgres orchestration and control platform. Its agent runs on infrastructure you control, keeps the last desired state locally, and reconciles Docker resources without requiring an inbound connection from the control plane. Orca stores desired state and reported health, not user database data.
+Orca is an in-development, self-hosted Postgres orchestration and control platform. An agent on infrastructure you control reconciles Docker resources from a locally cached desired-state snapshot. The control plane stores desired state and reported health, not user database data, and never initiates a connection to the agent host.
 
-The backend and agent contain most of the current functionality. The web application is a read-only topology and status view; it does not yet provide the management workflows described below.
-
-## Current status
+## Current Status
 
 Implemented in the backend and agent:
 
-- Full desired-state snapshots over an agent-initiated WebSocket connection, including full resync after reconnecting.
+- Full desired-state snapshots over an agent-initiated WebSocket, including a fresh full snapshot after reconnecting.
 - Local desired-state caching and periodic reconciliation while the control plane is unavailable.
-- Postgres primary lifecycle and streaming-replica provisioning, observation, and deletion.
-- PgBouncer lifecycle with a fixed backend-generated configuration.
-- pgBackRest configuration and scheduled full, differential, and incremental backups.
-- Reconciliation of a limited set of Postgres extensions when the selected image contains them.
-- Agent health reports, persisted reconciliation results, and Prometheus-compatible server metrics.
-- Backend CRUD for projects and clusters, plus a backend endpoint that registers a host and returns an agent token and `docker run` command.
-- Agent token authentication for the control-plane tunnel.
-- Email/password account registration and login, GitHub/Google OAuth, JWT-protected REST routes, and authenticated project event WebSockets.
+- Postgres primary lifecycle, real streaming-replica provisioning, PgBouncer, pgBackRest schedules, and a limited set of Postgres extensions.
+- Persisted agent reports, reconciliation results, Prometheus-compatible metrics, and server-side alert-rule evaluation.
+- Authenticated project and cluster CRUD plus host registration through the REST API.
+- Email/password authentication, optional GitHub and Google OAuth through Goth, 24-hour HS256 JWTs, JWT middleware, and JWT-authenticated project event WebSockets.
+- Agent tunnel authentication using the token issued during host registration.
 
-Incomplete or not yet exposed as a usable product workflow:
+The web application is an authenticated, read-only viewer. It lists existing projects, renders desired primaries, replicas, and PgBouncer resources at fixed positions, and combines them with the latest persisted agent observations. It receives full project-status snapshots over a separate browser WebSocket. It does not provide login or registration screens, host management, resource mutation, backup or extension controls, PITR, alert management, or topology-position persistence.
 
-- The web UI has no account registration or login screens yet. The authentication API is available, but the current UI only consumes a JWT already stored by a client.
-- The web UI displays projects and topology but is read-only. It cannot create or edit projects, hosts, clusters, replicas, pools, backups, or extensions.
-- Host registration exists as a backend endpoint, not as a UI flow, and host listing and management are not implemented.
-- Point-in-time recovery code exists in the agent but has no API, tunnel operation, CLI, or UI entry point.
-- Extension controls are not connected to the UI, and the supplied Postgres images do not bundle every supported extension package.
-- Alert rule storage and server-side evaluation exist, but there is no alert API, UI, or notification delivery. This is not yet operational alerting.
+Point-in-time recovery exists as `pgbackrest.RestoreToTime`, but nothing in the REST API, tunnel protocol, CLI, development RPC, or UI invokes it.
 
 ## Architecture
 
-1. The agent starts on a user-controlled Linux host and authenticates to the control plane with an agent token.
-2. The agent opens the outbound WebSocket connection. The server never initiates a connection to the user's host.
-3. The server sends a complete desired-state snapshot for that host.
-4. The agent compares desired state with Docker state and independently applies each required create, update, or delete action.
-5. The agent reports observed topology, health, and reconciliation outcomes to the server.
+1. The agent authenticates with a host token and opens an outbound WebSocket. No inbound agent port is required.
+2. The server sends the complete current desired state for that host.
+3. The agent saves the snapshot locally, observes Docker, computes create/update/delete actions, and applies them.
+4. Independent actions continue after a failure, while actions with a known failed dependency are skipped and reported as such.
+5. The agent reports post-apply observed state, health, and reconciliation results.
 
-After a disconnect, the server sends the full current desired state rather than replaying missed changes. While disconnected, the agent continues reconciling from its local cache.
+After a disconnect, the agent keeps reconciling from its local cache. On reconnect, the server sends current desired state rather than replaying missed changes.
 
-## Running the components
+Active agent sessions, frontend subscriptions, desired-state push routing, and alert debounce timers are process-local. Run one server instance; horizontal scaling is not coordination-free in the current implementation.
 
-This repository is currently suitable for development and direct API integration, not the earlier advertised account-and-click quickstart. The server requires `DATABASE_URL` and a nonempty `ORCA_JWT_SECRET`; the agent can run in local development mode or connect with `ORCA_SERVER_URL` and `ORCA_TOKEN`. See `.env.example` for every environment variable read by the agent and server.
+## Local Development
 
-### OAuth apps for local development
+### Prerequisites
 
-GitHub and Google OAuth are optional. For either provider, set both its client ID and client secret; the server rejects a half-configured pair. The callback origin is derived from `ORCA_SERVER_URL` by converting `ws` to `http` or `wss` to `https` and removing the `/agent` path.
+- Go 1.25 or newer.
+- PostgreSQL and `psql` for the server metadata database.
+- A running Docker daemon accessible to the agent.
+- Node.js and npm if working on the web application.
 
-Create OAuth applications with these callback URLs when the server runs at the default local URL:
+There is no checked-in `deploy/` directory, Compose environment, agent Dockerfile, or published-image configuration. The repository-supported development path runs the Go components from source.
 
-- GitHub: `http://localhost:8080/auth/github/callback`
-- Google: `http://localhost:8080/auth/google/callback`
+### Database And Environment
 
-Both providers require the callback URL to be registered even when it points to localhost. Set `ORCA_GITHUB_CLIENT_ID` and `ORCA_GITHUB_CLIENT_SECRET` for GitHub, and `ORCA_GOOGLE_CLIENT_ID` and `ORCA_GOOGLE_CLIENT_SECRET` for Google. Begin a login at `GET /auth/github` or `GET /auth/google`; a successful callback returns the same JWT response shape as email/password authentication.
-
-A registered agent is run with the host's generated token and control-plane URL, for example:
+1. Create the `orca` metadata database and a role with permission to create its schema objects.
+2. Create and load a local environment file. Orca does not load `.env` automatically.
 
 ```sh
-docker run -d \
-  -e ORCA_TOKEN=replace-with-agent-token \
-  -e ORCA_SERVER_URL=wss://your-orca-server.example/agent \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /proc:/host/proc:ro \
-  -v /var/orca/data:/var/orca/data \
-  orca/agent
+cp .env.example .env
+# Replace DATABASE_URL, ORCA_JWT_SECRET, and other placeholders first.
+set -a
+. ./.env
+set +a
 ```
 
-No inbound agent port is required. The exact registration command currently comes from `POST /hosts`; there is no registration screen in the web application yet.
+3. Apply migrations before starting the server. The server and sqlc do not apply them automatically.
 
-## Project structure
+```sh
+./scripts/migrate.sh
+```
+
+4. Start the server.
+
+```sh
+go run ./server/cmd/server
+```
+
+### Create A User And Host
+
+Register with email/password to obtain a user JWT:
+
+```sh
+curl -sS http://localhost:8080/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"developer@example.test","password":"choose-a-local-password"}'
+```
+
+Use the returned `token` as `USER_JWT`, then register a host:
+
+```sh
+curl -sS http://localhost:8080/hosts \
+  -X POST \
+  -H "Authorization: Bearer $USER_JWT"
+```
+
+`POST /hosts` returns the agent token only inside `docker_run_command`; copy its `ORCA_TOKEN` value into the agent environment. A new agent connection is accepted only during the token's 24-hour lifetime; an already-established connection is not reauthenticated when that lifetime elapses.
+
+The generated command currently names `orca/agent`, but this checkout has no agent Dockerfile or configured image source. For repository development, run the agent from source on the Docker host:
+
+```sh
+export ORCA_TOKEN='token-from-the-generated-command'
+export ORCA_SERVER_URL='ws://localhost:8080/agent'
+export ORCA_STATE_PATH='/var/orca/state/desired.json'
+go run ./agent/cmd/agent
+```
+
+Ensure the parent directory of `ORCA_STATE_PATH` is writable and persistent if desired state must survive agent process or host restarts. If `ORCA_SERVER_URL` is unset, the agent instead starts its standalone development endpoint at `ORCA_DEV_ADDRESS` (default `127.0.0.1:8080`); choose another port if the server is also using 8080.
+
+### OAuth Apps
+
+GitHub and Google OAuth are optional; email/password auth works without them. A provider is enabled only when both its client ID and secret are set, and startup rejects a half-configured pair.
+
+For GitHub, create an OAuth App, set its application URL to `http://localhost:8080`, and register `http://localhost:8080/auth/github/callback` as the authorization callback URL.
+
+For Google, configure the consent screen, create a Web application OAuth client, and register `http://localhost:8080/auth/google/callback` as an authorized redirect URI.
+
+Set the matching `ORCA_GITHUB_*` or `ORCA_GOOGLE_*` variables before starting the server. Begin authentication at `GET /auth/github` or `GET /auth/google`. The callback currently returns `{"token":"..."}` directly; it does not redirect to or authenticate the web application because no login UI exists. Linking a provider to an already-authenticated account is also deferred.
+
+OAuth callback origins use the scheme and authority of `ORCA_SERVER_URL`, translating `ws` to `http` and `wss` to `https` and discarding the entire path, query, and fragment. The browser-facing API and agent endpoint must therefore share an externally reachable origin in the current configuration.
+
+### Web Application
+
+```sh
+cd web
+npm ci
+npm run typecheck
+npm run dev
+```
+
+The client uses same-origin relative REST and WebSocket URLs, but the checked-in Vite configuration has no API proxy and the Go server does not serve the built frontend. A same-origin reverse proxy is therefore required to use the UI against a separately running API. The UI also expects a JWT to have already been stored in browser local storage under `orca.jwt`; there is no login screen.
+
+## Environment Variables
+
+| Variable | Used by | Current behavior |
+|---|---|---|
+| `DATABASE_URL` | server | Required metadata Postgres connection string |
+| `ORCA_JWT_SECRET` | server | Required JWT signing and OAuth cookie-store secret |
+| `ORCA_PORT` | server | HTTP port; defaults to `8080` |
+| `ORCA_LOG_LEVEL` | server | `debug`, `info`, `warn`, or `error`; defaults to `info` |
+| `ORCA_SERVER_URL` | agent, server | Agent tunnel URL; enables agent tunnel mode, appears in host commands, and supplies the server's OAuth callback origin |
+| `ORCA_GITHUB_CLIENT_ID` / `ORCA_GITHUB_CLIENT_SECRET` | server | Optional GitHub OAuth pair |
+| `ORCA_GOOGLE_CLIENT_ID` / `ORCA_GOOGLE_CLIENT_SECRET` | server | Optional Google OAuth pair |
+| `ORCA_TOKEN` | agent | Required in tunnel mode |
+| `ORCA_DATA_DIR` | agent | Disk-metrics path; defaults to `/var/orca/data` and does not relocate Docker/config storage |
+| `ORCA_STATE_PATH` | agent | Desired-state cache path; defaults to `/var/orca/state/desired.json` |
+| `ORCA_DEV_ADDRESS` | agent | Standalone development endpoint address when `ORCA_SERVER_URL` is unset; defaults to `127.0.0.1:8080` |
+
+The Docker SDK also honors its standard `DOCKER_*` environment variables through `client.FromEnv`; those are Docker configuration rather than Orca-specific settings.
+
+## Project Structure
 
 ```text
 orca/
-├── agent/    # Docker reconciliation and outbound tunnel client
-├── server/   # REST API, WebSocket hub, desired-state store, metrics
+├── agent/    # Docker reconciliation, backup scheduling, and outbound tunnel
+├── server/   # REST API, WebSockets, desired-state store, auth, and metrics
 ├── web/      # read-only canvas and status UI
 ├── pkg/      # shared Go types
 ├── proto/    # agent/server tunnel message definitions
-├── deploy/   # local deployment assets
-└── scripts/  # migrations and development scripts
+├── docs/     # implementation architecture
+└── scripts/  # metadata migration runner
 ```
 
-## Development
+## Verification And Tests
 
-Go changes are verified from the repository root with:
+Run Go verification from the repository root:
 
 ```sh
 go build ./...
@@ -90,7 +161,9 @@ go vet ./...
 go test ./...
 ```
 
-Architecture and implementation notes are in `ARCHITECTURE.md` and `docs/`.
+This checkout currently contains no committed `*_test.go` files, frontend test files, or test framework. `go test ./...` therefore compiles packages but does not provide behavioral coverage. In particular, there is no automated reconciler create/update/delete/full-resync suite for any resource type and no WebSocket hub concurrency or race suite.
+
+Architecture details and current limitations are in [`docs/doc.md`](docs/doc.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## License
 

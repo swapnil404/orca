@@ -1,15 +1,35 @@
-Alert-rule evaluation does not replace the deferred email alert channel; instead, rules determine when an alert fires, while email is a separate notification sink that those alerts may feed into later. Keeping evaluation independent from delivery preserves a single, testable source of alert state, avoids coupling health-data processing to provider-specific email behavior and failures, and allows future sinks such as webhooks or paging systems to consume the same evaluated alerts without duplicating rule logic.
+# Architecture Decisions And Limitations
 
-## Authentication
+The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This file records cross-cutting decisions and known limitations confirmed in the current code.
 
-Control-plane users are stored separately from credentials. A user may have a nullable bcrypt `password_hash` and zero or more rows in `oauth_identities`; each OAuth identity is keyed by provider and provider user ID. This normalized shape allows another OAuth provider to be added without adding provider-specific columns to `users`. Provider emails are informational identity metadata and are not used to link accounts.
+## Decisions
 
-`POST /auth/register` and `POST /auth/login` provide email/password authentication. GitHub and Google use Goth through `GET /auth/{provider}` and `GET /auth/{provider}/callback`. Every successful path calls the same JWT issuer, producing an HS256 token whose subject is the user ID and whose expiry is 24 hours after issuance. The server refuses to start without `ORCA_JWT_SECRET`. REST clients send the token as `Authorization: Bearer <JWT>`. `DELETE /account` soft-deletes the authenticated user; project cleanup or reassignment remains a separate operational lifecycle concern, and soft deletion preserves existing ownership records.
+- Agents initiate an outbound WebSocket and receive complete desired-state snapshots; the server never connects inbound and never substitutes event replay for a reconnect snapshot.
+- The agent caches desired state before applying it and can reconcile without a server connection.
+- Durable control-plane state and agent reports live in Postgres through sqlc; active WebSocket connections remain process-local.
+- Email/password and optional GitHub/Google OAuth issue the same 24-hour HS256 JWT. Protected REST requests and new project-WebSocket handshakes verify that the subject is still active.
+- OAuth identities are keyed by provider and provider user ID. Provider email is metadata and is not trusted for implicit account linking.
+- Agent/server tunnel messages use protobuf; frontend REST and WebSocket shapes do not.
+- Alert evaluation is separate from report ingestion, metrics exposition, and future notification delivery.
 
-Project event WebSockets authenticate during the HTTP upgrade because browser WebSocket APIs cannot set an Authorization header. The browser offers two subprotocol values, `orca.jwt` and `orca.jwt.token.<JWT>`. The server validates the prefixed JWT before upgrading and returns `Sec-WebSocket-Protocol: orca.jwt` when it accepts the connection. It then uses the JWT subject in the existing project ownership lookup before subscribing the socket.
+## Known Limitations
 
-JWT authentication performs one database lookup per REST request and project WebSocket connection attempt after signature and expiry validation, rejecting subjects whose user is missing or soft-deleted. This is deliberate per-request revocation rather than cache-based revocation; its latency is acceptable at the current scale and should be reconsidered if authentication becomes a high-throughput path. Existing WebSocket connections are not interrupted by a later deletion, but reconnecting with the same token is rejected.
-
-OAuth callbacks only resolve an existing `(provider, provider_user_id)` identity or create a new OAuth-only user and identity. Linking a second provider to an already-authenticated user is deferred until there is a dedicated authenticated, CSRF-protected linking flow; matching provider email alone never links accounts.
-
-Both metrics endpoints require JWT authentication. `/projects/{projectID}/metrics` verifies ownership with the same user ID plus project ID lookup as other project resources. `/metrics` aggregates only projects returned by the authenticated user's project listing.
+- **Single server instance:** agent sessions, desired-state push routing, frontend subscriptions, and alert debounce state are process-local, so multiple instances can miss pushes and notifications without cross-instance coordination.
+- **Duplicate agent sessions:** registering a newer connection replaces the hub entry but does not close the older socket, so both connections can continue reporting until the older one exits.
+- **OAuth provider linking:** attaching another provider to an already-authenticated user is deferred because it requires an authenticated, CSRF-protected linking flow; separate providers currently create separate users unless the exact provider identity already exists.
+- **OAuth browser completion:** callbacks return raw JWT JSON instead of redirecting into the web app because no login UI or browser token-completion flow exists.
+- **Login timing side channel:** unknown, deleted, and OAuth-only users skip bcrypt comparison while password users do not, so timing can reveal whether an active password credential exists.
+- **Duplicate authentication header lines:** REST auth uses `Header.Get("Authorization")` and project WebSocket parsing ultimately uses one combined `Sec-WebSocket-Protocol` value, so duplicate field lines are not explicitly rejected and may be interpreted differently by intermediaries.
+- **Soft-delete scope:** deletion revokes future user JWT authentications but does not close existing project WebSockets, revoke agent tokens, remove owned resources, or make email/OAuth identities reusable.
+- **Primary major-version changes:** replacement preserves the existing `PGDATA` volume without `pg_upgrade` or dump/restore, so a PostgreSQL major-version change is not a supported safe upgrade despite the emitted replacement action.
+- **Primary replacement dependency ordering:** a failed primary replacement does not block subsequent replica deletes, so replicas can be stopped or removed while their recreate actions are skipped.
+- **Extension action staleness:** a primary replacement and extension change in the same diff emits an extension action containing the removed primary's container ID; a later extension-only pass may converge, but the first pass reports a stale failure.
+- **Replica cleanup dependency:** removing replica data and slots executes through the primary, so cleanup can remain blocked after the replica is stopped when the primary is absent or unusable.
+- **Backup schedule restart behavior:** schedule timestamps are in memory and tickers wait a full interval, so restarting the agent resets each interval and can delay the next backup by up to that interval.
+- **Alert delivery and debounce:** rules are evaluated and state transitions are stored, but there is no alert API, UI, or notification sink, and restarting an evaluator resets an in-progress duration-before-firing window.
+- **Backup image trust:** missing `orca-postgres:<version>` images are built automatically, but existing tags are not inspected and builds require Docker and external parent/package access.
+- **PITR exposure and coordination:** recovery is only an internal package function and does not coordinate replicas, PgBouncer, or the reconciliation/backup operation gate; a production entry point is deferred until those safety boundaries are designed.
+- **PITR failure cleanup:** failures after restore begins intentionally leave the primary stopped, and a process crash can leave a temporary restore container that ordinary observation does not classify for cleanup, because automatic restart could expose partially restored data.
+- **Read-only web product:** the UI has no login, host, mutation, backup, extension, PITR, alert, or persisted-layout workflow; implementing UI controls before their complete persistence/auth contracts would overstate product behavior.
+- **Development packaging:** there is no checked-in agent Dockerfile, Compose deployment, or frontend/API proxy, so local development currently requires source execution and external same-origin web routing.
+- **Automated coverage:** there are no committed Go or frontend tests, so reconciler resource paths, auth/store/API behavior, backup/PITR behavior, and WebSocket concurrency have no behavioral or race-test safety net.

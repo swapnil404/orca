@@ -4,7 +4,7 @@ This describes the Orca codebase for AI coding agents (opencode, Claude, Copilot
 
 ## What Orca is
 
-Orca is a self-hosted Postgres orchestration and control platform. Users run a single agent container on their own infrastructure. The agent connects outbound to Orca's control plane over a persistent WebSocket connection. Through a web UI, users manage Postgres clusters, replicas, connection pooling, backups, and extensions, all of which actually run on the user's own host, not on Orca's infrastructure.
+Orca is a self-hosted Postgres orchestration and control platform. Users run an agent on their own infrastructure. The agent connects outbound to Orca's control plane over a persistent WebSocket connection. The backend API and agent manage Postgres clusters, replicas, connection pooling, backups, and extensions, all of which run on the user's own host. The current web UI is a read-only topology and status viewer.
 
 Orca owns no servers running user data. All Postgres infrastructure runs on the user's own host. Orca's server only stores desired state and reported health, and pushes desired state down to agents.
 
@@ -17,8 +17,8 @@ orca/
 ├── web/            # React, canvas UI
 ├── pkg/            # shared Go types, imported by both agent and server
 ├── proto/          # message definitions for agent <-> server communication
-├── deploy/         # Docker Compose for local development
-└── scripts/        # migration and codegen scripts
+├── docs/           # architecture and implementation documentation
+└── scripts/        # metadata migration runner
 ```
 
 ## Module boundaries
@@ -93,7 +93,7 @@ The server uses `sqlc` for all query access to its own Postgres metadata databas
 
 ### Auth
 
-Email and password with JWTs is the baseline. Do not add OAuth or other providers without an explicit decision to do so, keep the auth surface minimal and correct rather than broad.
+Email/password and optional GitHub/Google OAuth through Goth issue JWTs. Protected REST routes use JWT middleware, and project WebSockets authenticate with the `orca.jwt` plus `orca.jwt.token.<JWT>` subprotocol pair. Soft-deleted users are rejected on future JWT authentications. Provider linking is deliberately deferred until there is an authenticated, CSRF-protected linking flow; never link accounts from provider email alone.
 
 ### Metrics and alerts
 
@@ -125,8 +125,10 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 | Variable | Used by | Description |
 |---|---|---|
 | `ORCA_TOKEN` | agent | Auth token for the agent-server tunnel |
-| `ORCA_SERVER_URL` | agent, server | Agent-facing WebSocket URL of the orchestration server; the server uses it in host registration commands |
-| `ORCA_DATA_DIR` | agent | Host path for data volumes |
+| `ORCA_SERVER_URL` | agent, server | Agent-facing WebSocket URL; enables agent tunnel mode, appears in registration commands, and supplies the server OAuth callback origin |
+| `ORCA_DATA_DIR` | agent | Path used for disk metrics; it does not currently relocate Docker/config storage |
+| `ORCA_STATE_PATH` | agent | Desired-state cache file; defaults to `/var/orca/state/desired.json` |
+| `ORCA_DEV_ADDRESS` | agent | Standalone dev endpoint when `ORCA_SERVER_URL` is unset; defaults to `127.0.0.1:8080` |
 | `ORCA_JWT_SECRET` | server | Secret for signing tokens |
 | `ORCA_GITHUB_CLIENT_ID` | server | GitHub OAuth application client ID |
 | `ORCA_GITHUB_CLIENT_SECRET` | server | GitHub OAuth application client secret |
@@ -134,7 +136,7 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 | `ORCA_GOOGLE_CLIENT_SECRET` | server | Google OAuth application client secret |
 | `DATABASE_URL` | server | Postgres connection string for the server's own metadata DB |
 | `ORCA_PORT` | server | HTTP port |
-| `ORCA_LOG_LEVEL` | agent, server | Log level: debug, info, warn, error |
+| `ORCA_LOG_LEVEL` | server | Log level: debug, info, warn, error |
 
 If a new environment variable is introduced, add it to this table and to `.env.example` in the same change.
 
@@ -159,7 +161,7 @@ If a new environment variable is introduced, add it to this table and to `.env.e
 
 ### General
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`.
-- No secrets, tokens, or real-looking credentials committed anywhere, including in `deploy/` compose files. Use `.env.example` with placeholders.
+- No secrets, tokens, or real-looking credentials committed anywhere. Use `.env.example` with placeholders.
 - No built binaries tracked in the repository.
 - Do not mark work as complete in a PR description or issue comment unless it is backed by passing verification and, where applicable, a manual verification step.
 
