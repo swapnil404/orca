@@ -14,7 +14,7 @@ Implemented in the backend and agent:
 - Email/password authentication, optional GitHub and Google OAuth through Goth, 24-hour HS256 JWTs, JWT middleware, and JWT-authenticated project event WebSockets.
 - Agent tunnel authentication using the token issued during host registration.
 
-The web application is an authenticated, read-only viewer. It lists existing projects, renders desired primaries, replicas, and PgBouncer resources at fixed positions, and combines them with the latest persisted agent observations. It receives full project-status snapshots over a separate browser WebSocket. It does not provide login or registration screens, host management, resource mutation, backup or extension controls, PITR, alert management, or topology-position persistence.
+The web application is an authenticated, read-only viewer with email/password signup and login plus optional GitHub/Google OAuth. It lists existing projects, renders desired primaries, replicas, and PgBouncer resources at fixed positions, and combines them with the latest persisted agent observations. It receives full project-status snapshots over a separate browser WebSocket. It does not provide host management, resource mutation, backup or extension controls, PITR, alert management, or topology-position persistence.
 
 Point-in-time recovery exists as `pgbackrest.RestoreToTime`, but nothing in the REST API, tunnel protocol, CLI, development RPC, or UI invokes it.
 
@@ -105,7 +105,7 @@ For GitHub, create an OAuth App, set its application URL to `http://localhost:80
 
 For Google, configure the consent screen, create a Web application OAuth client, and register `http://localhost:8080/auth/google/callback` as an authorized redirect URI.
 
-Set the matching `ORCA_GITHUB_*` or `ORCA_GOOGLE_*` variables before starting the server. Begin authentication at `GET /auth/github` or `GET /auth/google`. The callback currently returns `{"token":"..."}` directly; it does not redirect to or authenticate the web application because no login UI exists. Linking a provider to an already-authenticated account is also deferred.
+Set the matching `ORCA_GITHUB_*` or `ORCA_GOOGLE_*` variables before starting the server. The login page begins authentication at `GET /auth/github` or `GET /auth/google`. A successful callback establishes the browser session cookie and redirects to the project list. Linking a provider to an already-authenticated account is still deferred.
 
 OAuth callback origins use the scheme and authority of `ORCA_SERVER_URL`, translating `ws` to `http` and `wss` to `https` and discarding the entire path, query, and fragment. The browser-facing API and agent endpoint must therefore share an externally reachable origin in the current configuration.
 
@@ -118,7 +118,7 @@ npm run typecheck
 npm run dev
 ```
 
-The client uses same-origin relative REST and WebSocket URLs, but the checked-in Vite configuration has no API proxy and the Go server does not serve the built frontend. A same-origin reverse proxy is therefore required to use the UI against a separately running API. The UI also expects a JWT to have already been stored in browser local storage under `orca.jwt`; there is no login screen.
+The client uses same-origin relative REST and WebSocket URLs, but the checked-in Vite configuration has no API proxy and the Go server does not serve the built frontend. A same-origin reverse proxy is therefore required to use the UI against a separately running API. Route `/auth/*` and JSON/WebSocket requests to the Go server while leaving document requests such as `/`, `/login`, `/signup`, and `/projects/{id}` with TanStack Start. Browser authentication uses an httpOnly `orca.session` cookie; the API's bearer-token response remains available for non-browser clients.
 
 ## Environment Variables
 
@@ -131,6 +131,7 @@ The client uses same-origin relative REST and WebSocket URLs, but the checked-in
 | `ORCA_SERVER_URL` | agent, server | Agent tunnel URL; enables agent tunnel mode, appears in host commands, and supplies the server's OAuth callback origin |
 | `ORCA_GITHUB_CLIENT_ID` / `ORCA_GITHUB_CLIENT_SECRET` | server | Optional GitHub OAuth pair |
 | `ORCA_GOOGLE_CLIENT_ID` / `ORCA_GOOGLE_CLIENT_SECRET` | server | Optional Google OAuth pair |
+| `ORCA_API_URL` | web server | Go API origin used by TanStack Start server functions; defaults to `http://127.0.0.1:8080` |
 | `ORCA_TOKEN` | agent | Required in tunnel mode |
 | `ORCA_DATA_DIR` | agent | Disk-metrics path; defaults to `/var/orca/data` and does not relocate Docker/config storage |
 | `ORCA_STATE_PATH` | agent | Desired-state cache path; defaults to `/var/orca/state/desired.json` |

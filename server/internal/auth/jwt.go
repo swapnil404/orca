@@ -4,13 +4,18 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const tokenLifetime = 24 * time.Hour
+const (
+	tokenLifetime = 24 * time.Hour
+	// SessionCookieName is the shared browser session cookie used by REST and WebSocket authentication.
+	SessionCookieName = "orca.session"
+)
 
 type userIDContextKey struct{}
 
@@ -20,20 +25,28 @@ type userStore interface {
 
 // JWTManager issues and validates control-plane user tokens.
 type JWTManager struct {
-	secret []byte
-	now    func() time.Time
-	users  userStore
+	secret        []byte
+	now           func() time.Time
+	users         userStore
+	browserOrigin string
 }
 
-// NewJWTManager creates a JWT manager using an HS256 signing secret.
-func NewJWTManager(secret string, users userStore) (*JWTManager, error) {
+// NewJWTManager creates a JWT manager using an HS256 signing secret and browser origin.
+func NewJWTManager(secret string, users userStore, browserOrigin string) (*JWTManager, error) {
 	if strings.TrimSpace(secret) == "" {
 		return nil, errors.New("ORCA_JWT_SECRET is required")
 	}
 	if users == nil {
 		return nil, errors.New("user store is required")
 	}
-	return &JWTManager{secret: []byte(secret), now: time.Now, users: users}, nil
+	parsedOrigin, err := url.Parse(browserOrigin)
+	if err != nil || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") || parsedOrigin.Host == "" {
+		return nil, errors.New("browser origin must be an http:// or https:// URL")
+	}
+	return &JWTManager{
+		secret: []byte(secret), now: time.Now, users: users,
+		browserOrigin: parsedOrigin.Scheme + "://" + parsedOrigin.Host,
+	}, nil
 }
 
 // IssueToken creates a signed user token with a fixed lifetime.
@@ -50,22 +63,45 @@ func (m *JWTManager) IssueToken(userID string) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
 
-// Middleware requires an Authorization bearer token and adds its user ID to the request context.
+// Middleware requires a bearer token or browser session cookie and adds its user ID to the request context.
 func (m *JWTManager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		value := strings.TrimSpace(r.Header.Get("Authorization"))
-		parts := strings.Fields(value)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			writeUnauthorized(w)
-			return
-		}
-		userID, err := m.Authenticate(r.Context(), parts[1])
+		userID, cookieAuthenticated, err := m.authenticateRequest(r)
 		if err != nil {
 			writeUnauthorized(w)
 			return
 		}
+		if cookieAuthenticated && !sameOriginMutation(r, m.browserOrigin) {
+			writeForbidden(w)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(WithUserID(r.Context(), userID)))
 	})
+}
+
+// AuthenticateRequest validates the explicit bearer token or browser session cookie on r.
+func (m *JWTManager) AuthenticateRequest(r *http.Request) (string, error) {
+	userID, _, err := m.authenticateRequest(r)
+	return userID, err
+}
+
+func (m *JWTManager) authenticateRequest(r *http.Request) (string, bool, error) {
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if value != "" {
+		parts := strings.Fields(value)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			return "", false, errors.New("invalid authorization header")
+		}
+		userID, err := m.Authenticate(r.Context(), parts[1])
+		return userID, false, err
+	}
+
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return "", false, errors.New("authentication required")
+	}
+	userID, err := m.Authenticate(r.Context(), cookie.Value)
+	return userID, true, err
 }
 
 // Authenticate validates a token and verifies that its subject is still an active user.
@@ -113,4 +149,23 @@ func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte("{\"error\":\"authentication required\"}\n"))
+}
+
+func writeForbidden(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte("{\"error\":\"cross-origin request rejected\"}\n"))
+}
+
+func sameOriginMutation(r *http.Request, browserOrigin string) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	return err == nil && parsed.Host != "" && strings.EqualFold(parsed.Scheme+"://"+parsed.Host, browserOrigin)
 }

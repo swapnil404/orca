@@ -1,10 +1,10 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { getProjectTopology } from '../../api'
-import { CanvasView } from '../../canvas/CanvasView'
-import { useProjectEvents } from '../../hooks/useProjectEvents'
-import { useTopologyStore } from '../../store/topology'
+import { getProjectTopology } from '../../../api'
+import { CanvasView } from '../../../canvas/CanvasView'
+import { useProjectEvents } from '../../../hooks/useProjectEvents'
+import { useTopologyStore } from '../../../store/topology'
 
-export const Route = createFileRoute('/projects/$projectId')({
+export const Route = createFileRoute('/_authenticated/projects/$projectId')({
   ssr: false,
   loader: ({ params }) => getProjectTopology(params.projectId),
   component: ProjectCanvasPage,

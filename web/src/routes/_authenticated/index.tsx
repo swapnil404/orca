@@ -1,11 +1,10 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ApiError, listProjects } from '../api'
+import { listProjects } from '../../api'
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute('/_authenticated/')({
   ssr: false,
   loader: () => listProjects(),
   component: ProjectsPage,
-  errorComponent: ProjectsError,
 })
 
 function ProjectsPage() {
@@ -27,23 +26,6 @@ function ProjectsPage() {
         </section>
         {projects.length === 0 && <p className="mt-12 rounded-2xl border border-dashed border-white/15 p-8 text-center text-slate-400">No projects are available.</p>}
       </div>
-    </main>
-  )
-}
-
-interface ProjectsErrorProps {
-  error: Error
-}
-
-function ProjectsError({ error }: ProjectsErrorProps) {
-  const authenticationMissing = error instanceof ApiError && error.status === 401
-  return (
-    <main className="grid min-h-screen place-items-center bg-[#07110f] p-6 text-slate-100">
-      <section className="max-w-lg rounded-3xl border border-white/10 bg-white/[0.03] p-8">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">Unable to load projects</p>
-        <h1 className="mt-3 text-3xl font-semibold">{authenticationMissing ? 'Authentication is not wired on this server.' : 'The API request failed.'}</h1>
-        <p className="mt-4 leading-7 text-slate-400">{authenticationMissing ? 'This checkout has no email/password JWT endpoint, so the frontend cannot provide a real login flow without inventing a server route.' : error.message}</p>
-      </section>
     </main>
   )
 }

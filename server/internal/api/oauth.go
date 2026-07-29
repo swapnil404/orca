@@ -33,9 +33,10 @@ type OAuthConfig struct {
 
 // OAuthHandler serves GitHub and Google OAuth redirects and callbacks.
 type OAuthHandler struct {
-	store  oauthStore
-	tokens *auth.JWTManager
-	random io.Reader
+	store        oauthStore
+	tokens       *auth.JWTManager
+	random       io.Reader
+	secureCookie bool
 }
 
 // NewOAuthHandler configures Goth and creates an OAuth authentication handler.
@@ -54,7 +55,10 @@ func NewOAuthHandler(users oauthStore, tokens *auth.JWTManager, config OAuthConf
 		Path: "/", HttpOnly: true, Secure: strings.HasPrefix(config.CallbackBaseURL, "https://"), SameSite: http.SameSiteLaxMode,
 	}
 	gothic.Store = cookies
-	return &OAuthHandler{store: users, tokens: tokens, random: rand.Reader}
+	return &OAuthHandler{
+		store: users, tokens: tokens, random: rand.Reader,
+		secureCookie: strings.HasPrefix(config.CallbackBaseURL, "https://"),
+	}
 }
 
 // RegisterRoutes registers public OAuth initiation and callback routes.
@@ -65,7 +69,7 @@ func (h *OAuthHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *OAuthHandler) begin(w http.ResponseWriter, r *http.Request) {
 	if !supportedOAuthProvider(r.PathValue("provider")) {
-		writeError(w, http.StatusNotFound, "OAuth provider is not configured")
+		http.Redirect(w, r, "/login?oauth_error=provider_unavailable", http.StatusSeeOther)
 		return
 	}
 	gothic.BeginAuthHandler(w, r)
@@ -79,16 +83,16 @@ func (h *OAuthHandler) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	providerUser, err := gothic.CompleteUserAuth(w, r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "OAuth authentication failed")
+		h.redirectFailure(w, r)
 		return
 	}
 	if strings.TrimSpace(providerUser.UserID) == "" {
-		writeError(w, http.StatusUnauthorized, "OAuth provider did not return a user ID")
+		h.redirectFailure(w, r)
 		return
 	}
 	newUserID, err := randomID(h.random)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate user ID")
+		h.redirectFailure(w, r)
 		return
 	}
 
@@ -96,26 +100,37 @@ func (h *OAuthHandler) callback(w http.ResponseWriter, r *http.Request) {
 	// deferred; it needs a separate authenticated, CSRF-protected linking flow.
 	userID, err := h.store.UserIDForOAuthIdentity(r.Context(), provider, providerUser.UserID, providerUser.Email, newUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to store OAuth identity")
+		h.redirectFailure(w, r)
 		return
 	}
 	active, err := h.store.UserIsActive(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify OAuth account")
+		h.redirectFailure(w, r)
 		return
 	}
 	if !active {
-		writeError(w, http.StatusUnauthorized, "OAuth account is unavailable")
+		h.redirectFailure(w, r)
 		return
 	}
 	token, err := h.tokens.IssueToken(userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to issue token")
+		h.redirectFailure(w, r)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Token string `json:"token"`
-	}{Token: token})
+	setSessionCookie(w, token, h.secureCookie)
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (h *OAuthHandler) redirectFailure(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/login?oauth_error=authentication_failed", http.StatusSeeOther)
+}
+
+func setSessionCookie(w http.ResponseWriter, token string, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name: auth.SessionCookieName, Value: token, Path: "/", MaxAge: 24 * 60 * 60,
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func supportedOAuthProvider(provider string) bool {

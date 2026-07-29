@@ -79,7 +79,7 @@ func (h *ProjectEventHandler) RegisterRoutes(mux *http.ServeMux) {
 
 // ServeHTTP authenticates, scopes, and upgrades a frontend project subscription.
 func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	userID, selectedProtocol, err := h.authenticateSubprotocol(r)
+	userID, selectedProtocol, err := h.authenticate(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -90,7 +90,10 @@ func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	responseHeaders := http.Header{"Sec-WebSocket-Protocol": []string{selectedProtocol}}
+	responseHeaders := http.Header{}
+	if selectedProtocol != "" {
+		responseHeaders.Set("Sec-WebSocket-Protocol", selectedProtocol)
+	}
 	connection, err := h.upgrader.Upgrade(w, r, responseHeaders)
 	if err != nil {
 		return
@@ -113,10 +116,14 @@ func (h *ProjectEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (h *ProjectEventHandler) authenticateSubprotocol(r *http.Request) (string, string, error) {
+func (h *ProjectEventHandler) authenticate(r *http.Request) (string, string, error) {
 	protocols := websocket.Subprotocols(r)
+	if len(protocols) == 0 {
+		userID, err := h.tokens.AuthenticateRequest(r)
+		return userID, "", err
+	}
 	if len(protocols) != 2 || protocols[0] != projectEventsProtocol || !strings.HasPrefix(protocols[1], jwtProtocolPrefix) {
-		return "", "", errors.New("JWT WebSocket subprotocol is required")
+		return "", "", errors.New("invalid JWT WebSocket subprotocol")
 	}
 	userID, err := h.tokens.Authenticate(r.Context(), strings.TrimPrefix(protocols[1], jwtProtocolPrefix))
 	if err != nil {
