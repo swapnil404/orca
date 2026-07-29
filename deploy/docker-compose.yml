@@ -1,0 +1,62 @@
+name: orca
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orca
+      POSTGRES_USER: orca
+      POSTGRES_PASSWORD: local-development
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - metadata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orca -d orca"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  migrate:
+    image: postgres:16
+    working_dir: /workspace
+    entrypoint: ["/bin/bash", "/workspace/scripts/migrate.sh"]
+    environment:
+      DATABASE_URL: postgres://orca:local-development@postgres:5432/orca?sslmode=disable
+    volumes:
+      - ../:/workspace:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
+
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      DATABASE_URL: postgres://orca:local-development@postgres:5432/orca?sslmode=disable
+      ORCA_PORT: 8080
+      ORCA_LOG_LEVEL: ${ORCA_LOG_LEVEL:-debug}
+      ORCA_JWT_SECRET: ${ORCA_JWT_SECRET:?ORCA_JWT_SECRET must be set in .env}
+      ORCA_SERVER_URL: ${ORCA_SERVER_URL:-ws://localhost:3000/agent}
+      ORCA_GITHUB_CLIENT_ID: ${ORCA_GITHUB_CLIENT_ID:-}
+      ORCA_GITHUB_CLIENT_SECRET: ${ORCA_GITHUB_CLIENT_SECRET:-}
+      ORCA_GOOGLE_CLIENT_ID: ${ORCA_GOOGLE_CLIENT_ID:-}
+      ORCA_GOOGLE_CLIENT_SECRET: ${ORCA_GOOGLE_CLIENT_SECRET:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - server
+
+volumes:
+  metadata:

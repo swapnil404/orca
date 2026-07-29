@@ -1,0 +1,25 @@
+{
+	admin off
+}
+
+:3000 {
+	@projectEvents {
+		path_regexp projectEvents ^/projects/[^/]+/events$
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @projectEvents 127.0.0.1:8080
+
+	@serverRoutes {
+		path /auth/* /account /hosts /clusters/* /metrics* /agent
+	}
+	reverse_proxy @serverRoutes 127.0.0.1:8080
+
+	@projectAPI {
+		path /projects /projects/*
+		header Accept application/json*
+	}
+	reverse_proxy @projectAPI 127.0.0.1:8080
+
+	reverse_proxy 127.0.0.1:5173
+}
