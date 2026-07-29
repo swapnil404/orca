@@ -4,8 +4,8 @@ import type { InfrastructureNode } from './types'
 
 export function PrimaryNode({ data }: NodeProps<InfrastructureNode>) {
   return (
-    <NodeCard {...data} accent="text-emerald-300">
-      <div className="mt-3 flex items-center justify-between border-t border-white/8 pt-3 text-[11px] text-slate-500">
+    <NodeCard {...data} accent="text-[var(--accent)]">
+      <div className="mt-3 flex items-center justify-between border-t border-[var(--border-soft)] pt-3 font-mono text-[10px] text-[var(--text-3)]">
         <span>Postgres {data.cluster.postgres_version}</span>
         <span>{data.state?.last_seen ? new Date(data.state.last_seen).toLocaleTimeString() : 'Never reported'}</span>
       </div>

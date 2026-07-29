@@ -14,18 +14,18 @@ interface NodeCardProps {
 
 export function NodeCard({ label, eyebrow, detail, status, accent, children }: NodeCardProps) {
   return (
-    <article className="w-64 rounded-2xl border border-white/10 bg-[#10201c]/95 p-4 shadow-2xl shadow-black/30 backdrop-blur">
-      <Handle type="target" position={Position.Left} className="!border-0 !bg-emerald-300" />
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <article className="group w-64 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.26)] transition duration-[var(--dur-base)] ease-[var(--ease-premium)] hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_22px_60px_rgba(0,0,0,0.34)]">
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-2 !border-[#0c0c0d] !bg-[var(--accent)]" />
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className={`mb-1 text-[10px] font-bold uppercase tracking-[0.2em] ${accent}`}>{eyebrow}</p>
-          <h2 className="max-w-36 truncate text-base font-semibold text-white">{label}</h2>
+          <p className={`mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] ${accent}`}>{eyebrow}</p>
+          <h2 className="max-w-36 truncate text-[15px] font-semibold tracking-[-0.02em] text-[var(--text)]">{label}</h2>
         </div>
         <StatusBadge status={status} />
       </div>
-      <p className="text-xs leading-5 text-slate-400">{detail}</p>
+      <p className="text-xs leading-5 text-[var(--text-2)]">{detail}</p>
       {children}
-      <Handle type="source" position={Position.Right} className="!border-0 !bg-emerald-300" />
+      <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-2 !border-[#0c0c0d] !bg-[var(--accent)]" />
     </article>
   )
 }
