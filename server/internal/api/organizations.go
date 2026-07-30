@@ -13,6 +13,8 @@ import (
 
 type organizationStore interface {
 	CreateOrganization(context.Context, string, string) (store.Organization, error)
+	UpdateOrganization(context.Context, string, string, string) (store.Organization, error)
+	DeleteOrganization(context.Context, string, string) error
 	GetOrganizationByID(context.Context, string) (store.Organization, error)
 	ListOrganizationsForUser(context.Context, string) ([]store.Organization, error)
 	ListMembersForOrganization(context.Context, string) ([]store.OrganizationMembership, error)
@@ -35,8 +37,46 @@ func (h *OrganizationHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /orgs", h.listOrganizations)
 	mux.HandleFunc("POST /orgs", h.createOrganization)
 	mux.HandleFunc("GET /orgs/{organizationID}", h.getOrganization)
+	mux.HandleFunc("PUT /orgs/{organizationID}", h.updateOrganization)
+	mux.HandleFunc("DELETE /orgs/{organizationID}", h.deleteOrganization)
 	mux.HandleFunc("GET /orgs/{organizationID}/members", h.listMembers)
 	mux.HandleFunc("GET /orgs/{organizationID}/projects", h.listProjects)
+}
+
+func (h *OrganizationHandler) updateOrganization(w http.ResponseWriter, r *http.Request) {
+	userID, organizationID, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	request.Name = strings.TrimSpace(request.Name)
+	if request.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	organization, err := h.store.UpdateOrganization(r.Context(), userID, organizationID, request.Name)
+	if err != nil {
+		h.writeMutationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, organization)
+}
+
+func (h *OrganizationHandler) deleteOrganization(w http.ResponseWriter, r *http.Request) {
+	userID, organizationID, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	if err := h.store.DeleteOrganization(r.Context(), userID, organizationID); err != nil {
+		h.writeMutationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *OrganizationHandler) listOrganizations(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +174,43 @@ func (h *OrganizationHandler) requireMembership(w http.ResponseWriter, r *http.R
 		return "", false
 	}
 	return organizationID, true
+}
+
+func (h *OrganizationHandler) requireOwner(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return "", "", false
+	}
+	organizationID := r.PathValue("organizationID")
+	if !validUUID(organizationID) {
+		writeError(w, http.StatusBadRequest, "invalid organization ID")
+		return "", "", false
+	}
+	membership, err := h.store.GetMembershipForUserAndOrg(r.Context(), userID, organizationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusForbidden, "organization membership required")
+		return "", "", false
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return "", "", false
+	}
+	if membership.Role != store.OrganizationRoleOwner {
+		writeError(w, http.StatusForbidden, "organization owner role required")
+		return "", "", false
+	}
+	return userID, organizationID, true
+}
+
+func (h *OrganizationHandler) writeMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrOrganizationOwnerRequired):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, store.ErrOrganizationHasProjects):
+		writeError(w, http.StatusConflict, err.Error())
+	default:
+		writeStoreError(w, err)
+	}
 }
 
 func validUUID(value string) bool {

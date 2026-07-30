@@ -66,6 +66,19 @@ func (q *Queries) CreateOrganization(ctx context.Context, name string) (Organiza
 	return i, err
 }
 
+const deleteOrganization = `-- name: DeleteOrganization :execrows
+DELETE FROM organizations
+WHERE id = $1
+`
+
+func (q *Queries) DeleteOrganization(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOrganization, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getMembershipForUserAndOrg = `-- name: GetMembershipForUserAndOrg :one
 SELECT id, organization_id, user_id, role, created_at
 FROM organization_memberships
@@ -123,6 +136,33 @@ func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organ
 		&i.Slug,
 		&i.CreatedAt,
 	)
+	return i, err
+}
+
+const getOrganizationDeletionState = `-- name: GetOrganizationDeletionState :one
+SELECT om.role,
+       EXISTS (SELECT 1 FROM projects p WHERE p.organization_id = o.id) AS has_projects
+FROM organizations o
+JOIN organization_memberships om ON om.organization_id = o.id
+WHERE o.id = $1
+  AND om.user_id = $2
+FOR UPDATE OF o
+`
+
+type GetOrganizationDeletionStateParams struct {
+	OrganizationID string `json:"organization_id"`
+	UserID         string `json:"user_id"`
+}
+
+type GetOrganizationDeletionStateRow struct {
+	Role        OrganizationRole `json:"role"`
+	HasProjects bool             `json:"has_projects"`
+}
+
+func (q *Queries) GetOrganizationDeletionState(ctx context.Context, arg GetOrganizationDeletionStateParams) (GetOrganizationDeletionStateRow, error) {
+	row := q.db.QueryRowContext(ctx, getOrganizationDeletionState, arg.OrganizationID, arg.UserID)
+	var i GetOrganizationDeletionStateRow
+	err := row.Scan(&i.Role, &i.HasProjects)
 	return i, err
 }
 
@@ -254,4 +294,36 @@ func (q *Queries) ListProjectsForOrganization(ctx context.Context, organizationI
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateOrganization = `-- name: UpdateOrganization :one
+UPDATE organizations o
+SET name = $1::text
+WHERE o.id = $2
+  AND EXISTS (
+      SELECT 1
+      FROM organization_memberships om
+      WHERE om.organization_id = o.id
+        AND om.user_id = $3
+        AND om.role = 'owner'
+  )
+RETURNING id, name, slug, created_at
+`
+
+type UpdateOrganizationParams struct {
+	Name           string `json:"name"`
+	OrganizationID string `json:"organization_id"`
+	UserID         string `json:"user_id"`
+}
+
+func (q *Queries) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error) {
+	row := q.db.QueryRowContext(ctx, updateOrganization, arg.Name, arg.OrganizationID, arg.UserID)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.CreatedAt,
+	)
+	return i, err
 }

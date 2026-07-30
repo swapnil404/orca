@@ -30,6 +30,32 @@ SELECT id, name, slug, created_at
 FROM organizations
 WHERE slug = $1;
 
+-- name: UpdateOrganization :one
+UPDATE organizations o
+SET name = sqlc.arg(name)::text
+WHERE o.id = sqlc.arg(organization_id)
+  AND EXISTS (
+      SELECT 1
+      FROM organization_memberships om
+      WHERE om.organization_id = o.id
+        AND om.user_id = sqlc.arg(user_id)
+        AND om.role = 'owner'
+  )
+RETURNING id, name, slug, created_at;
+
+-- name: GetOrganizationDeletionState :one
+SELECT om.role,
+       EXISTS (SELECT 1 FROM projects p WHERE p.organization_id = o.id) AS has_projects
+FROM organizations o
+JOIN organization_memberships om ON om.organization_id = o.id
+WHERE o.id = sqlc.arg(organization_id)
+  AND om.user_id = sqlc.arg(user_id)
+FOR UPDATE OF o;
+
+-- name: DeleteOrganization :execrows
+DELETE FROM organizations
+WHERE id = $1;
+
 -- name: ListOrganizationsForUser :many
 SELECT o.id, o.name, o.slug, o.created_at
 FROM organizations o

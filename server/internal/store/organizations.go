@@ -2,10 +2,19 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
+)
+
+var (
+	// ErrOrganizationOwnerRequired indicates that an organization mutation requires its owner.
+	ErrOrganizationOwnerRequired = errors.New("organization owner role required")
+	// ErrOrganizationHasProjects indicates that project history prevents organization deletion.
+	ErrOrganizationHasProjects = errors.New("organization has projects")
 )
 
 // OrganizationRole is a member's authorization role in an organization.
@@ -80,6 +89,54 @@ func (s *Postgres) GetOrganizationBySlug(ctx context.Context, slug string) (Orga
 		return Organization{}, err
 	}
 	return organizationFromSQLC(organization), nil
+}
+
+// UpdateOrganization renames an organization when userID is an owner.
+func (s *Postgres) UpdateOrganization(ctx context.Context, userID, organizationID, name string) (Organization, error) {
+	organization, err := s.queries.UpdateOrganization(ctx, sqlcdb.UpdateOrganizationParams{
+		Name: name, OrganizationID: organizationID, UserID: userID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Organization{}, ErrOrganizationOwnerRequired
+	}
+	if err != nil {
+		return Organization{}, err
+	}
+	return organizationFromSQLC(organization), nil
+}
+
+// DeleteOrganization deletes an owner-controlled organization with no project history.
+func (s *Postgres) DeleteOrganization(ctx context.Context, userID, organizationID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+
+	state, err := queries.GetOrganizationDeletionState(ctx, sqlcdb.GetOrganizationDeletionStateParams{
+		OrganizationID: organizationID, UserID: userID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrOrganizationOwnerRequired
+	}
+	if err != nil {
+		return err
+	}
+	if state.Role != sqlcdb.OrganizationRoleOwner {
+		return ErrOrganizationOwnerRequired
+	}
+	if state.HasProjects {
+		return ErrOrganizationHasProjects
+	}
+	deleted, err := queries.DeleteOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if deleted != 1 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
 }
 
 // ListOrganizationsForUser returns organizations in which userID is a member.
