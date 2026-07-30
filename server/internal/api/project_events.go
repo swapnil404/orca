@@ -175,16 +175,26 @@ func (h *ProjectEventHandler) publish(ctx context.Context, projectID string) err
 	if len(clients) == 0 {
 		return nil
 	}
-	var userID string
+	var snapshot *ProjectStateSnapshot
+	var publishErr error
 	for client := range clients {
-		userID = client.userID
-		break
-	}
-	snapshot, err := h.snapshot(ctx, userID, projectID)
-	if err != nil {
-		return err
-	}
-	for client := range clients {
+		if _, err := h.store.GetProject(ctx, client.userID, projectID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				publishErr = errors.Join(publishErr, err)
+				continue
+			}
+			delete(clients, client)
+			_ = client.connection.Close()
+			continue
+		}
+		if snapshot == nil {
+			loaded, err := h.snapshot(ctx, client.userID, projectID)
+			if err != nil {
+				publishErr = errors.Join(publishErr, err)
+				continue
+			}
+			snapshot = &loaded
+		}
 		if err := client.connection.WriteJSON(snapshot); err != nil {
 			delete(clients, client)
 			_ = client.connection.Close()
@@ -193,7 +203,7 @@ func (h *ProjectEventHandler) publish(ctx context.Context, projectID string) err
 	if len(clients) == 0 {
 		delete(h.subscriptions, projectID)
 	}
-	return nil
+	return publishErr
 }
 
 func (h *ProjectEventHandler) unsubscribe(projectID string, client *projectClient) {

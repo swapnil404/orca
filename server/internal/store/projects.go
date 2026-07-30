@@ -33,7 +33,7 @@ type UpdateProjectParams struct {
 	Name   string
 }
 
-// CreateProject persists a project for a user.
+// CreateProject persists a project in an organization visible to the user.
 func (s *Postgres) CreateProject(ctx context.Context, params CreateProjectParams) (Project, error) {
 	project, err := s.queries.CreateProject(ctx, sqlcdb.CreateProjectParams{
 		ID: params.ID, UserID: params.UserID, OrganizationID: params.OrganizationID, Name: params.Name,
