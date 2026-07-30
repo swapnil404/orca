@@ -23,6 +23,7 @@ type Querier interface {
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
 	GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
+	GetHost(ctx context.Context, id string) (Host, error)
 	GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Host, error)
 	GetMembershipForUserAndOrg(ctx context.Context, arg GetMembershipForUserAndOrgParams) (OrganizationMembership, error)
 	GetOAuthIdentityUserID(ctx context.Context, arg GetOAuthIdentityUserIDParams) (string, error)
@@ -43,7 +44,6 @@ type Querier interface {
 	ListMembersForOrganization(ctx context.Context, organizationID string) ([]ListMembersForOrganizationRow, error)
 	ListMetricClusterReports(ctx context.Context, projectID string) ([]ListMetricClusterReportsRow, error)
 	ListOrganizationsForUser(ctx context.Context, userID string) ([]Organization, error)
-	ListProjectHosts(ctx context.Context, arg ListProjectHostsParams) ([]Host, error)
 	ListProjectIDsForHost(ctx context.Context, hostID string) ([]string, error)
 	ListProjects(ctx context.Context, userID string) ([]Project, error)
 	ListProjectsForOrganization(ctx context.Context, organizationID string) ([]Project, error)
@@ -53,6 +53,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id string) (string, error)
 	UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (UpdateAlertRuleStateRow, error)
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
+	UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterPgBouncerParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpsertAgentReport(ctx context.Context, arg UpsertAgentReportParams) error

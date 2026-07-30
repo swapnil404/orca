@@ -51,6 +51,12 @@ func (h *Hub) Get(hostID string) (*Session, bool) {
 	return session, ok
 }
 
+// IsConnected reports whether hostID has a current agent session.
+func (h *Hub) IsConnected(hostID string) bool {
+	_, connected := h.Get(hostID)
+	return connected
+}
+
 // UnregisterSession removes session only if it is still active for hostID.
 func (h *Hub) UnregisterSession(hostID string, session *Session) bool {
 	h.mu.Lock()

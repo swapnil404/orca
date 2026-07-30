@@ -99,6 +99,13 @@ type UpdateClusterParams struct {
 	PgBackRest        *PgBackRestConfig
 }
 
+// UpdatePgBouncerParams contains one cluster's pool settings.
+type UpdatePgBouncerParams struct {
+	ID             string
+	PoolMode       string
+	MaxConnections int32
+}
+
 // DesiredState is one version of a cluster's desired configuration.
 type DesiredState struct {
 	ID        int64           `json:"id"`
@@ -223,6 +230,34 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 		PgbackrestFullIntervalSeconds: pgBackRestFullInterval(params.PgBackRest),
 		PgbackrestDiffIntervalSeconds: pgBackRestDiffInterval(params.PgBackRest),
 		PgbackrestIncrIntervalSeconds: pgBackRestIncrInterval(params.PgBackRest),
+	})
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster, err := clusterFromSQLC(row)
+	if err != nil {
+		return Cluster{}, err
+	}
+	if err := createClusterUpsertState(ctx, queries, cluster); err != nil {
+		return Cluster{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Cluster{}, err
+	}
+	return cluster, nil
+}
+
+// UpdatePgBouncer updates only pool settings and appends the resulting desired state atomically.
+func (s *Postgres) UpdatePgBouncer(ctx context.Context, params UpdatePgBouncerParams) (Cluster, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Cluster{}, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateClusterPgBouncer(ctx, sqlcdb.UpdateClusterPgBouncerParams{
+		ClusterID: params.ID, PgbouncerPoolMode: params.PoolMode,
+		PgbouncerMaxConnections: params.MaxConnections,
 	})
 	if err != nil {
 		return Cluster{}, err
