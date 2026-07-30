@@ -16,6 +16,7 @@ export interface Cluster {
   replicas: Array<{ id: string }>
   enabled_extensions: string[]
   pgbouncer_enabled: boolean
+  pg_back_rest?: PgBackRestConfig
   created_at: string
   updated_at: string
 }
@@ -28,6 +29,16 @@ export interface ClusterInput {
   replica_count: number
   enabled_extensions: string[]
   pgbouncer_enabled: boolean
+  pg_back_rest?: PgBackRestConfig
+}
+
+export interface PgBackRestConfig {
+  repo_path: string
+  retention_full: number
+  retention_diff: number
+  full_interval_seconds: number
+  diff_interval_seconds: number
+  incr_interval_seconds: number
 }
 
 export interface ActualReplica {
