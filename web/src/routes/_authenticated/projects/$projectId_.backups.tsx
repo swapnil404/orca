@@ -1,8 +1,9 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Archive, ArrowLeft, CalendarClock, ChevronRight, DatabaseBackup, ShieldAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { ApiError, getProjectTopology, updateCluster } from '../../../api'
-import type { Cluster, PgBackRestConfig } from '../../../types/resources'
+import { ApiError, getProjectTopology, listBackupJobs, updateCluster } from '../../../api'
+import { BackupTable } from '../../../components/backups/BackupTable'
+import type { BackupJob, Cluster, PgBackRestConfig } from '../../../types/resources'
 
 interface ProjectBackupsSearch {
   restore?: string
@@ -13,7 +14,13 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/backu
   validateSearch: (search: Record<string, unknown>): ProjectBackupsSearch => ({
     restore: typeof search.restore === 'string' ? search.restore : undefined,
   }),
-  loader: ({ params }) => getProjectTopology(params.projectId),
+  loader: async ({ params }) => {
+    const [topology, backupJobs] = await Promise.all([
+      getProjectTopology(params.projectId),
+      listBackupJobs(params.projectId),
+    ])
+    return { ...topology, backupJobs }
+  },
   component: ProjectBackupsPage,
 })
 
@@ -46,7 +53,7 @@ function ProjectBackupsPage() {
 
         {backupClusters.length === 0 ? <EmptyConfiguration /> : (
           <div className="space-y-6">
-            <BackupInventory cluster={selectedCluster} />
+            <BackupInventory cluster={selectedCluster} jobs={initialTopology.backupJobs} />
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
               <ScheduleEditor cluster={selectedCluster} onUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
               <RestoreWizard key={selectedClusterID} clusters={backupClusters} initialClusterID={selectedClusterID} />
@@ -62,16 +69,12 @@ function EmptyConfiguration() {
   return <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] px-6 py-16 text-center"><Archive className="mx-auto mb-4 h-7 w-7 text-[var(--text-3)]" /><h2 className="font-medium">No pgBackRest repositories configured</h2><p className="mx-auto mt-2 max-w-lg text-sm text-[var(--text-2)]">Enable pgBackRest on a cluster before backup schedules or recovery information can be managed here.</p></section>
 }
 
-function BackupInventory({ cluster }: { cluster: Cluster | undefined }) {
+function BackupInventory({ cluster, jobs }: { cluster: Cluster | undefined; jobs: BackupJob[] }) {
+  const selectedJobs = cluster ? jobs.filter((job) => job.cluster_id === cluster.id) : []
   return (
     <section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)]">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6"><div><div className="flex items-center gap-2"><DatabaseBackup className="h-4 w-4 text-[var(--accent)]" /><h2 className="font-medium">Backup history</h2></div><p className="mt-1.5 text-xs text-[var(--text-3)]">{cluster ? `${cluster.name} · ${cluster.pg_back_rest?.repo_path}` : 'Select a cluster'}</p></div><span className="rounded-full border border-[var(--border)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[var(--text-3)]">Contract unavailable</span></div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] border-collapse text-left text-sm">
-          <thead className="bg-[var(--panel)] font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-3)]"><tr>{['Backup timestamp', 'Type', 'Size', 'Status', 'Retention'].map((heading) => <th key={heading} className="border-b border-[var(--border)] px-6 py-3 font-medium">{heading}</th>)}</tr></thead>
-          <tbody><tr><td colSpan={5} className="px-6 py-12 text-center"><p className="text-sm font-medium text-[var(--text)]">Backup history is not yet wired</p><p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-[var(--text-3)]">The current server and agent contracts report only the latest successful backup timestamp. They do not expose pgBackRest history, backup type, size, status, or per-backup retention, so no synthetic rows are shown.</p></td></tr></tbody>
-        </table>
-      </div>
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6"><div><div className="flex items-center gap-2"><DatabaseBackup className="h-4 w-4 text-[var(--accent)]" /><h2 className="font-medium">Latest backup state</h2></div><p className="mt-1.5 text-xs text-[var(--text-3)]">{cluster ? `${cluster.name} · ${cluster.pg_back_rest?.repo_path}` : 'Select a cluster'}</p></div><span className="rounded-full border border-[var(--border)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[var(--text-3)]">Latest report</span></div>
+      <div className="p-4 sm:p-5"><BackupTable jobs={selectedJobs} showProject={false} /></div>
     </section>
   )
 }

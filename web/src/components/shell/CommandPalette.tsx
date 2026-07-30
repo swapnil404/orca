@@ -9,9 +9,15 @@ function isMacPlatform(): boolean {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) || /Macintosh|Mac OS X|iPhone|iPad|iPod/i.test(navigator.userAgent)
 }
 
-function isFormFieldFocused(): boolean {
-  const tagName = document.activeElement?.tagName
-  return tagName === 'INPUT' || tagName === 'TEXTAREA'
+function isFormFieldFocused(paletteInput: HTMLInputElement | null): boolean {
+  const activeElement = document.activeElement
+  if (!(activeElement instanceof Element) || activeElement === paletteInput) return false
+
+  const tagName = activeElement.tagName
+  return tagName === 'INPUT'
+    || tagName === 'TEXTAREA'
+    || tagName === 'SELECT'
+    || activeElement.closest('[contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="searchbox"]') !== null
 }
 
 export function CommandPalette() {
@@ -34,7 +40,7 @@ export function CommandPalette() {
     if (!mounted) return
 
     const handleShortcut = (event: KeyboardEvent) => {
-      if (event.key.toLocaleLowerCase() !== 'k' || isFormFieldFocused()) return
+      if (event.key.toLocaleLowerCase() !== 'k' || isFormFieldFocused(inputRef.current)) return
       const shortcutPressed = isMacPlatform() ? event.metaKey : event.ctrlKey
       if (!shortcutPressed) return
       event.preventDefault()
