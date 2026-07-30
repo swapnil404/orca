@@ -1,7 +1,7 @@
 import type { Project } from '../types/resources'
 
 export interface CommandDestination {
-  to: '/' | '/alerts' | '/backups' | '/settings' | '/projects/$projectId'
+  to: '/' | '/alerts' | '/backups' | '/organizations' | '/settings' | '/projects/$projectId'
   projectId?: string
 }
 
@@ -18,7 +18,7 @@ export const staticCommands: Command[] = [
   { id: 'alerts', label: 'Alerts', description: 'Review active alerts', keywords: ['incidents', 'warnings'], destination: { to: '/alerts' } },
   { id: 'backups', label: 'Backups', description: 'Review backup activity', keywords: ['restore', 'recovery'], destination: { to: '/backups' } },
   { id: 'settings', label: 'Settings', description: 'Configure the control plane', keywords: ['preferences', 'configuration'], destination: { to: '/settings' } },
-  { id: 'organization', label: 'Organization', description: 'Manage workspace access', keywords: ['org', 'members', 'workspace'], destination: { to: '/settings' } },
+  { id: 'organization', label: 'Organization', description: 'Manage workspace access', keywords: ['org', 'members', 'workspace'], destination: { to: '/organizations' } },
 ]
 
 export function projectCommands(projects: Project[]): Command[] {

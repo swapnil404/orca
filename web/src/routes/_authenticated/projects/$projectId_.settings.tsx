@@ -23,13 +23,21 @@ function ProjectSettingsPage() {
   const { projectId } = Route.useParams()
   const [clusters, setClusters] = useState(initial.clusters)
   const [hosts, setHosts] = useState(initial.hosts)
+  const [hostStatusUnknown, setHostStatusUnknown] = useState(false)
   const snapshot = useTopologyStore((state) => state.snapshot)
   useProjectEvents(projectId)
 
   useEffect(() => {
-    const refresh = () => void listProjectHosts(projectId).then(setHosts).catch(() => undefined)
+    let active = true
+    const refresh = () => void listProjectHosts(projectId).then((nextHosts) => {
+      if (!active) return
+      setHosts(nextHosts)
+      setHostStatusUnknown(false)
+    }).catch(() => {
+      if (active) setHostStatusUnknown(true)
+    })
     const timer = window.setInterval(refresh, 10_000)
-    return () => window.clearInterval(timer)
+    return () => { active = false; window.clearInterval(timer) }
   }, [projectId])
 
   const pools = clusters.filter((cluster) => cluster.pgbouncer_enabled)
@@ -52,8 +60,9 @@ function ProjectSettingsPage() {
             <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-4"><p className="text-sm font-medium">Secrets API unavailable</p><p className="mt-1.5 text-xs leading-5 text-[var(--text-3)]">The server has no project-secret list, rotate, or delete contract. No placeholder names or secret values are shown.</p></div>
           </SettingsSection>
 
-          <SettingsSection icon={ServerCog} title="Agents" description="Connection state comes from the control plane's persisted agent sessions and refreshes every ten seconds.">
-            {hosts.length === 0 ? <EmptyText>No hosts are assigned to this project.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{hosts.map((host) => <AgentRow key={host.id} host={host} />)}</div>}
+          <SettingsSection icon={ServerCog} title="Agents" description="Connection state is derived from the control plane's in-memory WebSocket hub and refreshes every ten seconds.">
+            {hostStatusUnknown && <p role="status" className="mb-4 rounded-[var(--radius-md)] border border-[var(--warning)]/25 bg-[var(--warning)]/5 px-3 py-2 text-xs text-[var(--warning)]">Host status refresh failed. Current connection state is unknown.</p>}
+            {hosts.length === 0 ? <EmptyText>No hosts are assigned to this project.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{hosts.map((host) => <AgentRow key={host.id} host={host} statusUnknown={hostStatusUnknown} />)}</div>}
           </SettingsSection>
 
           <DangerZone projectID={projectId} projectName={initial.project.name} />
@@ -127,10 +136,10 @@ function PoolEditor({ cluster, actual, stale, onUpdated }: PoolEditorProps) {
   return <form onSubmit={handleSubmit} className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${isApplied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}><span className={`h-1.5 w-1.5 rounded-full ${isApplied ? 'bg-[var(--healthy)]' : 'bg-[var(--warning)]'}`} />{isApplied ? 'Applied' : 'Awaiting agent'}</span></div><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select name="pool_mode" defaultValue={cluster.pg_bouncer.pool_mode} className={fieldClass}><option value="session">Session</option><option value="transaction">Transaction</option><option value="statement">Statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Maximum client connections<input name="max_connections" type="number" min="1" step="1" required defaultValue={cluster.pg_bouncer.max_connections} className={fieldClass} /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-xs text-[var(--text-3)]">{message || (actual?.config ? `Reported: ${applied.pool_mode ?? 'unknown'} / ${applied.max_connections ?? 'unknown'} connections` : 'No applied PgBouncer config has been reported.')}</p><button disabled={saving} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save pool config'}</button></div></form>
 }
 
-function AgentRow({ host }: { host: ProjectHost }) {
+function AgentRow({ host, statusUnknown }: { host: ProjectHost; statusUnknown: boolean }) {
   const labels = { online: 'Connected', offline: 'Disconnected', never_connected: 'Never connected' } as const
-  const online = host.status === 'online'
-  return <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div><p className="font-mono text-xs text-[var(--text)]">{host.id}</p><p className="mt-1 text-[11px] text-[var(--text-3)]">Host identifier</p></div><div className="flex items-center gap-2 text-xs text-[var(--text-2)]"><span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />{labels[host.status]}</div><div className="text-xs text-[var(--text-3)]"><span className="mr-2">Agent version</span><span className="font-mono text-[var(--text-2)]">Not reported</span></div></div>
+  const online = !statusUnknown && host.status === 'online'
+  return <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div><p className="font-mono text-xs text-[var(--text)]">{host.id}</p><p className="mt-1 text-[11px] text-[var(--text-3)]">Host identifier</p></div><div className="flex items-center gap-2 text-xs text-[var(--text-2)]"><span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-[var(--healthy)]' : statusUnknown ? 'bg-[var(--warning)]' : 'bg-[var(--text-3)]'}`} />{statusUnknown ? 'Status unknown' : labels[host.status]}</div><div className="text-xs text-[var(--text-3)]"><span className="mr-2">Agent version</span><span className="font-mono text-[var(--text-2)]">Not reported</span></div></div>
 }
 
 function DangerZone({ projectID, projectName }: { projectID: string; projectName: string }) {

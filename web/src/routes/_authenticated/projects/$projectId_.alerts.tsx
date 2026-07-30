@@ -1,8 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { BellRing, CircleCheck, Siren } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getProjectAlerts, getProjectTopology } from '../../../api'
-import type { AlertComparison, AlertIncident, AlertSeverity } from '../../../types/alerts'
+import type { AlertComparison, AlertIncident, AlertSeverity, ProjectAlerts } from '../../../types/alerts'
 
 type HistoryStatus = 'all' | 'firing' | 'resolved'
 type SeverityFilter = 'all' | AlertSeverity
@@ -43,9 +43,28 @@ function severityClass(severity: AlertSeverity): string {
 }
 
 function ProjectAlertsPage() {
-  const { project, clusters, rules, incidents } = Route.useLoaderData()
+  const initial = Route.useLoaderData()
+  const { projectId } = Route.useParams()
+  const { project, clusters } = initial
+  const [alerts, setAlerts] = useState<ProjectAlerts>({ rules: initial.rules, incidents: initial.incidents })
+  const [refreshFailed, setRefreshFailed] = useState(false)
   const [status, setStatus] = useState<HistoryStatus>('all')
   const [severity, setSeverity] = useState<SeverityFilter>('all')
+  const { rules, incidents } = alerts
+
+  useEffect(() => {
+    let active = true
+    const refresh = () => void getProjectAlerts(projectId).then((nextAlerts) => {
+      if (!active) return
+      setAlerts(nextAlerts)
+      setRefreshFailed(false)
+    }).catch(() => {
+      if (active) setRefreshFailed(true)
+    })
+    const timer = window.setInterval(refresh, 10_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [projectId])
+
   const clusterNames = new Map(clusters.map((cluster) => [cluster.id, cluster.name]))
   const filteredIncidents = incidents.filter((incident) => {
     const incidentStatus = incident.resolved_at === null ? 'firing' : 'resolved'
@@ -64,7 +83,8 @@ function ProjectAlertsPage() {
               <Link to="/projects/$projectId" params={{ projectId: project.id }} search={{ tab: 'topology', restore: undefined }} className="hover:text-[var(--text)]">{project.name}</Link>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight">Alerts</h1>
-            <p className="mt-1 text-sm text-[var(--text-2)]">Configured thresholds and their recorded firing history.</p>
+            <p className="mt-1 text-sm text-[var(--text-2)]">Configured thresholds and their recorded firing history. Alert state refreshes every ten seconds.</p>
+            {refreshFailed && <p role="status" className="mt-2 text-xs text-[var(--warning)]">Alert refresh failed. Displayed state may be stale.</p>}
           </div>
           <div className="flex gap-2">
             <Summary label="Active rules" value={rules.length} />
@@ -75,7 +95,7 @@ function ProjectAlertsPage() {
         <section className="mt-8">
           <div className="flex items-center gap-3">
             <BellRing className="h-4 w-4 text-[var(--accent)]" />
-            <div><h2 className="text-base font-semibold">Active alert rules</h2><p className="text-xs text-[var(--text-3)]">Rules are managed through the control-plane configuration.</p></div>
+            <div><h2 className="text-base font-semibold">Active alert rules</h2><p className="text-xs text-[var(--text-3)]">Read-only alert state; the current API does not support rule changes.</p></div>
           </div>
           {rules.length > 0 ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
