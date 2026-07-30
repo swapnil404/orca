@@ -18,6 +18,7 @@ import { Route as AuthenticatedBackupsRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects/$projectId'
 import { Route as AuthenticatedProjectsProjectIdBackupsRouteImport } from './routes/_authenticated/projects/$projectId_.backups'
+import { Route as AuthenticatedProjectsProjectIdExtensionsRouteImport } from './routes/_authenticated/projects/$projectId_.extensions'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -65,6 +66,12 @@ const AuthenticatedProjectsProjectIdBackupsRoute =
     path: '/projects/$projectId/backups',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedProjectsProjectIdExtensionsRoute =
+  AuthenticatedProjectsProjectIdExtensionsRouteImport.update({
+    id: '/projects/$projectId_/extensions',
+    path: '/projects/$projectId/extensions',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -75,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
   '/projects/$projectId/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
+  '/projects/$projectId/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -85,6 +93,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
   '/projects/$projectId/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
+  '/projects/$projectId/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -97,6 +106,7 @@ export interface FileRoutesById {
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
   '/_authenticated/projects/$projectId_/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
+  '/_authenticated/projects/$projectId_/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/projects/$projectId'
     | '/projects/$projectId/backups'
+    | '/projects/$projectId/extensions'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/'
     | '/projects/$projectId'
     | '/projects/$projectId/backups'
+    | '/projects/$projectId/extensions'
   id:
     | '__root__'
     | '/_authenticated'
@@ -130,6 +142,7 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/projects/$projectId'
     | '/_authenticated/projects/$projectId_/backups'
+    | '/_authenticated/projects/$projectId_/extensions'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -203,6 +216,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdBackupsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/projects/$projectId_/extensions': {
+      id: '/_authenticated/projects/$projectId_/extensions'
+      path: '/projects/$projectId/extensions'
+      fullPath: '/projects/$projectId/extensions'
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdExtensionsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -213,6 +233,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
   AuthenticatedProjectsProjectIdBackupsRoute: typeof AuthenticatedProjectsProjectIdBackupsRoute
+  AuthenticatedProjectsProjectIdExtensionsRoute: typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -223,6 +244,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,
   AuthenticatedProjectsProjectIdBackupsRoute:
     AuthenticatedProjectsProjectIdBackupsRoute,
+  AuthenticatedProjectsProjectIdExtensionsRoute:
+    AuthenticatedProjectsProjectIdExtensionsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
