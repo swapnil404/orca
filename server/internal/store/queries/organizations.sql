@@ -21,9 +21,12 @@ VALUES (sqlc.arg(organization_id), sqlc.arg(user_id), sqlc.arg(role))
 RETURNING id, organization_id, user_id, role, created_at;
 
 -- name: GetOrganizationByID :one
-SELECT id, name, slug, created_at
-FROM organizations
-WHERE id = $1;
+SELECT o.id, o.name, o.slug, o.created_at
+FROM organizations o
+JOIN organization_memberships requester
+  ON requester.organization_id = o.id
+ AND requester.user_id = sqlc.arg(user_id)
+WHERE o.id = sqlc.arg(organization_id);
 
 -- name: GetOrganizationBySlug :one
 SELECT id, name, slug, created_at
@@ -67,6 +70,9 @@ ORDER BY o.created_at, o.id;
 SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at,
        COALESCE(u.email, oi.provider_email) AS email
 FROM organization_memberships om
+JOIN organization_memberships requester
+  ON requester.organization_id = om.organization_id
+ AND requester.user_id = sqlc.arg(user_id)
 JOIN users u ON u.id = om.user_id
 LEFT JOIN LATERAL (
     SELECT provider_email
@@ -75,15 +81,28 @@ LEFT JOIN LATERAL (
     ORDER BY created_at, provider, provider_user_id
     LIMIT 1
 ) oi ON TRUE
-WHERE om.organization_id = $1
+WHERE om.organization_id = sqlc.arg(organization_id)
   AND u.deleted_at IS NULL
 ORDER BY om.created_at, om.id;
 
 -- name: ListProjectsForOrganization :many
-SELECT id, user_id, name, created_at, updated_at, deleted_at, organization_id
-FROM projects
-WHERE organization_id = $1 AND deleted_at IS NULL
-ORDER BY created_at, id;
+WITH authorized AS (
+    SELECT om.organization_id
+    FROM organization_memberships om
+    WHERE om.organization_id = sqlc.arg(organization_id)
+      AND om.user_id = sqlc.arg(user_id)
+)
+SELECT CASE WHEN p.id IS NULL THEN FALSE ELSE TRUE END AS has_project,
+       COALESCE(p.id, '') AS id,
+       COALESCE(p.name, '') AS name,
+       COALESCE(p.created_at, TIMESTAMPTZ 'epoch') AS created_at,
+       COALESCE(p.updated_at, TIMESTAMPTZ 'epoch') AS updated_at,
+       a.organization_id
+FROM authorized a
+LEFT JOIN projects p
+  ON p.organization_id = a.organization_id
+ AND p.deleted_at IS NULL
+ORDER BY p.created_at, p.id;
 
 -- name: GetMembershipForUserAndOrg :one
 SELECT id, organization_id, user_id, role, created_at

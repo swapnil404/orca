@@ -73,9 +73,11 @@ func (s *Postgres) CreateOrganization(ctx context.Context, userID, name string) 
 	return organizationFromSQLC(organization), nil
 }
 
-// GetOrganizationByID returns an organization by ID.
-func (s *Postgres) GetOrganizationByID(ctx context.Context, organizationID string) (Organization, error) {
-	organization, err := s.queries.GetOrganizationByID(ctx, organizationID)
+// GetOrganizationByID returns an organization when userID is a member.
+func (s *Postgres) GetOrganizationByID(ctx context.Context, userID, organizationID string) (Organization, error) {
+	organization, err := s.queries.GetOrganizationByID(ctx, sqlcdb.GetOrganizationByIDParams{
+		UserID: userID, OrganizationID: organizationID,
+	})
 	if err != nil {
 		return Organization{}, err
 	}
@@ -152,11 +154,16 @@ func (s *Postgres) ListOrganizationsForUser(ctx context.Context, userID string) 
 	return organizations, nil
 }
 
-// ListMembersForOrganization returns active members of an organization.
-func (s *Postgres) ListMembersForOrganization(ctx context.Context, organizationID string) ([]OrganizationMembership, error) {
-	rows, err := s.queries.ListMembersForOrganization(ctx, organizationID)
+// ListMembersForOrganization returns active members when userID is a member.
+func (s *Postgres) ListMembersForOrganization(ctx context.Context, userID, organizationID string) ([]OrganizationMembership, error) {
+	rows, err := s.queries.ListMembersForOrganization(ctx, sqlcdb.ListMembersForOrganizationParams{
+		UserID: userID, OrganizationID: organizationID,
+	})
 	if err != nil {
 		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, sql.ErrNoRows
 	}
 	members := make([]OrganizationMembership, 0, len(rows))
 	for _, row := range rows {
@@ -172,15 +179,26 @@ func (s *Postgres) ListMembersForOrganization(ctx context.Context, organizationI
 	return members, nil
 }
 
-// ListProjectsForOrganization returns active projects in an organization.
-func (s *Postgres) ListProjectsForOrganization(ctx context.Context, organizationID string) ([]Project, error) {
-	rows, err := s.queries.ListProjectsForOrganization(ctx, organizationID)
+// ListProjectsForOrganization returns active projects when userID is a member.
+func (s *Postgres) ListProjectsForOrganization(ctx context.Context, userID, organizationID string) ([]Project, error) {
+	rows, err := s.queries.ListProjectsForOrganization(ctx, sqlcdb.ListProjectsForOrganizationParams{
+		UserID: userID, OrganizationID: organizationID,
+	})
 	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 0 {
+		return nil, sql.ErrNoRows
+	}
 	projects := make([]Project, 0, len(rows))
 	for _, row := range rows {
-		projects = append(projects, projectFromSQLC(row))
+		if !row.HasProject {
+			continue
+		}
+		projects = append(projects, Project{
+			ID: row.ID, OrganizationID: row.OrganizationID, Name: row.Name,
+			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
 	}
 	return projects, nil
 }

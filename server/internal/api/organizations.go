@@ -15,10 +15,10 @@ type organizationStore interface {
 	CreateOrganization(context.Context, string, string) (store.Organization, error)
 	UpdateOrganization(context.Context, string, string, string) (store.Organization, error)
 	DeleteOrganization(context.Context, string, string) error
-	GetOrganizationByID(context.Context, string) (store.Organization, error)
+	GetOrganizationByID(context.Context, string, string) (store.Organization, error)
 	ListOrganizationsForUser(context.Context, string) ([]store.Organization, error)
-	ListMembersForOrganization(context.Context, string) ([]store.OrganizationMembership, error)
-	ListProjectsForOrganization(context.Context, string) ([]store.Project, error)
+	ListMembersForOrganization(context.Context, string, string) ([]store.OrganizationMembership, error)
+	ListProjectsForOrganization(context.Context, string, string) ([]store.Project, error)
 	GetMembershipForUserAndOrg(context.Context, string, string) (store.OrganizationMembership, error)
 }
 
@@ -117,63 +117,55 @@ func (h *OrganizationHandler) createOrganization(w http.ResponseWriter, r *http.
 }
 
 func (h *OrganizationHandler) getOrganization(w http.ResponseWriter, r *http.Request) {
-	organizationID, ok := h.requireMembership(w, r)
+	userID, organizationID, ok := organizationRequestIDs(w, r)
 	if !ok {
 		return
 	}
-	organization, err := h.store.GetOrganizationByID(r.Context(), organizationID)
+	organization, err := h.store.GetOrganizationByID(r.Context(), userID, organizationID)
 	if err != nil {
-		writeStoreError(w, err)
+		h.writeReadError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, organization)
 }
 
 func (h *OrganizationHandler) listMembers(w http.ResponseWriter, r *http.Request) {
-	organizationID, ok := h.requireMembership(w, r)
+	userID, organizationID, ok := organizationRequestIDs(w, r)
 	if !ok {
 		return
 	}
-	members, err := h.store.ListMembersForOrganization(r.Context(), organizationID)
+	members, err := h.store.ListMembersForOrganization(r.Context(), userID, organizationID)
 	if err != nil {
-		writeStoreError(w, err)
+		h.writeReadError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, members)
 }
 
 func (h *OrganizationHandler) listProjects(w http.ResponseWriter, r *http.Request) {
-	organizationID, ok := h.requireMembership(w, r)
+	userID, organizationID, ok := organizationRequestIDs(w, r)
 	if !ok {
 		return
 	}
-	projects, err := h.store.ListProjectsForOrganization(r.Context(), organizationID)
+	projects, err := h.store.ListProjectsForOrganization(r.Context(), userID, organizationID)
 	if err != nil {
-		writeStoreError(w, err)
+		h.writeReadError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, projects)
 }
 
-func (h *OrganizationHandler) requireMembership(w http.ResponseWriter, r *http.Request) (string, bool) {
+func organizationRequestIDs(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	organizationID := r.PathValue("organizationID")
 	if !validUUID(organizationID) {
 		writeError(w, http.StatusBadRequest, "invalid organization ID")
-		return "", false
+		return "", "", false
 	}
-	if _, err := h.store.GetMembershipForUserAndOrg(r.Context(), userID, organizationID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusForbidden, "organization membership required")
-			return "", false
-		}
-		writeStoreError(w, err)
-		return "", false
-	}
-	return organizationID, true
+	return userID, organizationID, true
 }
 
 func (h *OrganizationHandler) requireOwner(w http.ResponseWriter, r *http.Request) (string, string, bool) {
@@ -211,6 +203,14 @@ func (h *OrganizationHandler) writeMutationError(w http.ResponseWriter, err erro
 	default:
 		writeStoreError(w, err)
 	}
+}
+
+func (h *OrganizationHandler) writeReadError(w http.ResponseWriter, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusForbidden, "organization membership required")
+		return
+	}
+	writeStoreError(w, err)
 }
 
 func validUUID(value string) bool {
