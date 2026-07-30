@@ -1,4 +1,4 @@
-import type { InfrastructureNodeData } from '../canvas/nodes/types'
+import type { RealInfrastructureNodeData } from '../canvas/nodes/types'
 import type { Cluster, ProjectClusterState } from '../types/resources'
 
 interface ServiceDetail {
@@ -6,6 +6,6 @@ interface ServiceDetail {
   state?: ProjectClusterState
 }
 
-export type DetailSelection = InfrastructureNodeData | (ServiceDetail & {
+export type DetailSelection = RealInfrastructureNodeData | (ServiceDetail & {
   kind: 'pgbackrest' | 'extensions' | 'alerts'
 })

@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Settings2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { getProjectTopology } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
@@ -12,11 +13,15 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
 })
 
 function ProjectCanvasPage() {
-  const { project, clusters } = Route.useLoaderData()
+  const initialTopology = Route.useLoaderData()
+  const { project } = initialTopology
+  const [clusters, setClusters] = useState(initialTopology.clusters)
   const { projectId } = Route.useParams()
   const snapshot = useTopologyStore((state) => state.snapshot)
   const connected = useTopologyStore((state) => state.connected)
   useProjectEvents(projectId)
+  useEffect(() => setClusters(initialTopology.clusters), [initialTopology.clusters, projectId])
+  const projectSnapshot = snapshot?.project_id === projectId ? snapshot : null
 
   return (
     <main className="flex min-h-[calc(100vh-56px)] flex-col p-3 text-[var(--text)] sm:p-5">
@@ -37,7 +42,7 @@ function ProjectCanvasPage() {
           </div>
         </div>
       </header>
-      <CanvasView clusters={clusters} snapshot={snapshot} />
+      <CanvasView key={projectId} clusters={clusters} snapshot={projectSnapshot} onClusterUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
     </main>
   )
 }

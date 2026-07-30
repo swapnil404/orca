@@ -77,6 +77,13 @@ export interface ActualPgBouncer {
   admin_console_reachable?: boolean
 }
 
+export interface ActualBackup {
+  last_success_unix_seconds?: number
+  config: string
+  size_bytes?: number
+  status: string
+}
+
 export interface ActualCluster {
   id: string
   container_id?: string
@@ -84,6 +91,7 @@ export interface ActualCluster {
   version?: string
   replicas?: ActualReplica[]
   pg_bouncer?: ActualPgBouncer
+  backup?: ActualBackup
   enabled_extensions?: string[]
   extension_versions?: Record<string, string>
   extension_update_methods?: Record<string, 'hot_apply' | 'restart'>
