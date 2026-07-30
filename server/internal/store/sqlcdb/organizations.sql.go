@@ -104,13 +104,21 @@ func (q *Queries) GetMembershipForUserAndOrg(ctx context.Context, arg GetMembers
 }
 
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, name, slug, created_at
-FROM organizations
-WHERE id = $1
+SELECT o.id, o.name, o.slug, o.created_at
+FROM organizations o
+JOIN organization_memberships requester
+  ON requester.organization_id = o.id
+ AND requester.user_id = $1
+WHERE o.id = $2
 `
 
-func (q *Queries) GetOrganizationByID(ctx context.Context, id string) (Organization, error) {
-	row := q.db.QueryRowContext(ctx, getOrganizationByID, id)
+type GetOrganizationByIDParams struct {
+	UserID         string `json:"user_id"`
+	OrganizationID string `json:"organization_id"`
+}
+
+func (q *Queries) GetOrganizationByID(ctx context.Context, arg GetOrganizationByIDParams) (Organization, error) {
+	row := q.db.QueryRowContext(ctx, getOrganizationByID, arg.UserID, arg.OrganizationID)
 	var i Organization
 	err := row.Scan(
 		&i.ID,
@@ -170,6 +178,9 @@ const listMembersForOrganization = `-- name: ListMembersForOrganization :many
 SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at,
        COALESCE(u.email, oi.provider_email) AS email
 FROM organization_memberships om
+JOIN organization_memberships requester
+  ON requester.organization_id = om.organization_id
+ AND requester.user_id = $1
 JOIN users u ON u.id = om.user_id
 LEFT JOIN LATERAL (
     SELECT provider_email
@@ -178,10 +189,15 @@ LEFT JOIN LATERAL (
     ORDER BY created_at, provider, provider_user_id
     LIMIT 1
 ) oi ON TRUE
-WHERE om.organization_id = $1
+WHERE om.organization_id = $2
   AND u.deleted_at IS NULL
 ORDER BY om.created_at, om.id
 `
+
+type ListMembersForOrganizationParams struct {
+	UserID         string `json:"user_id"`
+	OrganizationID string `json:"organization_id"`
+}
 
 type ListMembersForOrganizationRow struct {
 	ID             string           `json:"id"`
@@ -192,8 +208,8 @@ type ListMembersForOrganizationRow struct {
 	Email          sql.NullString   `json:"email"`
 }
 
-func (q *Queries) ListMembersForOrganization(ctx context.Context, organizationID string) ([]ListMembersForOrganizationRow, error) {
-	rows, err := q.db.QueryContext(ctx, listMembersForOrganization, organizationID)
+func (q *Queries) ListMembersForOrganization(ctx context.Context, arg ListMembersForOrganizationParams) ([]ListMembersForOrganizationRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMembersForOrganization, arg.UserID, arg.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,28 +275,54 @@ func (q *Queries) ListOrganizationsForUser(ctx context.Context, userID string) (
 }
 
 const listProjectsForOrganization = `-- name: ListProjectsForOrganization :many
-SELECT id, user_id, name, created_at, updated_at, deleted_at, organization_id
-FROM projects
-WHERE organization_id = $1 AND deleted_at IS NULL
-ORDER BY created_at, id
+WITH authorized AS (
+    SELECT om.organization_id
+    FROM organization_memberships om
+    WHERE om.organization_id = $1
+      AND om.user_id = $2
+)
+SELECT CASE WHEN p.id IS NULL THEN FALSE ELSE TRUE END AS has_project,
+       COALESCE(p.id, '') AS id,
+       COALESCE(p.name, '') AS name,
+       COALESCE(p.created_at, TIMESTAMPTZ 'epoch') AS created_at,
+       COALESCE(p.updated_at, TIMESTAMPTZ 'epoch') AS updated_at,
+       a.organization_id
+FROM authorized a
+LEFT JOIN projects p
+  ON p.organization_id = a.organization_id
+ AND p.deleted_at IS NULL
+ORDER BY p.created_at, p.id
 `
 
-func (q *Queries) ListProjectsForOrganization(ctx context.Context, organizationID string) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectsForOrganization, organizationID)
+type ListProjectsForOrganizationParams struct {
+	OrganizationID string `json:"organization_id"`
+	UserID         string `json:"user_id"`
+}
+
+type ListProjectsForOrganizationRow struct {
+	HasProject     bool      `json:"has_project"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	OrganizationID string    `json:"organization_id"`
+}
+
+func (q *Queries) ListProjectsForOrganization(ctx context.Context, arg ListProjectsForOrganizationParams) ([]ListProjectsForOrganizationRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectsForOrganization, arg.OrganizationID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Project
+	var items []ListProjectsForOrganizationRow
 	for rows.Next() {
-		var i Project
+		var i ListProjectsForOrganizationRow
 		if err := rows.Scan(
+			&i.HasProject,
 			&i.ID,
-			&i.UserID,
 			&i.Name,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.DeletedAt,
 			&i.OrganizationID,
 		); err != nil {
 			return nil, err

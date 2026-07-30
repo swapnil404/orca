@@ -22,12 +22,6 @@ CREATE INDEX organization_memberships_user_id_idx
 
 ALTER TABLE projects ADD COLUMN organization_id UUID REFERENCES organizations (id);
 
--- Projects predate the users table and historically had no ownership foreign key.
-INSERT INTO users (id)
-SELECT DISTINCT p.user_id
-FROM projects p
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id);
-
 WITH user_emails AS (
     SELECT u.id,
            COALESCE(u.email, MIN(oi.provider_email), u.id) AS email
