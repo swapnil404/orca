@@ -1,4 +1,4 @@
-import { Background, Controls, ReactFlow, type NodeMouseHandler, type ReactFlowInstance, type XYPosition } from '@xyflow/react'
+import { applyNodeChanges, Background, Controls, ReactFlow, type NodeChange, type NodeMouseHandler, type OnNodeDrag, type ReactFlowInstance, type XYPosition } from '@xyflow/react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { ApiError, addReplica, configurePgBackRest, enablePgBouncer, installExtension } from '../api'
 import { NodePalette } from '../components/topology/NodePalette'
@@ -72,14 +72,27 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
     id: draft.id,
     type: 'pending',
     position: draft.position,
-    draggable: false,
+    draggable: true,
     connectable: false,
     data: { kind: 'pending', resourceType: draft.type, ...draftLabels[draft.type], stage: draft.stage, error: draft.error, onDismiss: () => dismissDraft(draft.id) },
   }))
-  const topology = {
+  const generatedTopology = {
     nodes: [...realNodes, ...draftNodes],
     edges: baseTopology.edges.filter((edge) => !hiddenResourceIDs.has(edge.target) && !hiddenResourceIDs.has(edge.source)),
   }
+  const [nodes, setNodes] = useState<InfrastructureNode[]>(generatedTopology.nodes)
+
+  useEffect(() => {
+    setNodes((current) => {
+      const byID = new Map(current.map((node) => [node.id, node]))
+      return generatedTopology.nodes.map((node) => {
+        const existing = byID.get(node.id)
+        return existing ? { ...existing, ...node, position: existing.position } : node
+      })
+    })
+  }, [clusters, snapshot, now, drafts, promotedPositions])
+
+  const topology = { nodes, edges: generatedTopology.edges }
 
   let selected: DetailSelection | null = null
   if (selection?.kind === 'node') {
@@ -123,6 +136,14 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
     confirmationSnapshots.current.delete(draftID)
     setDrafts((current) => current.filter((draft) => draft.id !== draftID))
     setActiveDraftID((current) => current === draftID ? null : current)
+  }
+
+  function changeNodes(changes: NodeChange<InfrastructureNode>[]) {
+    setNodes((current) => applyNodeChanges(changes, current))
+  }
+
+  const finishMovingNode: OnNodeDrag<InfrastructureNode> = (_event, node) => {
+    setDrafts((current) => current.map((draft) => draft.id === node.id ? { ...draft, position: node.position } : draft))
   }
 
   async function confirmProvision(request: ProvisionRequest) {
@@ -171,7 +192,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
         <section ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDrop={dropPaletteItem} className="relative min-h-[520px] flex-1 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[#0c0c0d] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
           <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2 font-mono text-[10px] text-[var(--text-2)] sm:left-5 sm:top-5"><span className="h-1 w-1 rounded-full bg-[var(--accent)]" />Topology · {topology.nodes.length} nodes</div>
           <p className="pointer-events-none absolute right-5 top-5 z-10 hidden text-[11px] text-[var(--text-3)] sm:block">Drop a resource or select a node</p>
-          <ReactFlow nodes={topology.nodes} edges={topology.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={setFlow} onNodeClick={selectNode} onPaneClick={() => { setSelection(null); setActiveDraftID(null) }} nodesDraggable={false} nodesConnectable={false} elementsSelectable fitView proOptions={{ hideAttribution: true }}>
+          <ReactFlow nodes={topology.nodes} edges={topology.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={setFlow} onNodesChange={changeNodes} onNodeDragStop={finishMovingNode} onNodeClick={selectNode} onPaneClick={() => { setSelection(null); setActiveDraftID(null) }} nodesDraggable nodesConnectable={false} elementsSelectable fitView proOptions={{ hideAttribution: true }}>
             <Background color="#303034" gap={24} size={1} />
             <Controls showInteractive={false} className="!overflow-hidden !rounded-[var(--radius-lg)] !border-[var(--border)] !bg-[var(--panel)] !fill-[var(--text-2)] !shadow-xl [&_button]:!border-[var(--border-soft)] [&_button]:!bg-transparent [&_button:hover]:!bg-white/5" />
           </ReactFlow>

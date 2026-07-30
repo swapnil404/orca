@@ -6,6 +6,8 @@ export type LagTone = 'healthy' | 'warning' | 'critical' | 'unknown'
 export interface TopologyEdgeData extends Record<string, unknown> {
   lagLabel?: string
   lagTone?: LagTone
+  routeIndex?: number
+  routeCount?: number
 }
 
 export type TopologyEdgeType = Edge<TopologyEdgeData, 'topology'>
@@ -26,13 +28,17 @@ const toneDuration: Record<LagTone, number> = {
 
 export function TopologyEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, style }: EdgeProps<TopologyEdgeType>) {
   const reduceMotion = useReducedMotion()
-  const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 12 })
+  const routeCount = Math.max(1, data?.routeCount ?? 1)
+  const routeIndex = Math.min(routeCount - 1, Math.max(0, data?.routeIndex ?? 0))
+  const routeProgress = routeCount === 1 ? 0.5 : routeIndex / (routeCount - 1)
+  const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 16, offset: 28, stepPosition: 0.32 + routeProgress * 0.36 })
   const tone = data?.lagTone ?? 'unknown'
   const color = data?.lagLabel ? toneColor[tone] : 'var(--border)'
   const animated = Boolean(data?.lagLabel) && tone !== 'unknown'
 
   return (
     <>
+      <path d={path} fill="none" stroke="#0c0c0d" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
       <motion.path
         d={path}
         fill="none"
@@ -42,6 +48,8 @@ export function TopologyEdge({ sourceX, sourceY, targetX, targetY, sourcePositio
           stroke: color,
           strokeWidth: 1.5,
           strokeDasharray: data?.lagLabel ? '6 7' : undefined,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
         }}
         initial={false}
         animate={{ strokeDashoffset: animated && !reduceMotion ? [0, -26] : 0 }}
