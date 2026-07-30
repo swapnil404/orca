@@ -25,6 +25,7 @@ type HostReport struct {
 	ActualState           *types.ActualState
 	HealthReport          *types.HealthReport
 	ReconciliationResults []*types.ReconciliationResult
+	DesiredStateRevision  string
 	LastSeen              time.Time
 	Status                string
 	Stale                 bool
@@ -32,12 +33,14 @@ type HostReport struct {
 
 // ClusterReport is the latest actual state and health reported for one cluster.
 type ClusterReport struct {
-	HostID      string
-	ClusterID   string
-	ActualState *types.ActualCluster
-	Health      string
-	LastSeen    time.Time
-	Stale       bool
+	HostID                string
+	ClusterID             string
+	ActualState           *types.ActualCluster
+	Health                string
+	LastSeen              time.Time
+	Stale                 bool
+	DesiredStateRevision  string
+	ReconciliationResults []*types.ReconciliationResult
 }
 
 // MetricClusterReport is the latest persisted observation used for metrics exposition.
@@ -85,7 +88,7 @@ func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *
 	queries := s.queries.WithTx(tx)
 	if err := queries.UpsertAgentReport(ctx, sqlcdb.UpsertAgentReportParams{
 		HostID: hostID, ActualState: actualState, HealthReport: healthReport,
-		ReconciliationResults: reconciliationResults, ReportedAt: receivedAt,
+		ReconciliationResults: reconciliationResults, DesiredStateRevision: report.GetDesiredStateRevision(), ReportedAt: receivedAt,
 	}); err != nil {
 		return fmt.Errorf("store host report: %w", err)
 	}
@@ -122,9 +125,20 @@ func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *
 		if status, ok := healthByID[clusterID]; ok {
 			health = clusterHealthStatus(status)
 		}
+		clusterResults := make([]*types.ReconciliationResult, 0)
+		for _, result := range report.GetReconciliationResults() {
+			if result.GetClusterId() == clusterID {
+				clusterResults = append(clusterResults, result)
+			}
+		}
+		clusterResultsJSON, err := json.Marshal(clusterResults)
+		if err != nil {
+			return fmt.Errorf("marshal reconciliation results for cluster %q: %w", clusterID, err)
+		}
 		rows, err := queries.UpsertClusterReport(ctx, sqlcdb.UpsertClusterReportParams{
 			HostID: hostID, ClusterID: clusterID, ActualState: actualJSON,
-			HealthStatus: health, ReportedAt: receivedAt,
+			HealthStatus: health, DesiredStateRevision: report.GetDesiredStateRevision(),
+			ReconciliationResults: clusterResultsJSON, ReportedAt: receivedAt,
 		})
 		if err != nil {
 			return fmt.Errorf("store cluster report %q: %w", clusterID, err)
@@ -144,7 +158,7 @@ func (s *Postgres) GetHostReport(ctx context.Context, hostID string, now time.Ti
 	}
 	report := HostReport{
 		HostID: hostID, ActualState: &types.ActualState{}, HealthReport: &types.HealthReport{},
-		LastSeen: row.ReportedAt, Status: currentReportStatus,
+		LastSeen: row.ReportedAt, Status: currentReportStatus, DesiredStateRevision: row.DesiredStateRevision,
 	}
 	if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
 		return HostReport{}, fmt.Errorf("decode actual state: %w", err)
@@ -172,12 +186,16 @@ func (s *Postgres) ListClusterReportsForHost(ctx context.Context, hostID string,
 	for _, row := range rows {
 		report := ClusterReport{
 			HostID: row.HostID, ClusterID: row.ClusterID, Health: row.HealthStatus, LastSeen: row.ReportedAt,
+			DesiredStateRevision: row.DesiredStateRevision,
 		}
 		if string(row.ActualState) != "null" {
 			report.ActualState = &types.ActualCluster{}
 			if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
 				return nil, fmt.Errorf("decode actual cluster %q: %w", row.ClusterID, err)
 			}
+		}
+		if err := json.Unmarshal(row.ReconciliationResults, &report.ReconciliationResults); err != nil {
+			return nil, fmt.Errorf("decode reconciliation results for cluster %q: %w", row.ClusterID, err)
 		}
 		report.Stale = reportIsStale(report.LastSeen, now, DefaultReportStalenessWindow)
 		if report.Stale {

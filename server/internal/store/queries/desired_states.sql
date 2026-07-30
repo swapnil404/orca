@@ -24,3 +24,8 @@ FROM (
 ) latest
 WHERE latest.operation = 'upsert'
 ORDER BY latest.cluster_id;
+
+-- name: GetDesiredStateRevisionForHost :one
+SELECT COALESCE(MAX(id), 0)::BIGINT
+FROM desired_states
+WHERE host_id = $1;

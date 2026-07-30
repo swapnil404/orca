@@ -179,7 +179,21 @@ export async function login(email: string, password: string): Promise<AuthResult
 }
 
 export async function signup(email: string, password: string): Promise<AuthResult> {
-  return unwrapAuth(await signupServer({ data: { email, password } }))
+  const credentials = { email, password }
+  let registration: ServerAuthResult
+  try {
+    registration = await signupServer({ data: credentials })
+  } catch (cause) {
+    const recovery = await loginServer({ data: credentials }).catch(() => null)
+    if (recovery?.ok) return { session: recovery.session }
+    throw cause
+  }
+  if (registration.ok) return { session: registration.session }
+  if (registration.status === 409 || registration.status === 0 || registration.status === 401 || registration.status >= 500) {
+    const recovery = await loginServer({ data: credentials }).catch(() => null)
+    if (recovery?.ok) return { session: recovery.session }
+  }
+  return unwrapAuth(registration)
 }
 
 export function startOAuth(provider: OAuthProvider): void {

@@ -353,6 +353,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 	return &types.AgentReportMessage{
 		ActualState:           actual,
 		ReconciliationResults: reconciliationResults,
+		DesiredStateRevision:  desired.GetRevision(),
 		HealthReport: &types.HealthReport{
 			HostMetrics: hostMetrics,
 			Clusters:    health,

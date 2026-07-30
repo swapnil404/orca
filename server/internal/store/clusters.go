@@ -31,6 +31,7 @@ type Cluster struct {
 	PgBackRest        *PgBackRestConfig `json:"pg_back_rest,omitempty"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
+	DesiredRevision   string            `json:"desired_revision,omitempty"`
 }
 
 // PgBouncerConfig contains the desired connection pool settings.
@@ -160,9 +161,11 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 	if err != nil {
 		return Cluster{}, err
 	}
-	if err := createClusterUpsertState(ctx, queries, cluster); err != nil {
+	desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
 		return Cluster{}, err
 	}
+	cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
 	if err := tx.Commit(); err != nil {
 		return Cluster{}, err
 	}
@@ -238,9 +241,11 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 	if err != nil {
 		return Cluster{}, err
 	}
-	if err := createClusterUpsertState(ctx, queries, cluster); err != nil {
+	desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
 		return Cluster{}, err
 	}
+	cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
 	if err := tx.Commit(); err != nil {
 		return Cluster{}, err
 	}
@@ -266,9 +271,11 @@ func (s *Postgres) UpdatePgBouncer(ctx context.Context, params UpdatePgBouncerPa
 	if err != nil {
 		return Cluster{}, err
 	}
-	if err := createClusterUpsertState(ctx, queries, cluster); err != nil {
+	desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
 		return Cluster{}, err
 	}
+	cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
 	if err := tx.Commit(); err != nil {
 		return Cluster{}, err
 	}
@@ -321,6 +328,11 @@ func (s *Postgres) ListCurrentDesiredStatesForHost(ctx context.Context, hostID s
 	return states, nil
 }
 
+// GetDesiredStateRevisionForHost returns the latest desired-state sequence for a host.
+func (s *Postgres) GetDesiredStateRevisionForHost(ctx context.Context, hostID string) (int64, error) {
+	return s.queries.GetDesiredStateRevisionForHost(ctx, hostID)
+}
+
 func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 	parameters := make(map[string]string)
 	if err := json.Unmarshal(cluster.Parameters, &parameters); err != nil {
@@ -357,15 +369,14 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 	return result, nil
 }
 
-func createClusterUpsertState(ctx context.Context, queries *sqlcdb.Queries, cluster Cluster) error {
+func createClusterUpsertState(ctx context.Context, queries *sqlcdb.Queries, cluster Cluster) (sqlcdb.DesiredState, error) {
 	payload, err := clusterDesiredStatePayload(cluster)
 	if err != nil {
-		return err
+		return sqlcdb.DesiredState{}, err
 	}
-	_, err = queries.CreateDesiredState(ctx, sqlcdb.CreateDesiredStateParams{
+	return queries.CreateDesiredState(ctx, sqlcdb.CreateDesiredStateParams{
 		HostID: cluster.HostID, ClusterID: cluster.ID, Operation: "upsert", State: payload,
 	})
-	return err
 }
 
 func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {

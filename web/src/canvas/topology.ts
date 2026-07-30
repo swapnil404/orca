@@ -1,6 +1,6 @@
 import type { Cluster, ProjectStateSnapshot } from '../types/resources'
 import type { LagTone, TopologyEdgeData, TopologyEdgeType } from './edges/TopologyEdge'
-import { pgBackRestStatus, pgBouncerStatus, primaryStatus, replicaStatus } from './status'
+import { extensionPresenceStatus, pgBackRestStatus, pgBouncerStatus, primaryStatus, replicaStatus } from './status'
 import type { InfrastructureNode } from './nodes/types'
 
 export interface CanvasTopology {
@@ -149,7 +149,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           label: extension,
           eyebrow: 'PostgreSQL extension',
           detail: installed ? `Version ${state?.actual_state?.extension_versions?.[extension] ?? 'not reported'}` : reportedExtensions ? 'Install pending or failed' : 'Awaiting installation report',
-          status: installed ? primaryStatus(state, now) : 'unknown',
+          status: extensionPresenceStatus(state, extension, now),
           cluster,
           state,
           version: state?.actual_state?.extension_versions?.[extension],

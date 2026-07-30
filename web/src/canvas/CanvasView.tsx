@@ -44,7 +44,6 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
   const [promotedPositions, setPromotedPositions] = useState<Record<string, XYPosition>>({})
   const [now, setNow] = useState(() => Date.now())
   const canvasRef = useRef<HTMLElement>(null)
-  const confirmationSnapshots = useRef(new Map<string, ProjectStateSnapshot | null>())
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -52,15 +51,21 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
   }, [])
 
   useEffect(() => {
-    const promoted = drafts.filter((draft) => draft.stage === 'awaiting' && confirmationSnapshots.current.get(draft.id) !== snapshot && isApplied(draft, snapshot))
-    if (promoted.length === 0) return
+    const awaiting = drafts.filter((draft) => draft.stage === 'awaiting' && reportReachedRevision(draft, snapshot))
+    const failed = new Map(awaiting.flatMap((draft) => {
+      const message = reconciliationFailure(draft, snapshot)
+      return message ? [[draft.id, message] as const] : []
+    }))
+    const promoted = awaiting.filter((draft) => !failed.has(draft.id) && isApplied(draft, snapshot))
+    if (promoted.length === 0 && failed.size === 0) return
     setPromotedPositions((current) => {
       const next = { ...current }
       for (const draft of promoted) if (draft.resourceID) next[draft.resourceID] = draft.position
       return next
     })
-    for (const draft of promoted) confirmationSnapshots.current.delete(draft.id)
-    setDrafts((current) => current.filter((draft) => !promoted.some((item) => item.id === draft.id)))
+    setDrafts((current) => current
+      .filter((draft) => !promoted.some((item) => item.id === draft.id))
+      .map((draft) => failed.has(draft.id) ? { ...draft, stage: 'error', error: failed.get(draft.id) } : draft))
   }, [drafts, snapshot])
 
   const baseTopology = buildCanvasTopology(clusters, snapshot, now)
@@ -133,7 +138,6 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
   }
 
   function dismissDraft(draftID: string) {
-    confirmationSnapshots.current.delete(draftID)
     setDrafts((current) => current.filter((draft) => draft.id !== draftID))
     setActiveDraftID((current) => current === draftID ? null : current)
   }
@@ -162,11 +166,11 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
           : request.type === 'pgbackrest' ? `pgbackrest:${cluster.id}`
             : request.type === 'extension' ? extensionNodeID(cluster.id, request.extension) : undefined
       if (!resourceID) throw new Error('The server did not return the provisioned resource identity.')
-      confirmationSnapshots.current.set(activeDraft.id, snapshot)
       onClusterUpdated(updated)
       const expectedConfig = request.type === 'pgbackrest' ? pgBackRestReconciliationState(cluster.id, request)
         : request.type === 'pgbouncer' ? `${request.poolMode}:${request.maxConnections}` : undefined
-      setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? { ...draft, stage: 'awaiting', clusterID: cluster.id, resourceID, resourceName: request.type === 'extension' ? request.extension : undefined, expectedConfig } : draft))
+      if (!updated.desired_revision) throw new Error('The server did not return a desired-state revision.')
+      setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? { ...draft, stage: 'awaiting', clusterID: cluster.id, resourceID, resourceName: request.type === 'extension' ? request.extension : undefined, expectedConfig, expectedRevision: updated.desired_revision } : draft))
       setActiveDraftID(null)
     } catch (cause) {
       const message = cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : 'Could not save desired state.'
@@ -226,6 +230,32 @@ function isApplied(draft: ProvisionDraft, snapshot: ProjectStateSnapshot | null)
   }
   if (draft.type === 'pgbackrest') return state.actual_state.backup?.config === draft.expectedConfig
   return state.actual_state.enabled_extensions?.includes(draft.resourceName ?? '') ?? false
+}
+
+function reportReachedRevision(draft: ProvisionDraft, snapshot: ProjectStateSnapshot | null): boolean {
+  if (!draft.clusterID || !draft.expectedRevision) return false
+  const revision = snapshot?.clusters.find((candidate) => candidate.cluster_id === draft.clusterID)?.desired_state_revision
+  if (!revision) return false
+  try {
+    return BigInt(revision) >= BigInt(draft.expectedRevision)
+  } catch {
+    return revision === draft.expectedRevision
+  }
+}
+
+function reconciliationFailure(draft: ProvisionDraft, snapshot: ProjectStateSnapshot | null): string | undefined {
+  if (!draft.clusterID) return undefined
+  const results = snapshot?.clusters.find((candidate) => candidate.cluster_id === draft.clusterID)?.reconciliation_results ?? []
+  const actions: Record<PaletteNodeType, string[]> = {
+    replica: ['create_replica'],
+    pgbouncer: ['create_pgbouncer', 'update_pgbouncer'],
+    pgbackrest: ['create_pgbackrest', 'update_pgbackrest'],
+    extension: ['update_extensions'],
+  }
+  const failed = results.find((result) => result.status === 'failed' && actions[draft.type].includes(result.action))
+    ?? results.find((result) => result.status === 'failed')
+  if (!failed) return undefined
+  return failed.error || `Agent reported ${failed.action.replaceAll('_', ' ')} failed.`
 }
 
 function pgBackRestReconciliationState(clusterID: string, request: Extract<ProvisionRequest, { type: 'pgbackrest' }>): string {

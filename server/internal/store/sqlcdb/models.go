@@ -61,6 +61,7 @@ type AgentReport struct {
 	HealthReport          json.RawMessage `json:"health_report"`
 	ReportedAt            time.Time       `json:"reported_at"`
 	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
 }
 
 type AlertIncident struct {
@@ -114,11 +115,13 @@ type Cluster struct {
 }
 
 type ClusterReport struct {
-	HostID       string          `json:"host_id"`
-	ClusterID    string          `json:"cluster_id"`
-	ActualState  json.RawMessage `json:"actual_state"`
-	HealthStatus string          `json:"health_status"`
-	ReportedAt   time.Time       `json:"reported_at"`
+	HostID                string          `json:"host_id"`
+	ClusterID             string          `json:"cluster_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthStatus          string          `json:"health_status"`
+	ReportedAt            time.Time       `json:"reported_at"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
 }
 
 type DesiredState struct {

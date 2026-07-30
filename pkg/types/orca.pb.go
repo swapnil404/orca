@@ -128,6 +128,7 @@ type AgentReportMessage struct {
 	ActualState           *ActualState            `protobuf:"bytes,1,opt,name=actual_state,json=actualState,proto3" json:"actual_state,omitempty"`
 	HealthReport          *HealthReport           `protobuf:"bytes,2,opt,name=health_report,json=healthReport,proto3" json:"health_report,omitempty"`
 	ReconciliationResults []*ReconciliationResult `protobuf:"bytes,3,rep,name=reconciliation_results,json=reconciliationResults,proto3" json:"reconciliation_results,omitempty"`
+	DesiredStateRevision  string                  `protobuf:"bytes,4,opt,name=desired_state_revision,json=desiredStateRevision,proto3" json:"desired_state_revision,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -181,6 +182,13 @@ func (x *AgentReportMessage) GetReconciliationResults() []*ReconciliationResult 
 		return x.ReconciliationResults
 	}
 	return nil
+}
+
+func (x *AgentReportMessage) GetDesiredStateRevision() string {
+	if x != nil {
+		return x.DesiredStateRevision
+	}
+	return ""
 }
 
 // ReconciliationResult describes the outcome of one agent action.
@@ -257,6 +265,7 @@ type DesiredState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClusterId     string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	Clusters      []*ClusterSpec         `protobuf:"bytes,2,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	Revision      string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -303,6 +312,13 @@ func (x *DesiredState) GetClusters() []*ClusterSpec {
 		return x.Clusters
 	}
 	return nil
+}
+
+func (x *DesiredState) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
 }
 
 // ClusterSpec describes a desired Postgres cluster.
@@ -1342,21 +1358,23 @@ const file_orca_proto_rawDesc = "" +
 	"\n" +
 	"orca.proto\x12\aorca.v1\"Q\n" +
 	"\x13DesiredStateMessage\x12:\n" +
-	"\rdesired_state\x18\x01 \x01(\v2\x15.orca.v1.DesiredStateR\fdesiredState\"\xdf\x01\n" +
+	"\rdesired_state\x18\x01 \x01(\v2\x15.orca.v1.DesiredStateR\fdesiredState\"\x95\x02\n" +
 	"\x12AgentReportMessage\x127\n" +
 	"\factual_state\x18\x01 \x01(\v2\x14.orca.v1.ActualStateR\vactualState\x12:\n" +
 	"\rhealth_report\x18\x02 \x01(\v2\x15.orca.v1.HealthReportR\fhealthReport\x12T\n" +
-	"\x16reconciliation_results\x18\x03 \x03(\v2\x1d.orca.v1.ReconciliationResultR\x15reconciliationResults\"{\n" +
+	"\x16reconciliation_results\x18\x03 \x03(\v2\x1d.orca.v1.ReconciliationResultR\x15reconciliationResults\x124\n" +
+	"\x16desired_state_revision\x18\x04 \x01(\tR\x14desiredStateRevision\"{\n" +
 	"\x14ReconciliationResult\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x02 \x01(\tR\tclusterId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"_\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"{\n" +
 	"\fDesiredState\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x120\n" +
-	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\"\xde\x03\n" +
+	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\"\xde\x03\n" +
 	"\vClusterSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x128\n" +

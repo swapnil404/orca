@@ -31,8 +31,11 @@ export function listProjectHosts(projectID: string): Promise<ProjectHost[]> {
   return apiRequest(`/projects/${encode(projectID)}/hosts`)
 }
 
-export function registerHost(): Promise<HostRegistration> {
-  return apiRequest('/hosts', { method: 'POST' })
+export function registerHost(hostID?: string): Promise<HostRegistration> {
+  return apiRequest('/hosts', {
+    method: 'POST',
+    body: hostID ? JSON.stringify({ host_id: hostID }) : undefined,
+  })
 }
 
 export function rotateHostToken(hostID: string): Promise<HostRegistration> {

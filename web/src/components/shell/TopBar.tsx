@@ -1,6 +1,8 @@
 import { Link, useMatches, useRouterState } from '@tanstack/react-router'
 import { ArchiveRestore, Bell, LayoutGrid, Settings2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { Session } from '../../api'
+import { primaryStatus } from '../../canvas/status'
 import { useTopologyStore } from '../../store/topology'
 import type { ProjectTopology } from '../../types/resources'
 import { OrcaLogo } from '../OrcaLogo'
@@ -13,14 +15,18 @@ interface HealthPillProps {
 }
 
 export function HealthPill({ label, tone }: HealthPillProps) {
-  const color = {
+  const color = healthColor(tone)
+
+  return <span className="inline-flex items-center gap-2 text-xs text-[var(--text-2)]"><span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />{label}</span>
+}
+
+function healthColor(tone: HealthTone): string {
+  return {
     healthy: 'var(--healthy)',
     warning: 'var(--warning)',
     critical: 'var(--critical)',
     unknown: 'var(--text-3)',
   }[tone]
-
-  return <span className="inline-flex items-center gap-2 text-xs text-[var(--text-2)]"><span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />{label}</span>
 }
 
 interface TopBarProps {
@@ -46,12 +52,14 @@ function sessionInitials(userID: string): string {
   return userID.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase() || 'U'
 }
 
-function projectHealth(projectID: string | undefined, snapshot: ReturnType<typeof useTopologyStore.getState>['snapshot']): HealthPillProps {
+function projectHealth(projectID: string | undefined, snapshot: ReturnType<typeof useTopologyStore.getState>['snapshot'], now: number): HealthPillProps {
   if (!projectID || snapshot?.project_id !== projectID || snapshot.clusters.length === 0) return { label: 'Unknown', tone: 'unknown' }
-  if (snapshot.clusters.some((cluster) => cluster.health === 'down')) return { label: 'Critical', tone: 'critical' }
-  if (snapshot.clusters.some((cluster) => cluster.health === 'degraded')) return { label: 'Degraded', tone: 'warning' }
-  if (snapshot.clusters.some((cluster) => cluster.health === 'pending')) return { label: 'Pending', tone: 'warning' }
-  if (snapshot.clusters.some((cluster) => cluster.health === 'unknown')) return { label: 'Unknown', tone: 'unknown' }
+  const statuses = snapshot.clusters.map((cluster) => primaryStatus(cluster, now))
+  if (statuses.includes('down')) return { label: 'Critical', tone: 'critical' }
+  if (statuses.includes('degraded')) return { label: 'Degraded', tone: 'warning' }
+  if (statuses.includes('pending')) return { label: 'Pending', tone: 'warning' }
+  if (statuses.includes('stale')) return { label: 'Stale', tone: 'warning' }
+  if (statuses.includes('unknown')) return { label: 'Unknown', tone: 'unknown' }
   return { label: 'Healthy', tone: 'healthy' }
 }
 
@@ -59,10 +67,15 @@ export function TopBar({ session, loggingOut, onLogout }: TopBarProps) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const matches = useMatches()
   const snapshot = useTopologyStore((state) => state.snapshot)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const projectMatch = matches.find((match) => match.routeId === '/_authenticated/projects/$projectId')
   const topology = isProjectTopology(projectMatch?.loaderData) ? projectMatch.loaderData : undefined
   const projectID = typeof projectMatch?.params.projectId === 'string' ? projectMatch.params.projectId : undefined
-  const health = projectHealth(projectID, snapshot)
+  const health = projectHealth(projectID, snapshot, now)
   const projectsActive = pathname === '/' || pathname.startsWith('/projects/')
 
   return (
@@ -84,7 +97,7 @@ export function TopBar({ session, loggingOut, onLogout }: TopBarProps) {
             return <Link key={item.href} to={item.href} aria-label={item.label} className={`group relative grid h-10 w-10 place-items-center rounded-full ${active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'text-[var(--text-2)] hover:bg-[var(--card)] hover:text-[var(--text)]'}`}><Icon aria-hidden="true" className="h-[18px] w-[18px]" strokeWidth={1.7} /><Tooltip>{item.label}</Tooltip></Link>
           })}
         </nav>
-        <div className="group relative mb-1 grid h-7 w-7 place-items-center"><span className="h-2 w-2 rounded-full bg-[var(--healthy)]" /><Tooltip>Control plane operational</Tooltip></div>
+        <div className="group relative mb-1 grid h-7 w-7 place-items-center"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: healthColor(health.tone) }} /><Tooltip>{`Project health: ${health.label}`}</Tooltip></div>
         <button type="button" disabled={loggingOut} onClick={onLogout} aria-label="Log out" className="group relative grid h-9 w-9 place-items-center rounded-full border border-[var(--border)] bg-[var(--card)] font-mono text-[10px] text-[var(--text-2)] hover:border-[var(--accent)] disabled:opacity-50">{sessionInitials(session.user_id)}<Tooltip>{loggingOut ? 'Logging out...' : 'Log out'}</Tooltip></button>
       </aside>
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/swapnil404/orca/pkg/types"
@@ -14,6 +15,7 @@ import (
 
 type desiredStateStore interface {
 	ListCurrentDesiredStatesForHost(context.Context, string) ([]store.DesiredState, error)
+	GetDesiredStateRevisionForHost(context.Context, string) (int64, error)
 }
 
 type sessionHub interface {
@@ -46,6 +48,12 @@ func (o *Orchestrator) PushDesiredState(ctx context.Context, hostID string) erro
 		return nil
 	}
 
+	// Read the revision first so a concurrent mutation can only make this value
+	// lag the loaded state, never acknowledge state that was not sent.
+	revision, err := o.store.GetDesiredStateRevisionForHost(ctx, hostID)
+	if err != nil {
+		return fmt.Errorf("load desired-state revision for host %s: %w", hostID, err)
+	}
 	states, err := o.store.ListCurrentDesiredStatesForHost(ctx, hostID)
 	if err != nil {
 		return fmt.Errorf("load desired state for host %s: %w", hostID, err)
@@ -61,7 +69,7 @@ func (o *Orchestrator) PushDesiredState(ctx context.Context, hostID string) erro
 	}
 
 	message := &types.DesiredStateMessage{
-		DesiredState: &types.DesiredState{Clusters: clusters},
+		DesiredState: &types.DesiredState{Clusters: clusters, Revision: strconv.FormatInt(revision, 10)},
 	}
 	if err := session.SendDesiredState(message); err != nil {
 		return fmt.Errorf("send desired state to host %s: %w", hostID, err)

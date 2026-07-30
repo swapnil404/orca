@@ -22,7 +22,7 @@ func (q *Queries) DeleteClusterReportsForHost(ctx context.Context, hostID string
 }
 
 const getAgentReport = `-- name: GetAgentReport :one
-SELECT host_id, actual_state, health_report, reconciliation_results, reported_at
+SELECT host_id, actual_state, health_report, reconciliation_results, desired_state_revision, reported_at
 FROM agent_reports
 WHERE host_id = $1
 `
@@ -32,6 +32,7 @@ type GetAgentReportRow struct {
 	ActualState           json.RawMessage `json:"actual_state"`
 	HealthReport          json.RawMessage `json:"health_report"`
 	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
 	ReportedAt            time.Time       `json:"reported_at"`
 }
 
@@ -43,6 +44,7 @@ func (q *Queries) GetAgentReport(ctx context.Context, hostID string) (GetAgentRe
 		&i.ActualState,
 		&i.HealthReport,
 		&i.ReconciliationResults,
+		&i.DesiredStateRevision,
 		&i.ReportedAt,
 	)
 	return i, err
@@ -110,26 +112,38 @@ func (q *Queries) ListBackupJobs(ctx context.Context, arg ListBackupJobsParams) 
 }
 
 const listClusterReportsForHost = `-- name: ListClusterReportsForHost :many
-SELECT host_id, cluster_id, actual_state, health_status, reported_at
+SELECT host_id, cluster_id, actual_state, health_status, desired_state_revision, reconciliation_results, reported_at
 FROM cluster_reports
 WHERE host_id = $1
 ORDER BY cluster_id
 `
 
-func (q *Queries) ListClusterReportsForHost(ctx context.Context, hostID string) ([]ClusterReport, error) {
+type ListClusterReportsForHostRow struct {
+	HostID                string          `json:"host_id"`
+	ClusterID             string          `json:"cluster_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthStatus          string          `json:"health_status"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	ReportedAt            time.Time       `json:"reported_at"`
+}
+
+func (q *Queries) ListClusterReportsForHost(ctx context.Context, hostID string) ([]ListClusterReportsForHostRow, error) {
 	rows, err := q.db.QueryContext(ctx, listClusterReportsForHost, hostID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ClusterReport
+	var items []ListClusterReportsForHostRow
 	for rows.Next() {
-		var i ClusterReport
+		var i ListClusterReportsForHostRow
 		if err := rows.Scan(
 			&i.HostID,
 			&i.ClusterID,
 			&i.ActualState,
 			&i.HealthStatus,
+			&i.DesiredStateRevision,
+			&i.ReconciliationResults,
 			&i.ReportedAt,
 		); err != nil {
 			return nil, err
@@ -196,12 +210,13 @@ func (q *Queries) ListMetricClusterReports(ctx context.Context, projectID string
 }
 
 const upsertAgentReport = `-- name: UpsertAgentReport :exec
-INSERT INTO agent_reports (host_id, actual_state, health_report, reconciliation_results, reported_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO agent_reports (host_id, actual_state, health_report, reconciliation_results, desired_state_revision, reported_at)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (host_id) DO UPDATE
 SET actual_state = EXCLUDED.actual_state,
     health_report = EXCLUDED.health_report,
     reconciliation_results = EXCLUDED.reconciliation_results,
+    desired_state_revision = EXCLUDED.desired_state_revision,
     reported_at = EXCLUDED.reported_at
 `
 
@@ -210,6 +225,7 @@ type UpsertAgentReportParams struct {
 	ActualState           json.RawMessage `json:"actual_state"`
 	HealthReport          json.RawMessage `json:"health_report"`
 	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
 	ReportedAt            time.Time       `json:"reported_at"`
 }
 
@@ -219,28 +235,33 @@ func (q *Queries) UpsertAgentReport(ctx context.Context, arg UpsertAgentReportPa
 		arg.ActualState,
 		arg.HealthReport,
 		arg.ReconciliationResults,
+		arg.DesiredStateRevision,
 		arg.ReportedAt,
 	)
 	return err
 }
 
 const upsertClusterReport = `-- name: UpsertClusterReport :execrows
-INSERT INTO cluster_reports (host_id, cluster_id, actual_state, health_status, reported_at)
-SELECT $1, $2, $3, $4, $5
+INSERT INTO cluster_reports (host_id, cluster_id, actual_state, health_status, desired_state_revision, reconciliation_results, reported_at)
+SELECT $1, $2, $3, $4, $5, $6, $7
 FROM clusters
 WHERE id = $2 AND host_id = $1
 ON CONFLICT (host_id, cluster_id) DO UPDATE
 SET actual_state = EXCLUDED.actual_state,
     health_status = EXCLUDED.health_status,
+    desired_state_revision = EXCLUDED.desired_state_revision,
+    reconciliation_results = EXCLUDED.reconciliation_results,
     reported_at = EXCLUDED.reported_at
 `
 
 type UpsertClusterReportParams struct {
-	HostID       string          `json:"host_id"`
-	ClusterID    string          `json:"cluster_id"`
-	ActualState  json.RawMessage `json:"actual_state"`
-	HealthStatus string          `json:"health_status"`
-	ReportedAt   time.Time       `json:"reported_at"`
+	HostID                string          `json:"host_id"`
+	ClusterID             string          `json:"cluster_id"`
+	ActualState           json.RawMessage `json:"actual_state"`
+	HealthStatus          string          `json:"health_status"`
+	DesiredStateRevision  string          `json:"desired_state_revision"`
+	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+	ReportedAt            time.Time       `json:"reported_at"`
 }
 
 func (q *Queries) UpsertClusterReport(ctx context.Context, arg UpsertClusterReportParams) (int64, error) {
@@ -249,6 +270,8 @@ func (q *Queries) UpsertClusterReport(ctx context.Context, arg UpsertClusterRepo
 		arg.ClusterID,
 		arg.ActualState,
 		arg.HealthStatus,
+		arg.DesiredStateRevision,
+		arg.ReconciliationResults,
 		arg.ReportedAt,
 	)
 	if err != nil {

@@ -20,4 +20,5 @@ export interface ProvisionDraft {
   clusterID?: string
   resourceName?: string
   expectedConfig?: string
+  expectedRevision?: string
 }

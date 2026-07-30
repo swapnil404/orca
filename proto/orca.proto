@@ -14,6 +14,7 @@ message AgentReportMessage {
   ActualState actual_state = 1;
   HealthReport health_report = 2;
   repeated ReconciliationResult reconciliation_results = 3;
+  string desired_state_revision = 4;
 }
 
 // ReconciliationResult describes the outcome of one agent action.
@@ -28,6 +29,7 @@ message ReconciliationResult {
 message DesiredState {
   string cluster_id = 1;
   repeated ClusterSpec clusters = 2;
+  string revision = 3;
 }
 
 // ClusterSpec describes a desired Postgres cluster.
