@@ -3,6 +3,7 @@ import { Settings2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectTopology } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
+import { ConnectHostEmptyState } from '../../../components/ConnectHostEmptyState'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
 
@@ -42,7 +43,11 @@ function ProjectCanvasPage() {
           </div>
         </div>
       </header>
-      <CanvasView key={projectId} clusters={clusters} snapshot={projectSnapshot} onClusterUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
+      {clusters.length === 0 ? (
+        <ConnectHostEmptyState className="flex-1" title="Connect a host to get started" description="Register an Orca agent on the infrastructure that will run PostgreSQL. Once the host connects, you can configure this project's topology." />
+      ) : (
+        <CanvasView key={projectId} clusters={clusters} snapshot={projectSnapshot} onClusterUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
+      )}
     </main>
   )
 }
