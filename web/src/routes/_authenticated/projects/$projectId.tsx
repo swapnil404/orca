@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { Settings2 } from 'lucide-react'
 import { getProjectTopology } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
@@ -28,9 +29,12 @@ function ProjectCanvasPage() {
           </p>
           <h1 className="mt-1.5 text-xl font-semibold">Project topology</h1>
         </div>
-        <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] shadow-[inset_0_1px_rgba(255,255,255,0.03)]">
-          <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
-          {connected ? 'Live telemetry' : 'Telemetry unavailable'}
+        <div className="flex items-center gap-2">
+          <Link to="/projects/$projectId/settings" params={{ projectId }} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><Settings2 className="h-3.5 w-3.5" />Settings</Link>
+          <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] shadow-[inset_0_1px_rgba(255,255,255,0.03)]">
+            <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
+            {connected ? 'Live telemetry' : 'Telemetry unavailable'}
+          </div>
         </div>
       </header>
       <CanvasView clusters={clusters} snapshot={snapshot} />

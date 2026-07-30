@@ -1,4 +1,4 @@
-import type { BackupJob, Cluster, ClusterInput, Project, ProjectHost, ProjectTopology } from '../types/resources'
+import type { BackupJob, Cluster, ClusterInput, PgBouncerConfig, Project, ProjectHost, ProjectTopology } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -46,6 +46,13 @@ export function updateCluster(clusterID: string, input: ClusterInput): Promise<C
   return apiRequest(`/clusters/${encode(clusterID)}`, {
     method: 'PUT',
     body: JSON.stringify(input),
+  })
+}
+
+export function updatePgBouncer(clusterID: string, config: PgBouncerConfig): Promise<Cluster> {
+  return apiRequest(`/clusters/${encode(clusterID)}/pgbouncer`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
   })
 }
 

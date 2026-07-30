@@ -83,17 +83,13 @@ func (s *Postgres) UpdateHostStatus(ctx context.Context, hostID string, status H
 	})
 }
 
-// ListProjectHosts returns the distinct hosts assigned to an owned project.
-func (s *Postgres) ListProjectHosts(ctx context.Context, userID, projectID string) ([]Host, error) {
-	rows, err := s.queries.ListProjectHosts(ctx, sqlcdb.ListProjectHostsParams{ID: projectID, UserID: userID})
+// GetHost returns a host by ID.
+func (s *Postgres) GetHost(ctx context.Context, hostID string) (Host, error) {
+	host, err := s.queries.GetHost(ctx, hostID)
 	if err != nil {
-		return nil, err
+		return Host{}, err
 	}
-	hosts := make([]Host, len(rows))
-	for i, host := range rows {
-		hosts[i] = hostFromSQLC(host)
-	}
-	return hosts, nil
+	return hostFromSQLC(host), nil
 }
 
 func hostFromSQLC(host sqlcdb.Host) Host {

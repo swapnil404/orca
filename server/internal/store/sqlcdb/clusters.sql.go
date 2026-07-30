@@ -448,3 +448,54 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 	)
 	return i, err
 }
+
+const updateClusterPgBouncer = `-- name: UpdateClusterPgBouncer :one
+UPDATE clusters c
+SET pgbouncer_pool_mode = $1::text,
+    pgbouncer_max_connections = $2::integer,
+    updated_at = NOW()
+WHERE c.id = $3 AND c.pgbouncer_enabled AND c.deleted_at IS NULL
+RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+`
+
+type UpdateClusterPgBouncerParams struct {
+	PgbouncerPoolMode       string `json:"pgbouncer_pool_mode"`
+	PgbouncerMaxConnections int32  `json:"pgbouncer_max_connections"`
+	ClusterID               string `json:"cluster_id"`
+}
+
+func (q *Queries) UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterPgBouncerParams) (Cluster, error) {
+	row := q.db.QueryRowContext(ctx, updateClusterPgBouncer, arg.PgbouncerPoolMode, arg.PgbouncerMaxConnections, arg.ClusterID)
+	var i Cluster
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.HostID,
+		&i.Name,
+		&i.PostgresVersion,
+		&i.Parameters,
+		&i.ReplicaCount,
+		&i.PgbouncerEnabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
+		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
+	)
+	return i, err
+}

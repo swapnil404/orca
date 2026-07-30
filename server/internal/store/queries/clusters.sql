@@ -98,6 +98,20 @@ WHERE c.id = $1 AND c.project_id = p.id
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 RETURNING c.id, c.project_id, c.host_id;
 
+-- name: UpdateClusterPgBouncer :one
+UPDATE clusters c
+SET pgbouncer_pool_mode = sqlc.arg(pgbouncer_pool_mode)::text,
+    pgbouncer_max_connections = sqlc.arg(pgbouncer_max_connections)::integer,
+    updated_at = NOW()
+WHERE c.id = sqlc.arg(cluster_id) AND c.pgbouncer_enabled AND c.deleted_at IS NULL
+RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections;
+
 -- name: ListActiveClustersForProject :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,

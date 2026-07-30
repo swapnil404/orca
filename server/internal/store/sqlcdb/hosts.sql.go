@@ -45,6 +45,27 @@ func (q *Queries) CreateHost(ctx context.Context, arg CreateHostParams) (Host, e
 	return i, err
 }
 
+const getHost = `-- name: GetHost :one
+SELECT id, user_id, token_hash, token_expires_at, status, created_at, connected_at
+FROM hosts
+WHERE id = $1
+`
+
+func (q *Queries) GetHost(ctx context.Context, id string) (Host, error) {
+	row := q.db.QueryRowContext(ctx, getHost, id)
+	var i Host
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.TokenExpiresAt,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ConnectedAt,
+	)
+	return i, err
+}
+
 const getHostByTokenHash = `-- name: GetHostByTokenHash :one
 SELECT id, user_id, token_hash, token_expires_at, status, created_at, connected_at
 FROM hosts
@@ -64,52 +85,6 @@ func (q *Queries) GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Hos
 		&i.ConnectedAt,
 	)
 	return i, err
-}
-
-const listProjectHosts = `-- name: ListProjectHosts :many
-SELECT DISTINCT h.id, h.user_id, h.token_hash, h.token_expires_at, h.status, h.created_at, h.connected_at
-FROM hosts h
-JOIN clusters c ON c.host_id = h.id AND c.deleted_at IS NULL
-JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
-JOIN organization_memberships om ON om.organization_id = p.organization_id
-WHERE p.id = $1 AND om.user_id = $2
-ORDER BY h.id
-`
-
-type ListProjectHostsParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
-}
-
-func (q *Queries) ListProjectHosts(ctx context.Context, arg ListProjectHostsParams) ([]Host, error) {
-	rows, err := q.db.QueryContext(ctx, listProjectHosts, arg.ID, arg.UserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Host
-	for rows.Next() {
-		var i Host
-		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.TokenHash,
-			&i.TokenExpiresAt,
-			&i.Status,
-			&i.CreatedAt,
-			&i.ConnectedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const updateHostStatus = `-- name: UpdateHostStatus :exec

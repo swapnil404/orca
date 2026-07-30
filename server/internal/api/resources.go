@@ -34,12 +34,17 @@ type resourceStore interface {
 	ListClusters(context.Context, string, string) ([]store.Cluster, error)
 	GetCluster(context.Context, string, string) (store.Cluster, error)
 	UpdateCluster(context.Context, store.UpdateClusterParams) (store.Cluster, error)
+	UpdatePgBouncer(context.Context, store.UpdatePgBouncerParams) (store.Cluster, error)
 	DeleteCluster(context.Context, string, string) error
-	ListProjectHosts(context.Context, string, string) ([]store.Host, error)
+	GetHost(context.Context, string) (store.Host, error)
 }
 
 type desiredStatePusher interface {
 	PushDesiredState(context.Context, string) error
+}
+
+type hostConnectionLookup interface {
+	IsConnected(string) bool
 }
 
 // ResourceHandler serves user-scoped project and cluster endpoints.
@@ -47,6 +52,12 @@ type ResourceHandler struct {
 	store  resourceStore
 	random io.Reader
 	pusher desiredStatePusher
+	hosts  hostConnectionLookup
+}
+
+// SetHostConnectionLookup supplies the live agent-session source used by host status responses.
+func (h *ResourceHandler) SetHostConnectionLookup(hosts hostConnectionLookup) {
+	h.hosts = hosts
 }
 
 // NewResourceHandler creates the project and cluster API handler.
@@ -70,6 +81,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /projects/{projectID}/clusters", h.createCluster)
 	mux.HandleFunc("GET /clusters/{clusterID}", h.getCluster)
 	mux.HandleFunc("PUT /clusters/{clusterID}", h.updateCluster)
+	mux.HandleFunc("PUT /clusters/{clusterID}/pgbouncer", h.updatePgBouncer)
 	mux.HandleFunc("DELETE /clusters/{clusterID}", h.deleteCluster)
 }
 
@@ -333,15 +345,65 @@ func (h *ResourceHandler) deleteCluster(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var request store.PgBouncerConfig
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	switch request.PoolMode {
+	case "session", "transaction", "statement":
+	default:
+		writeError(w, http.StatusBadRequest, "pool_mode is invalid")
+		return
+	}
+	if request.MaxConnections <= 0 {
+		writeError(w, http.StatusBadRequest, "max_connections must be greater than zero")
+		return
+	}
+	current, err := h.store.GetCluster(r.Context(), userID, r.PathValue("clusterID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	cluster, err := h.store.UpdatePgBouncer(r.Context(), store.UpdatePgBouncerParams{
+		ID: current.ID, PoolMode: request.PoolMode,
+		MaxConnections: request.MaxConnections,
+	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), cluster.HostID)
+	writeJSON(w, http.StatusOK, cluster)
+}
+
 func (h *ResourceHandler) listProjectHosts(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	hosts, err := h.store.ListProjectHosts(r.Context(), userID, r.PathValue("projectID"))
+	clusters, err := h.store.ListClusters(r.Context(), userID, r.PathValue("projectID"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	hosts := make([]store.Host, 0)
+	seen := make(map[string]struct{}, len(clusters))
+	for _, cluster := range clusters {
+		if _, exists := seen[cluster.HostID]; exists {
+			continue
+		}
+		seen[cluster.HostID] = struct{}{}
+		host, err := h.store.GetHost(r.Context(), cluster.HostID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		hosts = append(hosts, host)
 	}
 	type hostResponse struct {
 		ID          string           `json:"id"`
@@ -350,7 +412,16 @@ func (h *ResourceHandler) listProjectHosts(w http.ResponseWriter, r *http.Reques
 	}
 	response := make([]hostResponse, len(hosts))
 	for i, host := range hosts {
-		response[i] = hostResponse{ID: host.ID, Status: host.Status}
+		status := host.Status
+		if h.hosts != nil {
+			status = store.HostStatusOffline
+			if h.hosts.IsConnected(host.ID) {
+				status = store.HostStatusOnline
+			} else if host.Status == store.HostStatusNeverConnected {
+				status = store.HostStatusNeverConnected
+			}
+		}
+		response[i] = hostResponse{ID: host.ID, Status: status}
 		if host.ConnectedAt.Valid {
 			response[i].ConnectedAt = &host.ConnectedAt.Time
 		}
