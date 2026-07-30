@@ -127,9 +127,17 @@ func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organ
 }
 
 const listMembersForOrganization = `-- name: ListMembersForOrganization :many
-SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at, u.email
+SELECT om.id, om.organization_id, om.user_id, om.role, om.created_at,
+       COALESCE(u.email, oi.provider_email) AS email
 FROM organization_memberships om
 JOIN users u ON u.id = om.user_id
+LEFT JOIN LATERAL (
+    SELECT provider_email
+    FROM oauth_identities
+    WHERE user_id = u.id AND provider_email IS NOT NULL
+    ORDER BY created_at, provider, provider_user_id
+    LIMIT 1
+) oi ON TRUE
 WHERE om.organization_id = $1
   AND u.deleted_at IS NULL
 ORDER BY om.created_at, om.id
