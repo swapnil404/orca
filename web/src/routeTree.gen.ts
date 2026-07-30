@@ -17,6 +17,7 @@ import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedBackupsRouteImport } from './routes/_authenticated/backups'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects/$projectId'
+import { Route as AuthenticatedProjectsProjectIdAlertsRouteImport } from './routes/_authenticated/projects/$projectId_.alerts'
 import { Route as AuthenticatedProjectsProjectIdBackupsRouteImport } from './routes/_authenticated/projects/$projectId_.backups'
 import { Route as AuthenticatedProjectsProjectIdExtensionsRouteImport } from './routes/_authenticated/projects/$projectId_.extensions'
 
@@ -60,6 +61,12 @@ const AuthenticatedProjectsProjectIdRoute =
     path: '/projects/$projectId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedProjectsProjectIdAlertsRoute =
+  AuthenticatedProjectsProjectIdAlertsRouteImport.update({
+    id: '/projects/$projectId_/alerts',
+    path: '/projects/$projectId/alerts',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdBackupsRoute =
   AuthenticatedProjectsProjectIdBackupsRouteImport.update({
     id: '/projects/$projectId_/backups',
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/backups': typeof AuthenticatedBackupsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/projects/$projectId/alerts': typeof AuthenticatedProjectsProjectIdAlertsRoute
   '/projects/$projectId/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
   '/projects/$projectId/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
@@ -92,6 +100,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/': typeof AuthenticatedIndexRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/projects/$projectId/alerts': typeof AuthenticatedProjectsProjectIdAlertsRoute
   '/projects/$projectId/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
   '/projects/$projectId/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
@@ -105,6 +114,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/_authenticated/projects/$projectId_/alerts': typeof AuthenticatedProjectsProjectIdAlertsRoute
   '/_authenticated/projects/$projectId_/backups': typeof AuthenticatedProjectsProjectIdBackupsRoute
   '/_authenticated/projects/$projectId_/extensions': typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/backups'
     | '/settings'
     | '/projects/$projectId'
+    | '/projects/$projectId/alerts'
     | '/projects/$projectId/backups'
     | '/projects/$projectId/extensions'
   fileRoutesByTo: FileRoutesByTo
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/'
     | '/projects/$projectId'
+    | '/projects/$projectId/alerts'
     | '/projects/$projectId/backups'
     | '/projects/$projectId/extensions'
   id:
@@ -141,6 +153,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/'
     | '/_authenticated/projects/$projectId'
+    | '/_authenticated/projects/$projectId_/alerts'
     | '/_authenticated/projects/$projectId_/backups'
     | '/_authenticated/projects/$projectId_/extensions'
   fileRoutesById: FileRoutesById
@@ -209,6 +222,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/projects/$projectId_/alerts': {
+      id: '/_authenticated/projects/$projectId_/alerts'
+      path: '/projects/$projectId/alerts'
+      fullPath: '/projects/$projectId/alerts'
+      preLoaderRoute: typeof AuthenticatedProjectsProjectIdAlertsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/projects/$projectId_/backups': {
       id: '/_authenticated/projects/$projectId_/backups'
       path: '/projects/$projectId/backups'
@@ -232,6 +252,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
+  AuthenticatedProjectsProjectIdAlertsRoute: typeof AuthenticatedProjectsProjectIdAlertsRoute
   AuthenticatedProjectsProjectIdBackupsRoute: typeof AuthenticatedProjectsProjectIdBackupsRoute
   AuthenticatedProjectsProjectIdExtensionsRoute: typeof AuthenticatedProjectsProjectIdExtensionsRoute
 }
@@ -242,6 +263,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,
+  AuthenticatedProjectsProjectIdAlertsRoute:
+    AuthenticatedProjectsProjectIdAlertsRoute,
   AuthenticatedProjectsProjectIdBackupsRoute:
     AuthenticatedProjectsProjectIdBackupsRoute,
   AuthenticatedProjectsProjectIdExtensionsRoute:
