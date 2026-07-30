@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react'
-import type { ActualCluster, ActualPgBouncer, ActualReplica, Cluster, ProjectClusterState } from '../../types/resources'
+import type { ActualBackup, ActualCluster, ActualPgBouncer, ActualReplica, Cluster, ProjectClusterState } from '../../types/resources'
+import type { PaletteNodeType } from '../../components/topology/types'
 import type { NodeStatus } from '../status'
 
 export interface BaseNodeData extends Record<string, unknown> {
@@ -27,5 +28,30 @@ export interface PgBouncerNodeData extends BaseNodeData {
   actual?: ActualPgBouncer
 }
 
-export type InfrastructureNodeData = PrimaryNodeData | ReplicaNodeData | PgBouncerNodeData
-export type InfrastructureNode = Node<InfrastructureNodeData, 'primary' | 'replica' | 'pgbouncer'>
+export interface PgBackRestNodeData extends BaseNodeData {
+  kind: 'pgbackrest'
+  actual?: ActualBackup
+}
+
+export interface ExtensionNodeData extends BaseNodeData {
+  kind: 'extension'
+  extension: string
+  version?: string
+}
+
+export interface PendingNodeData extends Record<string, unknown> {
+  kind: 'pending'
+  resourceType: PaletteNodeType
+  label: string
+  eyebrow: string
+  detail: string
+  stage: 'configuring' | 'submitting' | 'awaiting' | 'error'
+  error?: string
+  onDismiss: () => void
+}
+
+export type RealInfrastructureNodeData = PrimaryNodeData | ReplicaNodeData | PgBouncerNodeData | PgBackRestNodeData | ExtensionNodeData
+export type InfrastructureNodeData = RealInfrastructureNodeData | PendingNodeData
+export type InfrastructureNode = Node<InfrastructureNodeData, 'primary' | 'replica' | 'pgbouncer' | 'pgbackrest' | 'extension' | 'pending'>
+export type PrimaryInfrastructureNode = Node<PrimaryNodeData, 'primary'>
+export type PendingInfrastructureNode = Node<PendingNodeData, 'pending'>

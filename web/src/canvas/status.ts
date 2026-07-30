@@ -1,4 +1,4 @@
-import type { ActualCluster, ActualPgBouncer, ActualReplica, ProjectClusterState } from '../types/resources'
+import type { ActualBackup, ActualCluster, ActualPgBouncer, ActualReplica, ProjectClusterState } from '../types/resources'
 
 export type NodeStatus = 'healthy' | 'degraded' | 'down' | 'pending' | 'stale' | 'unknown'
 
@@ -37,6 +37,20 @@ export function pgBouncerStatus(
   if (state.health === 'down' || state.health === 'pending') return state.health
   if (!pgBouncer) return 'unknown'
   return isRunning(pgBouncer.status) && pgBouncer.admin_console_reachable === true ? 'healthy' : 'degraded'
+}
+
+export function pgBackRestStatus(
+  state: ProjectClusterState | undefined,
+  backup: ActualBackup | undefined,
+  now = Date.now(),
+): NodeStatus {
+  if (!state) return 'unknown'
+  if (isReportStale(state, now)) return 'stale'
+  if (state.health === 'down') return 'down'
+  if (!backup) return 'unknown'
+  if (backup.status === 'failed') return 'degraded'
+  if (backup.status === 'pending') return 'pending'
+  return backup.status === 'succeeded' ? 'healthy' : 'unknown'
 }
 
 function isReportStale(state: ProjectClusterState, now: number): boolean {

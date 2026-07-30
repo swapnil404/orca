@@ -1,11 +1,15 @@
 import type { Cluster, ProjectStateSnapshot } from '../types/resources'
 import type { LagTone, TopologyEdgeType } from './edges/TopologyEdge'
-import { pgBouncerStatus, primaryStatus, replicaStatus } from './status'
+import { pgBackRestStatus, pgBouncerStatus, primaryStatus, replicaStatus } from './status'
 import type { InfrastructureNode } from './nodes/types'
 
 export interface CanvasTopology {
   nodes: InfrastructureNode[]
   edges: TopologyEdgeType[]
+}
+
+export function extensionNodeID(clusterID: string, extension: string): string {
+  return `extension:${clusterID}:${encodeURIComponent(extension)}`
 }
 
 function lagTone(status: string | undefined): LagTone {
@@ -28,10 +32,10 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
   const nodes: InfrastructureNode[] = []
   const edges: TopologyEdgeType[] = []
 
-  clusters.forEach((cluster, clusterIndex) => {
+  let y = 0
+  clusters.forEach((cluster) => {
     const state = snapshot?.clusters.find((candidate) => candidate.cluster_id === cluster.id)
     const primaryID = `cluster:${cluster.id}`
-    const y = clusterIndex * 330
     nodes.push({
       id: primaryID,
       type: 'primary',
@@ -102,6 +106,54 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
       })
       edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
     }
+
+    if (cluster.pg_back_rest) {
+      const actual = state?.actual_state?.backup
+      const nodeID = `pgbackrest:${cluster.id}`
+      nodes.push({
+        id: nodeID,
+        type: 'pgbackrest',
+        position: { x: 740, y: y + (cluster.pgbouncer_enabled ? 140 : 0) },
+        draggable: false,
+        connectable: false,
+        data: {
+          kind: 'pgbackrest',
+          label: 'pgBackRest',
+          eyebrow: 'Backup repository',
+          detail: actual?.status ? `Agent reports ${actual.status}` : 'Awaiting applied backup config',
+          status: pgBackRestStatus(state, actual, now),
+          cluster,
+          state,
+          actual,
+        },
+      })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
+    }
+
+    cluster.enabled_extensions.forEach((extension, index) => {
+      const installed = state?.actual_state?.enabled_extensions?.includes(extension) ?? false
+      const nodeID = extensionNodeID(cluster.id, extension)
+      nodes.push({
+        id: nodeID,
+        type: 'extension',
+        position: { x: 1090, y: y + index * 120 },
+        draggable: false,
+        connectable: false,
+        data: {
+          kind: 'extension',
+          extension,
+          label: extension,
+          eyebrow: 'PostgreSQL extension',
+          detail: installed ? `Version ${state?.actual_state?.extension_versions?.[extension] ?? 'not reported'}` : 'Awaiting installation report',
+          status: installed ? primaryStatus(state, now) : 'unknown',
+          cluster,
+          state,
+          version: state?.actual_state?.extension_versions?.[extension],
+        },
+      })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
+    })
+    y += Math.max(330, cluster.enabled_extensions.length * 120 + 140)
   })
 
   return { nodes, edges }
