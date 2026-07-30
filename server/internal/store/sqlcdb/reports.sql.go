@@ -48,6 +48,67 @@ func (q *Queries) GetAgentReport(ctx context.Context, hostID string) (GetAgentRe
 	return i, err
 }
 
+const listBackupJobs = `-- name: ListBackupJobs :many
+SELECT p.id AS project_id, p.name AS project_name,
+       c.id AS cluster_id, c.name AS cluster_name, c.pgbackrest_enabled,
+       COALESCE(cr.actual_state, 'null'::jsonb) AS actual_state,
+       COALESCE(cr.reported_at, 'epoch'::timestamptz) AS reported_at
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+JOIN clusters c ON c.project_id = p.id
+LEFT JOIN cluster_reports cr ON cr.host_id = c.host_id AND cr.cluster_id = c.id
+WHERE om.user_id = $1
+  AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+  AND ($2::text = '' OR p.id = $2)
+ORDER BY p.name, p.id, c.name, c.id
+`
+
+type ListBackupJobsParams struct {
+	UserID    string `json:"user_id"`
+	ProjectID string `json:"project_id"`
+}
+
+type ListBackupJobsRow struct {
+	ProjectID         string          `json:"project_id"`
+	ProjectName       string          `json:"project_name"`
+	ClusterID         string          `json:"cluster_id"`
+	ClusterName       string          `json:"cluster_name"`
+	PgbackrestEnabled bool            `json:"pgbackrest_enabled"`
+	ActualState       json.RawMessage `json:"actual_state"`
+	ReportedAt        time.Time       `json:"reported_at"`
+}
+
+func (q *Queries) ListBackupJobs(ctx context.Context, arg ListBackupJobsParams) ([]ListBackupJobsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBackupJobs, arg.UserID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBackupJobsRow
+	for rows.Next() {
+		var i ListBackupJobsRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.ClusterID,
+			&i.ClusterName,
+			&i.PgbackrestEnabled,
+			&i.ActualState,
+			&i.ReportedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listClusterReportsForHost = `-- name: ListClusterReportsForHost :many
 SELECT host_id, cluster_id, actual_state, health_status, reported_at
 FROM cluster_reports

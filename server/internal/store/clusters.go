@@ -10,7 +10,10 @@ import (
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
 
-const defaultPgBouncerMaxConnections = 100
+const (
+	defaultPgBouncerPoolMode       = "transaction"
+	defaultPgBouncerMaxConnections = 100
+)
 
 // Cluster is a desired Postgres cluster assigned to a host.
 type Cluster struct {
@@ -24,9 +27,16 @@ type Cluster struct {
 	Replicas          []Replica         `json:"replicas"`
 	EnabledExtensions []string          `json:"enabled_extensions"`
 	PgBouncerEnabled  bool              `json:"pgbouncer_enabled"`
+	PgBouncer         PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *PgBackRestConfig `json:"pg_back_rest,omitempty"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
+}
+
+// PgBouncerConfig contains the desired connection pool settings.
+type PgBouncerConfig struct {
+	PoolMode       string `json:"pool_mode"`
+	MaxConnections int32  `json:"max_connections"`
 }
 
 // Replica identifies a desired PostgreSQL replica.
@@ -70,6 +80,7 @@ type CreateClusterParams struct {
 	Replicas          []Replica
 	EnabledExtensions []string
 	PgBouncerEnabled  bool
+	PgBouncer         PgBouncerConfig
 	PgBackRest        *PgBackRestConfig
 }
 
@@ -84,6 +95,7 @@ type UpdateClusterParams struct {
 	Replicas          []Replica
 	EnabledExtensions []string
 	PgBouncerEnabled  bool
+	PgBouncer         PgBouncerConfig
 	PgBackRest        *PgBackRestConfig
 }
 
@@ -121,6 +133,8 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 		ClusterID: params.ID, ProjectID: params.ProjectID, HostID: params.HostID,
 		Name: params.Name, PostgresVersion: params.PostgresVersion, Parameters: parameters,
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
+		PgbouncerPoolMode:             pgBouncerPoolMode(params.PgBouncer),
+		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
 		PgbackrestEnabled:             params.PgBackRest != nil,
@@ -198,6 +212,8 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 		ID: params.ID, UserID: params.UserID, Name: params.Name,
 		PostgresVersion: params.PostgresVersion, Parameters: parameters,
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
+		PgbouncerPoolMode:             pgBouncerPoolMode(params.PgBouncer),
+		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
 		PgbackrestEnabled:             params.PgBackRest != nil,
@@ -287,6 +303,9 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 		ID: cluster.ID, ProjectID: cluster.ProjectID, HostID: cluster.HostID,
 		Name: cluster.Name, PostgresVersion: cluster.PostgresVersion, Parameters: parameters,
 		ReplicaCount: cluster.ReplicaCount, PgBouncerEnabled: cluster.PgbouncerEnabled,
+		PgBouncer: PgBouncerConfig{
+			PoolMode: cluster.PgbouncerPoolMode, MaxConnections: cluster.PgbouncerMaxConnections,
+		},
 		Replicas: replicasFromIDs(replicaIDs), EnabledExtensions: enabledExtensions,
 		CreatedAt: cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
 	}
@@ -330,8 +349,8 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 	}
 	if cluster.PgBouncerEnabled {
 		state.PgBouncer = &orcatypes.PgBouncerSpec{
-			PoolMode:       "transaction",
-			MaxConnections: defaultPgBouncerMaxConnections,
+			PoolMode:       cluster.PgBouncer.PoolMode,
+			MaxConnections: uint32(cluster.PgBouncer.MaxConnections),
 		}
 		state.Databases = []*orcatypes.DatabaseSpec{{Name: "postgres"}}
 	}
@@ -352,6 +371,20 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		return nil, fmt.Errorf("marshal cluster desired state: %w", err)
 	}
 	return payload, nil
+}
+
+func pgBouncerPoolMode(config PgBouncerConfig) string {
+	if config.PoolMode == "" {
+		return defaultPgBouncerPoolMode
+	}
+	return config.PoolMode
+}
+
+func pgBouncerMaxConnections(config PgBouncerConfig) int32 {
+	if config.MaxConnections == 0 {
+		return defaultPgBouncerMaxConnections
+	}
+	return config.MaxConnections
 }
 
 func replicaIDStrings(replicas []Replica) []string {

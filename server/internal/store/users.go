@@ -39,6 +39,9 @@ func (s *Postgres) UserIDForOAuthIdentity(ctx context.Context, provider, provide
 	if _, err := queries.CreateOAuthUser(ctx, newUserID); err != nil {
 		return "", err
 	}
+	if err := createPersonalOrganization(ctx, queries, newUserID, providerEmail); err != nil {
+		return "", err
+	}
 	_, err = queries.CreateOAuthIdentity(ctx, sqlcdb.CreateOAuthIdentityParams{
 		Provider: provider, ProviderUserID: providerUserID, ProviderEmail: providerEmail, UserID: newUserID,
 	})
@@ -60,12 +63,24 @@ func (s *Postgres) UserIDForOAuthIdentity(ctx context.Context, provider, provide
 	return "", err
 }
 
-// CreatePasswordUser persists an account with an email/password credential.
+// CreatePasswordUser atomically creates an account, personal organization, and owner membership.
 func (s *Postgres) CreatePasswordUser(ctx context.Context, id, email, passwordHash string) (User, error) {
-	user, err := s.queries.CreatePasswordUser(ctx, sqlcdb.CreatePasswordUserParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	user, err := queries.CreatePasswordUser(ctx, sqlcdb.CreatePasswordUserParams{
 		ID: id, Lower: email, PasswordHash: sql.NullString{String: passwordHash, Valid: true},
 	})
 	if err != nil {
+		return User{}, err
+	}
+	if err := createPersonalOrganization(ctx, queries, id, email); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return User{}, err
 	}
 	return userFromSQLC(user), nil

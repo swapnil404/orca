@@ -7,6 +7,7 @@ package sqlcdb
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -19,16 +20,19 @@ SELECT $1::text, p.id, c.id, $2::text,
        $3::text, $4::double precision,
        $5::bigint
 FROM projects p
+JOIN organization_memberships om
+    ON om.organization_id = p.organization_id
+    AND om.user_id = $6
 LEFT JOIN clusters c
-    ON c.id = NULLIF($6::text, '')
+    ON c.id = NULLIF($7::text, '')
     AND c.project_id = p.id
     AND c.deleted_at IS NULL
-WHERE p.id = $7
-  AND p.user_id = $8
+WHERE p.id = $8
   AND p.deleted_at IS NULL
-  AND ($6::text = '' OR c.id IS NOT NULL)
+  AND ($7::text = '' OR c.id IS NOT NULL)
 RETURNING id, project_id, cluster_id, metric_name, comparison, threshold,
-          duration_before_firing_seconds, current_state, last_transition_at
+          duration_before_firing_seconds, current_state, last_transition_at,
+          severity
 `
 
 type CreateAlertRuleParams struct {
@@ -37,9 +41,9 @@ type CreateAlertRuleParams struct {
 	Comparison                  string  `json:"comparison"`
 	Threshold                   float64 `json:"threshold"`
 	DurationBeforeFiringSeconds int64   `json:"duration_before_firing_seconds"`
+	UserID                      string  `json:"user_id"`
 	ClusterID                   string  `json:"cluster_id"`
 	ProjectID                   string  `json:"project_id"`
-	UserID                      string  `json:"user_id"`
 }
 
 func (q *Queries) CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error) {
@@ -49,9 +53,9 @@ func (q *Queries) CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams
 		arg.Comparison,
 		arg.Threshold,
 		arg.DurationBeforeFiringSeconds,
+		arg.UserID,
 		arg.ClusterID,
 		arg.ProjectID,
-		arg.UserID,
 	)
 	var i AlertRule
 	err := row.Scan(
@@ -64,16 +68,18 @@ func (q *Queries) CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams
 		&i.DurationBeforeFiringSeconds,
 		&i.CurrentState,
 		&i.LastTransitionAt,
+		&i.Severity,
 	)
 	return i, err
 }
 
 const deleteAlertRule = `-- name: DeleteAlertRule :execrows
 DELETE FROM alert_rules ar
-USING projects p
+USING projects p, organization_memberships om
 WHERE ar.id = $1
   AND ar.project_id = p.id
-  AND p.user_id = $2
+  AND om.organization_id = p.organization_id
+  AND om.user_id = $2
   AND p.deleted_at IS NULL
 `
 
@@ -90,10 +96,110 @@ func (q *Queries) DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams
 	return result.RowsAffected()
 }
 
+const listAlertIncidentsForProject = `-- name: ListAlertIncidentsForProject :many
+SELECT id, project_id, rule_id, metric_name, comparison, threshold, severity,
+       fired_at, resolved_at
+FROM alert_incidents
+WHERE project_id = $1
+ORDER BY fired_at DESC, id DESC
+`
+
+func (q *Queries) ListAlertIncidentsForProject(ctx context.Context, projectID string) ([]AlertIncident, error) {
+	rows, err := q.db.QueryContext(ctx, listAlertIncidentsForProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AlertIncident
+	for rows.Next() {
+		var i AlertIncident
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.RuleID,
+			&i.MetricName,
+			&i.Comparison,
+			&i.Threshold,
+			&i.Severity,
+			&i.FiredAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAlertIncidentsForUser = `-- name: ListAlertIncidentsForUser :many
+SELECT ai.id, ai.project_id, p.name AS project_name, ai.rule_id,
+       ai.metric_name, ai.comparison, ai.threshold, ai.severity,
+       ai.fired_at, ai.resolved_at
+FROM alert_incidents ai
+JOIN projects p ON p.id = ai.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE om.user_id = $1
+  AND p.deleted_at IS NULL
+ORDER BY ai.fired_at DESC, ai.id DESC
+`
+
+type ListAlertIncidentsForUserRow struct {
+	ID          int64        `json:"id"`
+	ProjectID   string       `json:"project_id"`
+	ProjectName string       `json:"project_name"`
+	RuleID      string       `json:"rule_id"`
+	MetricName  string       `json:"metric_name"`
+	Comparison  string       `json:"comparison"`
+	Threshold   float64      `json:"threshold"`
+	Severity    string       `json:"severity"`
+	FiredAt     time.Time    `json:"fired_at"`
+	ResolvedAt  sql.NullTime `json:"resolved_at"`
+}
+
+func (q *Queries) ListAlertIncidentsForUser(ctx context.Context, userID string) ([]ListAlertIncidentsForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAlertIncidentsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAlertIncidentsForUserRow
+	for rows.Next() {
+		var i ListAlertIncidentsForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.RuleID,
+			&i.MetricName,
+			&i.Comparison,
+			&i.Threshold,
+			&i.Severity,
+			&i.FiredAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAlertRulesForEvaluation = `-- name: ListAlertRulesForEvaluation :many
 SELECT ar.id, ar.project_id, ar.cluster_id, ar.metric_name, ar.comparison,
        ar.threshold, ar.duration_before_firing_seconds, ar.current_state,
-       ar.last_transition_at
+       ar.last_transition_at, ar.severity
 FROM alert_rules ar
 JOIN projects p ON p.id = ar.project_id
 LEFT JOIN clusters c ON c.id = ar.cluster_id
@@ -121,6 +227,7 @@ func (q *Queries) ListAlertRulesForEvaluation(ctx context.Context) ([]AlertRule,
 			&i.DurationBeforeFiringSeconds,
 			&i.CurrentState,
 			&i.LastTransitionAt,
+			&i.Severity,
 		); err != nil {
 			return nil, err
 		}
@@ -138,12 +245,13 @@ func (q *Queries) ListAlertRulesForEvaluation(ctx context.Context) ([]AlertRule,
 const listAlertRulesForProject = `-- name: ListAlertRulesForProject :many
 SELECT ar.id, ar.project_id, ar.cluster_id, ar.metric_name, ar.comparison,
        ar.threshold, ar.duration_before_firing_seconds, ar.current_state,
-       ar.last_transition_at
+       ar.last_transition_at, ar.severity
 FROM alert_rules ar
 JOIN projects p ON p.id = ar.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
 LEFT JOIN clusters c ON c.id = ar.cluster_id
 WHERE ar.project_id = $1
-  AND p.user_id = $2
+  AND om.user_id = $2
   AND p.deleted_at IS NULL
   AND (ar.cluster_id IS NULL OR c.deleted_at IS NULL)
 ORDER BY ar.id
@@ -173,6 +281,7 @@ func (q *Queries) ListAlertRulesForProject(ctx context.Context, arg ListAlertRul
 			&i.DurationBeforeFiringSeconds,
 			&i.CurrentState,
 			&i.LastTransitionAt,
+			&i.Severity,
 		); err != nil {
 			return nil, err
 		}
@@ -188,15 +297,37 @@ func (q *Queries) ListAlertRulesForProject(ctx context.Context, arg ListAlertRul
 }
 
 const updateAlertRuleState = `-- name: UpdateAlertRuleState :one
-UPDATE alert_rules
-SET current_state = $1::text,
-    last_transition_at = CASE
-        WHEN current_state <> $1::text THEN $2::timestamptz
-        ELSE last_transition_at
-    END
-WHERE id = $3
-RETURNING id, project_id, cluster_id, metric_name, comparison, threshold,
-          duration_before_firing_seconds, current_state, last_transition_at
+WITH updated_rule AS (
+    UPDATE alert_rules ar
+    SET current_state = $1::text,
+        last_transition_at = CASE
+            WHEN ar.current_state <> $1::text THEN $2::timestamptz
+            ELSE ar.last_transition_at
+        END
+    WHERE ar.id = $3
+    RETURNING ar.id, ar.project_id, ar.cluster_id, ar.metric_name, ar.comparison, ar.threshold,
+              ar.duration_before_firing_seconds, ar.current_state, ar.last_transition_at,
+              ar.severity
+), opened_incident AS (
+    INSERT INTO alert_incidents (
+        project_id, rule_id, metric_name, comparison, threshold, severity, fired_at
+    )
+    SELECT project_id, id, metric_name, comparison, threshold, severity,
+           $2::timestamptz
+    FROM updated_rule
+    WHERE current_state = 'firing'
+    ON CONFLICT (rule_id) WHERE resolved_at IS NULL DO NOTHING
+), resolved_incident AS (
+    UPDATE alert_incidents
+    SET resolved_at = $2::timestamptz
+    WHERE rule_id = $3
+      AND resolved_at IS NULL
+      AND $1::text = 'ok'
+)
+SELECT id, project_id, cluster_id, metric_name, comparison, threshold,
+       duration_before_firing_seconds, current_state, last_transition_at,
+       severity
+FROM updated_rule
 `
 
 type UpdateAlertRuleStateParams struct {
@@ -205,9 +336,22 @@ type UpdateAlertRuleStateParams struct {
 	RuleID         string    `json:"rule_id"`
 }
 
-func (q *Queries) UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (AlertRule, error) {
+type UpdateAlertRuleStateRow struct {
+	ID                          string         `json:"id"`
+	ProjectID                   string         `json:"project_id"`
+	ClusterID                   sql.NullString `json:"cluster_id"`
+	MetricName                  string         `json:"metric_name"`
+	Comparison                  string         `json:"comparison"`
+	Threshold                   float64        `json:"threshold"`
+	DurationBeforeFiringSeconds int64          `json:"duration_before_firing_seconds"`
+	CurrentState                string         `json:"current_state"`
+	LastTransitionAt            time.Time      `json:"last_transition_at"`
+	Severity                    string         `json:"severity"`
+}
+
+func (q *Queries) UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (UpdateAlertRuleStateRow, error) {
 	row := q.db.QueryRowContext(ctx, updateAlertRuleState, arg.CurrentState, arg.TransitionedAt, arg.RuleID)
-	var i AlertRule
+	var i UpdateAlertRuleStateRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
@@ -218,6 +362,7 @@ func (q *Queries) UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleS
 		&i.DurationBeforeFiringSeconds,
 		&i.CurrentState,
 		&i.LastTransitionAt,
+		&i.Severity,
 	)
 	return i, err
 }

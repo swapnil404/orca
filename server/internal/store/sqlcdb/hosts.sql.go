@@ -66,6 +66,52 @@ func (q *Queries) GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Hos
 	return i, err
 }
 
+const listProjectHosts = `-- name: ListProjectHosts :many
+SELECT DISTINCT h.id, h.user_id, h.token_hash, h.token_expires_at, h.status, h.created_at, h.connected_at
+FROM hosts h
+JOIN clusters c ON c.host_id = h.id AND c.deleted_at IS NULL
+JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE p.id = $1 AND om.user_id = $2
+ORDER BY h.id
+`
+
+type ListProjectHostsParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) ListProjectHosts(ctx context.Context, arg ListProjectHostsParams) ([]Host, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectHosts, arg.ID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Host
+	for rows.Next() {
+		var i Host
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TokenHash,
+			&i.TokenExpiresAt,
+			&i.Status,
+			&i.CreatedAt,
+			&i.ConnectedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateHostStatus = `-- name: UpdateHostStatus :exec
 UPDATE hosts
 SET status = $2,

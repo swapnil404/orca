@@ -16,6 +16,7 @@ export interface Cluster {
   replicas: Array<{ id: string }>
   enabled_extensions: string[]
   pgbouncer_enabled: boolean
+  pg_bouncer: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
   created_at: string
   updated_at: string
@@ -29,7 +30,21 @@ export interface ClusterInput {
   replica_count: number
   enabled_extensions: string[]
   pgbouncer_enabled: boolean
+  pg_bouncer: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
+}
+
+export type PgBouncerPoolMode = 'session' | 'transaction' | 'statement'
+
+export interface PgBouncerConfig {
+  pool_mode: PgBouncerPoolMode
+  max_connections: number
+}
+
+export interface ProjectHost {
+  id: string
+  status: 'never_connected' | 'online' | 'offline'
+  connected_at?: string
 }
 
 export interface PgBackRestConfig {
@@ -70,6 +85,8 @@ export interface ActualCluster {
   replicas?: ActualReplica[]
   pg_bouncer?: ActualPgBouncer
   enabled_extensions?: string[]
+  extension_versions?: Record<string, string>
+  extension_update_methods?: Record<string, 'hot_apply' | 'restart'>
   postgres_ready?: boolean
 }
 
@@ -93,4 +110,17 @@ export interface ProjectStateSnapshot {
 export interface ProjectTopology {
   project: Project
   clusters: Cluster[]
+}
+
+export type BackupStatus = 'succeeded' | 'failed' | 'pending' | 'unknown' | 'not_configured'
+
+export interface BackupJob {
+  project_id: string
+  project_name: string
+  cluster_id: string
+  cluster_name: string
+  last_backup: string | null
+  size_bytes: number | null
+  pitr_enabled: boolean
+  status: BackupStatus
 }

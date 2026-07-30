@@ -13,7 +13,8 @@ import (
 const createCluster = `-- name: CreateCluster :one
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
-    replica_count, replica_ids, enabled_extensions, pgbouncer_enabled, pgbackrest_enabled, pgbackrest_repo_path,
+    replica_count, replica_ids, enabled_extensions, pgbouncer_enabled, pgbouncer_pool_mode,
+    pgbouncer_max_connections, pgbackrest_enabled, pgbackrest_repo_path,
     pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
     pgbackrest_incr_interval_seconds
@@ -21,20 +22,24 @@ INSERT INTO clusters (
 SELECT $1::text, p.id, h.id, $2::text,
        $3::text, $4::jsonb,
        $5::integer, $6::jsonb, $7::jsonb,
-       $8::boolean,
-       $9::boolean, $10::text,
-       $11::integer, $12::integer,
-       $13::bigint, $14::bigint,
-       $15::bigint
+       $8::boolean, $9::text,
+       $10::integer,
+       $11::boolean, $12::text,
+       $13::integer, $14::integer,
+       $15::bigint, $16::bigint,
+       $17::bigint
 FROM projects p
-JOIN hosts h ON h.id = $16 AND h.user_id = $17
-WHERE p.id = $18 AND p.user_id = $17 AND p.deleted_at IS NULL
+JOIN hosts h ON h.id = $18 AND h.user_id = $19
+JOIN organization_memberships om
+  ON om.organization_id = p.organization_id AND om.user_id = $19
+WHERE p.id = $20 AND p.deleted_at IS NULL
 RETURNING id, project_id, host_id, name, postgres_version, parameters,
-          replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at,
+           replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at,
           pgbackrest_enabled, pgbackrest_repo_path,
           pgbackrest_retention_full, pgbackrest_retention_diff,
           pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
-          pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions
+           pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions,
+           pgbouncer_pool_mode, pgbouncer_max_connections
 `
 
 type CreateClusterParams struct {
@@ -46,6 +51,8 @@ type CreateClusterParams struct {
 	ReplicaIds                    json.RawMessage `json:"replica_ids"`
 	EnabledExtensions             json.RawMessage `json:"enabled_extensions"`
 	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
+	PgbouncerPoolMode             string          `json:"pgbouncer_pool_mode"`
+	PgbouncerMaxConnections       int32           `json:"pgbouncer_max_connections"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
 	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
@@ -68,6 +75,8 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		arg.ReplicaIds,
 		arg.EnabledExtensions,
 		arg.PgbouncerEnabled,
+		arg.PgbouncerPoolMode,
+		arg.PgbouncerMaxConnections,
 		arg.PgbackrestEnabled,
 		arg.PgbackrestRepoPath,
 		arg.PgbackrestRetentionFull,
@@ -101,6 +110,8 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		&i.PgbackrestIncrIntervalSeconds,
 		&i.ReplicaIds,
 		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
 	)
 	return i, err
 }
@@ -111,10 +122,12 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions
+       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
-WHERE c.id = $1 AND p.user_id = $2
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.id = $1 AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 `
 
@@ -147,6 +160,8 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 		&i.PgbackrestIncrIntervalSeconds,
 		&i.ReplicaIds,
 		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
 	)
 	return i, err
 }
@@ -157,10 +172,12 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions
+       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
-WHERE c.project_id = $1 AND p.user_id = $2
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.project_id = $1 AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 ORDER BY c.id
 `
@@ -200,6 +217,8 @@ func (q *Queries) ListActiveClustersForProject(ctx context.Context, arg ListActi
 			&i.PgbackrestIncrIntervalSeconds,
 			&i.ReplicaIds,
 			&i.EnabledExtensions,
+			&i.PgbouncerPoolMode,
+			&i.PgbouncerMaxConnections,
 		); err != nil {
 			return nil, err
 		}
@@ -220,10 +239,12 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_enabled, c.pgbackrest_repo_path,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions
+       c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
-WHERE c.project_id = $1 AND p.user_id = $2
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.project_id = $1 AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 ORDER BY c.created_at, c.id
 `
@@ -263,6 +284,8 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 			&i.PgbackrestIncrIntervalSeconds,
 			&i.ReplicaIds,
 			&i.EnabledExtensions,
+			&i.PgbouncerPoolMode,
+			&i.PgbouncerMaxConnections,
 		); err != nil {
 			return nil, err
 		}
@@ -280,8 +303,9 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 const softDeleteCluster = `-- name: SoftDeleteCluster :one
 UPDATE clusters c
 SET deleted_at = NOW(), updated_at = NOW()
-FROM projects p
-WHERE c.id = $1 AND c.project_id = p.id AND p.user_id = $2
+FROM projects p, organization_memberships om
+WHERE c.id = $1 AND c.project_id = p.id
+  AND om.organization_id = p.organization_id AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 RETURNING c.id, c.project_id, c.host_id
 `
@@ -307,8 +331,9 @@ func (q *Queries) SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterPa
 const softDeleteClustersForProject = `-- name: SoftDeleteClustersForProject :exec
 UPDATE clusters c
 SET deleted_at = NOW(), updated_at = NOW()
-FROM projects p
-WHERE c.project_id = $1 AND c.project_id = p.id AND p.user_id = $2
+FROM projects p, organization_memberships om
+WHERE c.project_id = $1 AND c.project_id = p.id
+  AND om.organization_id = p.organization_id AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 `
 
@@ -331,23 +356,27 @@ SET name = $3,
     replica_ids = $7,
     enabled_extensions = $8,
     pgbouncer_enabled = $9,
-    pgbackrest_enabled = $10,
-    pgbackrest_repo_path = $11,
-    pgbackrest_retention_full = $12,
-    pgbackrest_retention_diff = $13,
-    pgbackrest_full_interval_seconds = $14,
-    pgbackrest_diff_interval_seconds = $15,
-    pgbackrest_incr_interval_seconds = $16,
+    pgbouncer_pool_mode = $10,
+    pgbouncer_max_connections = $11,
+    pgbackrest_enabled = $12,
+    pgbackrest_repo_path = $13,
+    pgbackrest_retention_full = $14,
+    pgbackrest_retention_diff = $15,
+    pgbackrest_full_interval_seconds = $16,
+    pgbackrest_diff_interval_seconds = $17,
+    pgbackrest_incr_interval_seconds = $18,
     updated_at = NOW()
-FROM projects p
-WHERE c.id = $1 AND c.project_id = p.id AND p.user_id = $2
+FROM projects p, organization_memberships om
+WHERE c.id = $1 AND c.project_id = p.id
+  AND om.organization_id = p.organization_id AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL
 RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
-          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+           c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
           c.pgbackrest_enabled, c.pgbackrest_repo_path,
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
-          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions
+           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+           c.pgbouncer_pool_mode, c.pgbouncer_max_connections
 `
 
 type UpdateClusterParams struct {
@@ -360,6 +389,8 @@ type UpdateClusterParams struct {
 	ReplicaIds                    json.RawMessage `json:"replica_ids"`
 	EnabledExtensions             json.RawMessage `json:"enabled_extensions"`
 	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
+	PgbouncerPoolMode             string          `json:"pgbouncer_pool_mode"`
+	PgbouncerMaxConnections       int32           `json:"pgbouncer_max_connections"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
 	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
@@ -380,6 +411,8 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		arg.ReplicaIds,
 		arg.EnabledExtensions,
 		arg.PgbouncerEnabled,
+		arg.PgbouncerPoolMode,
+		arg.PgbouncerMaxConnections,
 		arg.PgbackrestEnabled,
 		arg.PgbackrestRepoPath,
 		arg.PgbackrestRetentionFull,
@@ -410,6 +443,8 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		&i.PgbackrestIncrIntervalSeconds,
 		&i.ReplicaIds,
 		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
 	)
 	return i, err
 }

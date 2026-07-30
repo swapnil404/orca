@@ -50,6 +50,18 @@ type MetricClusterReport struct {
 	Stale       bool
 }
 
+// BackupJob is the latest reported backup state for one active cluster.
+type BackupJob struct {
+	ProjectID   string     `json:"project_id"`
+	ProjectName string     `json:"project_name"`
+	ClusterID   string     `json:"cluster_id"`
+	ClusterName string     `json:"cluster_name"`
+	LastBackup  *time.Time `json:"last_backup"`
+	SizeBytes   *uint64    `json:"size_bytes"`
+	PITREnabled bool       `json:"pitr_enabled"`
+	Status      string     `json:"status"`
+}
+
 // StoreAgentReport atomically replaces the latest report snapshot for hostID.
 func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *types.AgentReportMessage, receivedAt time.Time) error {
 	actualState, err := protojson.Marshal(report.GetActualState())
@@ -205,6 +217,50 @@ func (s *Postgres) ListMetricClusterReports(ctx context.Context, projectID strin
 		reports = append(reports, report)
 	}
 	return reports, nil
+}
+
+// ListBackupJobs returns backup states visible through userID's organization memberships.
+func (s *Postgres) ListBackupJobs(ctx context.Context, userID, projectID string, now time.Time) ([]BackupJob, error) {
+	rows, err := s.queries.ListBackupJobs(ctx, sqlcdb.ListBackupJobsParams{UserID: userID, ProjectID: projectID})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]BackupJob, 0, len(rows))
+	for _, row := range rows {
+		job := BackupJob{
+			ProjectID: row.ProjectID, ProjectName: row.ProjectName,
+			ClusterID: row.ClusterID, ClusterName: row.ClusterName,
+			PITREnabled: row.PgbackrestEnabled, Status: "not_configured",
+		}
+		if row.PgbackrestEnabled {
+			job.Status = "pending"
+		}
+		if row.PgbackrestEnabled && string(row.ActualState) != "null" {
+			actual := &types.ActualCluster{}
+			if err := protojson.Unmarshal(row.ActualState, actual); err != nil {
+				return nil, fmt.Errorf("decode backup state for cluster %q: %w", row.ClusterID, err)
+			}
+			if backup := actual.GetBackup(); backup != nil {
+				job.Status = backup.GetStatus()
+				if job.Status == "" && backup.LastSuccessUnixSeconds != nil {
+					job.Status = "succeeded"
+				}
+				if backup.LastSuccessUnixSeconds != nil {
+					lastBackup := time.Unix(backup.GetLastSuccessUnixSeconds(), 0).UTC()
+					job.LastBackup = &lastBackup
+				}
+				if backup.SizeBytes != nil {
+					size := backup.GetSizeBytes()
+					job.SizeBytes = &size
+				}
+			}
+			if reportIsStale(row.ReportedAt, now, DefaultReportStalenessWindow) {
+				job.Status = unknownHealthStatus
+			}
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
 }
 
 func reportIsStale(lastSeen, now time.Time, window time.Duration) bool {
