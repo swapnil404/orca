@@ -15,11 +15,11 @@
 	}
 	reverse_proxy @serverRoutes 127.0.0.1:8080
 
-	@projectAPI {
-		path /projects /projects/*
+	@jsonAPI {
+		path /projects /projects/* /alerts /backups /orgs /orgs/*
 		header Accept application/json*
 	}
-	reverse_proxy @projectAPI 127.0.0.1:8080
+	reverse_proxy @jsonAPI 127.0.0.1:8080
 
 	reverse_proxy 127.0.0.1:5173
 }
