@@ -1,5 +1,5 @@
 import type { Cluster, ProjectStateSnapshot } from '../types/resources'
-import type { LagTone, TopologyEdgeType } from './edges/TopologyEdge'
+import type { LagTone, TopologyEdgeData, TopologyEdgeType } from './edges/TopologyEdge'
 import { pgBackRestStatus, pgBouncerStatus, primaryStatus, replicaStatus } from './status'
 import type { InfrastructureNode } from './nodes/types'
 
@@ -36,11 +36,14 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
   clusters.forEach((cluster) => {
     const state = snapshot?.clusters.find((candidate) => candidate.cluster_id === cluster.id)
     const primaryID = `cluster:${cluster.id}`
+    const routeCount = cluster.replicas.length + (cluster.pgbouncer_enabled ? 1 : 0) + (cluster.pg_back_rest ? 1 : 0) + cluster.enabled_extensions.length
+    let routeIndex = 0
+    const routeData = (data: TopologyEdgeData = {}): TopologyEdgeData => ({ ...data, routeIndex: routeIndex++, routeCount })
     nodes.push({
       id: primaryID,
       type: 'primary',
       position: { x: 40, y },
-      draggable: false,
+      draggable: true,
       connectable: false,
       data: {
         kind: 'cluster',
@@ -61,7 +64,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         id: nodeID,
         type: 'replica',
         position: { x: 390, y: y + index * 140 - Math.max(0, cluster.replica_count - 1) * 60 },
-        draggable: false,
+        draggable: true,
         connectable: false,
         data: {
           kind: 'replica',
@@ -80,7 +83,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         type: 'topology',
         source: primaryID,
         target: nodeID,
-        data: { lagLabel: formatLag(actual?.replication_lag_bytes), lagTone: lagTone(actual?.replication_lag_status) },
+        data: routeData({ lagLabel: formatLag(actual?.replication_lag_bytes), lagTone: lagTone(actual?.replication_lag_status) }),
       })
     })
 
@@ -91,7 +94,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         id: nodeID,
         type: 'pgbouncer',
         position: { x: 740, y },
-        draggable: false,
+        draggable: true,
         connectable: false,
         data: {
           kind: 'pgbouncer',
@@ -104,7 +107,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           actual,
         },
       })
-      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID, data: routeData() })
     }
 
     if (cluster.pg_back_rest) {
@@ -114,7 +117,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         id: nodeID,
         type: 'pgbackrest',
         position: { x: 740, y: y + (cluster.pgbouncer_enabled ? 140 : 0) },
-        draggable: false,
+        draggable: true,
         connectable: false,
         data: {
           kind: 'pgbackrest',
@@ -127,7 +130,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           actual,
         },
       })
-      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID, data: routeData() })
     }
 
     cluster.enabled_extensions.forEach((extension, index) => {
@@ -138,7 +141,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         id: nodeID,
         type: 'extension',
         position: { x: 1090, y: y + index * 120 },
-        draggable: false,
+        draggable: true,
         connectable: false,
         data: {
           kind: 'extension',
@@ -154,7 +157,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           pendingInstall: !installed && reportedExtensions === undefined,
         },
       })
-      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID, data: routeData() })
     })
     y += Math.max(330, cluster.enabled_extensions.length * 120 + 140)
   })
