@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, redirect, useNavigate, useRouterState } from '
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useState } from 'react'
 import { getSession, logout } from '../api'
+import { CommandPalette } from '../components/shell/CommandPalette'
 import { TopBar } from '../components/shell/TopBar'
 
 export const Route = createFileRoute('/_authenticated')({
@@ -31,6 +32,7 @@ function AuthenticatedLayout() {
   return (
     <div className="min-h-screen pb-16 pt-16 sm:pb-0 sm:pl-24 sm:pt-0">
       <TopBar session={session} loggingOut={loggingOut} onLogout={handleLogout} />
+      <CommandPalette />
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={pathname}
