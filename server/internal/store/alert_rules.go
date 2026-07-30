@@ -36,17 +36,50 @@ const (
 	AlertRuleStateFiring AlertRuleState = "firing"
 )
 
+// AlertSeverity describes the operational impact assigned to an alert rule.
+type AlertSeverity string
+
+const (
+	// AlertSeverityInfo identifies an informational alert.
+	AlertSeverityInfo AlertSeverity = "info"
+	// AlertSeverityWarning identifies an alert that needs attention.
+	AlertSeverityWarning AlertSeverity = "warning"
+	// AlertSeverityCritical identifies an alert that requires urgent action.
+	AlertSeverityCritical AlertSeverity = "critical"
+)
+
 // AlertRule defines a threshold check scoped to a project or one cluster.
 type AlertRule struct {
-	ID                   string
-	ProjectID            string
-	ClusterID            string
-	MetricName           string
-	Comparison           AlertComparison
-	Threshold            float64
-	DurationBeforeFiring time.Duration
-	CurrentState         AlertRuleState
-	LastTransitionAt     time.Time
+	ID                   string          `json:"id"`
+	ProjectID            string          `json:"project_id"`
+	ClusterID            string          `json:"cluster_id,omitempty"`
+	MetricName           string          `json:"metric_name"`
+	Comparison           AlertComparison `json:"comparison"`
+	Threshold            float64         `json:"threshold"`
+	DurationBeforeFiring time.Duration   `json:"-"`
+	DurationSeconds      int64           `json:"duration_before_firing_seconds"`
+	CurrentState         AlertRuleState  `json:"current_state"`
+	LastTransitionAt     time.Time       `json:"last_transition_at"`
+	Severity             AlertSeverity   `json:"severity"`
+}
+
+// AlertIncident is one persisted firing and optional resolution of a rule.
+type AlertIncident struct {
+	ID         int64           `json:"id"`
+	ProjectID  string          `json:"project_id"`
+	RuleID     string          `json:"rule_id"`
+	MetricName string          `json:"metric_name"`
+	Comparison AlertComparison `json:"comparison"`
+	Threshold  float64         `json:"threshold"`
+	Severity   AlertSeverity   `json:"severity"`
+	FiredAt    time.Time       `json:"fired_at"`
+	ResolvedAt *time.Time      `json:"resolved_at"`
+}
+
+// GlobalAlertIncident is an incident paired with its project for cross-project views.
+type GlobalAlertIncident struct {
+	AlertIncident
+	ProjectName string `json:"project_name"`
 }
 
 // CreateAlertRuleParams contains the values needed to create an alert rule.
@@ -91,6 +124,53 @@ func (s *Postgres) ListAlertRulesForProject(ctx context.Context, userID, project
 	return alertRulesFromSQLC(rows), nil
 }
 
+// ListAlertIncidentsForProject returns newest-first firing history for a project.
+func (s *Postgres) ListAlertIncidentsForProject(ctx context.Context, projectID string) ([]AlertIncident, error) {
+	rows, err := s.queries.ListAlertIncidentsForProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	incidents := make([]AlertIncident, 0, len(rows))
+	for _, row := range rows {
+		incident := AlertIncident{
+			ID: row.ID, ProjectID: row.ProjectID, RuleID: row.RuleID,
+			MetricName: row.MetricName, Comparison: AlertComparison(row.Comparison),
+			Threshold: row.Threshold, Severity: AlertSeverity(row.Severity), FiredAt: row.FiredAt,
+		}
+		if row.ResolvedAt.Valid {
+			resolvedAt := row.ResolvedAt.Time
+			incident.ResolvedAt = &resolvedAt
+		}
+		incidents = append(incidents, incident)
+	}
+	return incidents, nil
+}
+
+// ListAlertIncidentsForUser returns incidents from projects visible through the user's memberships.
+func (s *Postgres) ListAlertIncidentsForUser(ctx context.Context, userID string) ([]GlobalAlertIncident, error) {
+	rows, err := s.queries.ListAlertIncidentsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	incidents := make([]GlobalAlertIncident, 0, len(rows))
+	for _, row := range rows {
+		incident := GlobalAlertIncident{
+			AlertIncident: AlertIncident{
+				ID: row.ID, ProjectID: row.ProjectID, RuleID: row.RuleID,
+				MetricName: row.MetricName, Comparison: AlertComparison(row.Comparison),
+				Threshold: row.Threshold, Severity: AlertSeverity(row.Severity), FiredAt: row.FiredAt,
+			},
+			ProjectName: row.ProjectName,
+		}
+		if row.ResolvedAt.Valid {
+			resolvedAt := row.ResolvedAt.Time
+			incident.ResolvedAt = &resolvedAt
+		}
+		incidents = append(incidents, incident)
+	}
+	return incidents, nil
+}
+
 // ListAlertRulesForEvaluation returns rules whose project and cluster scopes are active.
 func (s *Postgres) ListAlertRulesForEvaluation(ctx context.Context) ([]AlertRule, error) {
 	rows, err := s.queries.ListAlertRulesForEvaluation(ctx)
@@ -110,7 +190,13 @@ func (s *Postgres) UpdateAlertRuleState(ctx context.Context, ruleID string, stat
 	if err != nil {
 		return AlertRule{}, err
 	}
-	return alertRuleFromSQLC(rule), nil
+	return AlertRule{
+		ID: rule.ID, ProjectID: rule.ProjectID, ClusterID: rule.ClusterID.String,
+		MetricName: rule.MetricName, Comparison: AlertComparison(rule.Comparison), Threshold: rule.Threshold,
+		DurationBeforeFiring: time.Duration(rule.DurationBeforeFiringSeconds) * time.Second,
+		DurationSeconds:      rule.DurationBeforeFiringSeconds, CurrentState: AlertRuleState(rule.CurrentState),
+		LastTransitionAt: rule.LastTransitionAt, Severity: AlertSeverity(rule.Severity),
+	}, nil
 }
 
 // DeleteAlertRule deletes an alert rule owned by the user.
@@ -142,7 +228,9 @@ func alertRuleFromSQLC(rule sqlcdb.AlertRule) AlertRule {
 		Comparison:           AlertComparison(rule.Comparison),
 		Threshold:            rule.Threshold,
 		DurationBeforeFiring: time.Duration(rule.DurationBeforeFiringSeconds) * time.Second,
+		DurationSeconds:      rule.DurationBeforeFiringSeconds,
 		CurrentState:         AlertRuleState(rule.CurrentState),
 		LastTransitionAt:     rule.LastTransitionAt,
+		Severity:             AlertSeverity(rule.Severity),
 	}
 }

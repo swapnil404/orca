@@ -91,7 +91,8 @@ SELECT ds.id, ds.host_id, ds.cluster_id, ds.operation, ds.state, ds.created_at
 FROM desired_states ds
 JOIN clusters c ON c.id = ds.cluster_id
 JOIN projects p ON p.id = c.project_id
-WHERE ds.cluster_id = $1 AND p.user_id = $2
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE ds.cluster_id = $1 AND om.user_id = $2
 ORDER BY ds.id
 `
 

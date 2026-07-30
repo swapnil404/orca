@@ -94,6 +94,8 @@ message ActualCluster {
   bool volume_exists = 10;
   string image = 11;
   optional bool postgres_ready = 12;
+  map<string, string> extension_versions = 13;
+  map<string, string> extension_update_methods = 14;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -123,6 +125,8 @@ message ActualPgBouncer {
 message ActualBackup {
   optional int64 last_success_unix_seconds = 1;
   string config = 2;
+  optional uint64 size_bytes = 3;
+  string status = 4;
 }
 
 // HealthReport contains host resource usage and per-cluster health.

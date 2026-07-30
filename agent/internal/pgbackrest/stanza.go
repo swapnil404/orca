@@ -12,11 +12,23 @@ import (
 
 type infoStanza struct {
 	Backup []struct {
-		Error     bool `json:"error"`
+		Error bool `json:"error"`
+		Info  struct {
+			Repository struct {
+				Size uint64 `json:"size"`
+			} `json:"repository"`
+		} `json:"info"`
 		Timestamp struct {
 			Stop int64 `json:"stop"`
 		} `json:"timestamp"`
 	} `json:"backup"`
+}
+
+// BackupObservation describes the latest pgBackRest attempt and successful backup.
+type BackupObservation struct {
+	LastSuccessUnixSeconds int64
+	SizeBytes              uint64
+	Status                 string
 }
 
 // Executor runs pgBackRest commands against the PostgreSQL primary.
@@ -53,29 +65,39 @@ func InitializeStanza(ctx context.Context, executor Executor, desired *ClusterDe
 	return nil
 }
 
-// LastSuccessfulBackup reads the latest completed backup from pgBackRest repository metadata.
-func LastSuccessfulBackup(ctx context.Context, executor Executor, containerID, clusterID string) (int64, bool, error) {
+// ObserveBackups reads the latest backup attempt from pgBackRest repository metadata.
+func ObserveBackups(ctx context.Context, executor Executor, containerID, clusterID string) (BackupObservation, error) {
 	if executor == nil || containerID == "" || clusterID == "" {
-		return 0, false, errors.New("pgBackRest observation requires executor, container, and cluster")
+		return BackupObservation{}, errors.New("pgBackRest observation requires executor, container, and cluster")
 	}
 	command := []string{"gosu", postgresUser, "pgbackrest", "--config=" + clusterConfigPath(clusterID), "--stanza=" + clusterID, "--output=json", "info"}
 	output, err := executor.ExecContainer(ctx, containerID, command)
 	if err != nil {
-		return 0, false, fmt.Errorf("read pgBackRest info: %w", err)
+		return BackupObservation{}, fmt.Errorf("read pgBackRest info: %w", err)
 	}
 	var stanzas []infoStanza
 	if err := json.Unmarshal([]byte(output), &stanzas); err != nil {
-		return 0, false, fmt.Errorf("decode pgBackRest info: %w", err)
+		return BackupObservation{}, fmt.Errorf("decode pgBackRest info: %w", err)
 	}
-	var latest int64
+	observation := BackupObservation{Status: "pending"}
+	var latestAttempt int64
 	for _, stanza := range stanzas {
 		for _, backup := range stanza.Backup {
-			if !backup.Error && backup.Timestamp.Stop > latest {
-				latest = backup.Timestamp.Stop
+			if backup.Timestamp.Stop > latestAttempt {
+				latestAttempt = backup.Timestamp.Stop
+				if backup.Error {
+					observation.Status = "failed"
+				} else {
+					observation.Status = "succeeded"
+				}
+			}
+			if !backup.Error && backup.Timestamp.Stop > observation.LastSuccessUnixSeconds {
+				observation.LastSuccessUnixSeconds = backup.Timestamp.Stop
+				observation.SizeBytes = backup.Info.Repository.Size
 			}
 		}
 	}
-	return latest, latest > 0, nil
+	return observation, nil
 }
 
 func primaryContainerName(clusterID string) (string, error) {

@@ -1,4 +1,4 @@
-import type { Cluster, ClusterInput, Project, ProjectTopology } from '../types/resources'
+import type { BackupJob, Cluster, ClusterInput, Project, ProjectHost, ProjectTopology } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -27,6 +27,10 @@ export function listClusters(projectID: string): Promise<Cluster[]> {
   return apiRequest(`/projects/${encode(projectID)}/clusters`)
 }
 
+export function listProjectHosts(projectID: string): Promise<ProjectHost[]> {
+  return apiRequest(`/projects/${encode(projectID)}/hosts`)
+}
+
 export function createCluster(projectID: string, input: ClusterInput): Promise<Cluster> {
   return apiRequest(`/projects/${encode(projectID)}/clusters`, {
     method: 'POST',
@@ -52,4 +56,9 @@ export function deleteCluster(clusterID: string): Promise<void> {
 export async function getProjectTopology(projectID: string): Promise<ProjectTopology> {
   const [project, clusters] = await Promise.all([getProject(projectID), listClusters(projectID)])
   return { project, clusters }
+}
+
+export function listBackupJobs(projectID?: string): Promise<BackupJob[]> {
+  const query = projectID ? `?project_id=${encode(projectID)}` : ''
+  return apiRequest(`/backups${query}`)
 }

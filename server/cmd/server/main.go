@@ -166,7 +166,10 @@ func run(ctx context.Context, configuration config) error {
 	protected := http.NewServeMux()
 	userAuth := api.NewUserAuthHandler(metadata, tokens)
 	userAuth.RegisterProtectedRoutes(protected)
+	api.NewOrganizationHandler(metadata).RegisterRoutes(protected)
 	api.NewResourceHandler(metadata, desiredStates).RegisterRoutes(protected)
+	api.NewBackupHandler(metadata).RegisterRoutes(protected)
+	api.NewAlertHandler(metadata).RegisterRoutes(protected)
 	protected.Handle("POST /hosts", api.NewHostRegistrationHandler(metadata, configuration.serverURL))
 	metrics.NewHandler(metadata).RegisterRoutes(protected)
 

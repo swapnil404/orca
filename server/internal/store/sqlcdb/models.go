@@ -6,9 +6,54 @@ package sqlcdb
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
+
+type OrganizationRole string
+
+const (
+	OrganizationRoleOwner  OrganizationRole = "owner"
+	OrganizationRoleAdmin  OrganizationRole = "admin"
+	OrganizationRoleMember OrganizationRole = "member"
+)
+
+func (e *OrganizationRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrganizationRole(s)
+	case string:
+		*e = OrganizationRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrganizationRole: %T", src)
+	}
+	return nil
+}
+
+type NullOrganizationRole struct {
+	OrganizationRole OrganizationRole `json:"organization_role"`
+	Valid            bool             `json:"valid"` // Valid is true if OrganizationRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrganizationRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrganizationRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrganizationRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrganizationRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrganizationRole), nil
+}
 
 type AgentReport struct {
 	HostID                string          `json:"host_id"`
@@ -16,6 +61,18 @@ type AgentReport struct {
 	HealthReport          json.RawMessage `json:"health_report"`
 	ReportedAt            time.Time       `json:"reported_at"`
 	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
+}
+
+type AlertIncident struct {
+	ID         int64        `json:"id"`
+	ProjectID  string       `json:"project_id"`
+	RuleID     string       `json:"rule_id"`
+	MetricName string       `json:"metric_name"`
+	Comparison string       `json:"comparison"`
+	Threshold  float64      `json:"threshold"`
+	Severity   string       `json:"severity"`
+	FiredAt    time.Time    `json:"fired_at"`
+	ResolvedAt sql.NullTime `json:"resolved_at"`
 }
 
 type AlertRule struct {
@@ -28,6 +85,7 @@ type AlertRule struct {
 	DurationBeforeFiringSeconds int64          `json:"duration_before_firing_seconds"`
 	CurrentState                string         `json:"current_state"`
 	LastTransitionAt            time.Time      `json:"last_transition_at"`
+	Severity                    string         `json:"severity"`
 }
 
 type Cluster struct {
@@ -51,6 +109,8 @@ type Cluster struct {
 	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
 	ReplicaIds                    json.RawMessage `json:"replica_ids"`
 	EnabledExtensions             json.RawMessage `json:"enabled_extensions"`
+	PgbouncerPoolMode             string          `json:"pgbouncer_pool_mode"`
+	PgbouncerMaxConnections       int32           `json:"pgbouncer_max_connections"`
 }
 
 type ClusterReport struct {
@@ -88,13 +148,29 @@ type OauthIdentity struct {
 	CreatedAt      time.Time      `json:"created_at"`
 }
 
+type Organization struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type OrganizationMembership struct {
+	ID             string           `json:"id"`
+	OrganizationID string           `json:"organization_id"`
+	UserID         string           `json:"user_id"`
+	Role           OrganizationRole `json:"role"`
+	CreatedAt      time.Time        `json:"created_at"`
+}
+
 type Project struct {
-	ID        string       `json:"id"`
-	UserID    string       `json:"user_id"`
-	Name      string       `json:"name"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	DeletedAt sql.NullTime `json:"deleted_at"`
+	ID             string       `json:"id"`
+	UserID         string       `json:"user_id"`
+	Name           string       `json:"name"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	DeletedAt      sql.NullTime `json:"deleted_at"`
+	OrganizationID string       `json:"organization_id"`
 }
 
 type User struct {

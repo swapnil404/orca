@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const installedExtensionsQuery = "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'powa', 'timescaledb', 'pg_partman', 'postgis') ORDER BY extname;"
+const installedExtensionsQuery = "SELECT extname || E'\\t' || extversion FROM pg_extension WHERE extname IN ('vector', 'powa', 'timescaledb', 'pg_partman', 'postgis') ORDER BY extname;"
 
 const (
 	sharedPreloadLibrariesQuery = "SHOW shared_preload_libraries;"
@@ -32,6 +32,20 @@ type Result struct {
 
 // Installed queries the managed extensions currently installed in a primary.
 func Installed(ctx context.Context, executor PrimaryExecutor, containerID string) ([]string, error) {
+	details, err := InstalledDetails(ctx, executor, containerID)
+	if err != nil {
+		return nil, err
+	}
+	installed := make([]string, 0, len(details))
+	for extension := range details {
+		installed = append(installed, extension)
+	}
+	sort.Strings(installed)
+	return installed, nil
+}
+
+// InstalledDetails queries managed extension names and their observed versions.
+func InstalledDetails(ctx context.Context, executor PrimaryExecutor, containerID string) (map[string]string, error) {
 	if executor == nil {
 		return nil, fmt.Errorf("extension executor is nil")
 	}
@@ -39,7 +53,7 @@ func Installed(ctx context.Context, executor PrimaryExecutor, containerID string
 	if err != nil {
 		return nil, fmt.Errorf("query installed extensions: %w", err)
 	}
-	return parseInstalled(output)
+	return parseInstalledDetails(output)
 }
 
 // Reconcile queries installed extensions and applies the desired changes.
@@ -188,8 +202,21 @@ func waitUntilReady(ctx context.Context, executor PrimaryExecutor, containerID s
 }
 
 func parseInstalled(output string) ([]string, error) {
+	details, err := parseInstalledDetails(output)
+	if err != nil {
+		return nil, err
+	}
+	installed := make([]string, 0, len(details))
+	for extension := range details {
+		installed = append(installed, extension)
+	}
+	sort.Strings(installed)
+	return installed, nil
+}
+
+func parseInstalledDetails(output string) (map[string]string, error) {
 	if strings.TrimSpace(output) == "" {
-		return nil, nil
+		return map[string]string{}, nil
 	}
 
 	reverseNames := make(map[string]string, len(sqlNames))
@@ -197,16 +224,20 @@ func parseInstalled(output string) ([]string, error) {
 		reverseNames[sqlName] = extension
 	}
 	lines := strings.Split(output, "\n")
-	installed := make([]string, 0, len(lines))
+	installed := make(map[string]string, len(lines))
 	for _, line := range lines {
-		sqlName := strings.TrimSpace(line)
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		sqlName := parts[0]
 		extension, supported := reverseNames[sqlName]
 		if !supported {
 			return nil, fmt.Errorf("query returned unsupported extension %q", sqlName)
 		}
-		installed = append(installed, extension)
+		version := ""
+		if len(parts) == 2 {
+			version = strings.TrimSpace(parts[1])
+		}
+		installed[extension] = version
 	}
-	sort.Strings(installed)
 	return installed, nil
 }
 

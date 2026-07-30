@@ -9,19 +9,21 @@ import (
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
 
-// Project groups clusters owned by one user.
+// Project groups clusters owned by an organization.
 type Project struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organization_id"`
+	Name           string    `json:"name"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // CreateProjectParams contains the values needed to create a project.
 type CreateProjectParams struct {
-	ID     string
-	UserID string
-	Name   string
+	ID             string
+	UserID         string
+	OrganizationID string
+	Name           string
 }
 
 // UpdateProjectParams contains the values needed to update a project.
@@ -34,7 +36,7 @@ type UpdateProjectParams struct {
 // CreateProject persists a project for a user.
 func (s *Postgres) CreateProject(ctx context.Context, params CreateProjectParams) (Project, error) {
 	project, err := s.queries.CreateProject(ctx, sqlcdb.CreateProjectParams{
-		ID: params.ID, UserID: params.UserID, Name: params.Name,
+		ID: params.ID, UserID: params.UserID, OrganizationID: params.OrganizationID, Name: params.Name,
 	})
 	if err != nil {
 		return Project{}, err
@@ -42,7 +44,7 @@ func (s *Postgres) CreateProject(ctx context.Context, params CreateProjectParams
 	return projectFromSQLC(project), nil
 }
 
-// ListProjects returns active projects owned by userID.
+// ListProjects returns active projects visible through userID's memberships.
 func (s *Postgres) ListProjects(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.queries.ListProjects(ctx, userID)
 	if err != nil {
@@ -60,7 +62,7 @@ func (s *Postgres) ListProjectIDsForHost(ctx context.Context, hostID string) ([]
 	return s.queries.ListProjectIDsForHost(ctx, hostID)
 }
 
-// GetProject returns an active project owned by userID.
+// GetProject returns an active project visible through userID's memberships.
 func (s *Postgres) GetProject(ctx context.Context, userID, projectID string) (Project, error) {
 	project, err := s.queries.GetProject(ctx, sqlcdb.GetProjectParams{ID: projectID, UserID: userID})
 	if err != nil {
@@ -112,7 +114,10 @@ func (s *Postgres) DeleteProject(ctx context.Context, userID, projectID string) 
 }
 
 func projectFromSQLC(project sqlcdb.Project) Project {
-	return Project{ID: project.ID, Name: project.Name, CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt}
+	return Project{
+		ID: project.ID, OrganizationID: project.OrganizationID, Name: project.Name,
+		CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt,
+	}
 }
 
 func createClusterDeletionState(ctx context.Context, queries *sqlcdb.Queries, hostID, clusterID string) error {

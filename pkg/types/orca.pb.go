@@ -742,21 +742,23 @@ func (x *ActualState) GetClusters() []*ActualCluster {
 
 // ActualCluster describes an observed Postgres primary and its child resources.
 type ActualCluster struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ContainerId       string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Status            string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Version           string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	Replicas          []*ActualReplica       `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
-	PgBouncer         *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
-	Backup            *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
-	EnabledExtensions []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
-	AppliedParams     map[string]string      `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	VolumeExists      bool                   `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
-	Image             string                 `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
-	PostgresReady     *bool                  `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Id                     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ContainerId            string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Status                 string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Version                string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Replicas               []*ActualReplica       `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PgBouncer              *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
+	Backup                 *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
+	EnabledExtensions      []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	AppliedParams          map[string]string      `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	VolumeExists           bool                   `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
+	Image                  string                 `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	PostgresReady          *bool                  `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
+	ExtensionVersions      map[string]string      `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ExtensionUpdateMethods map[string]string      `protobuf:"bytes,14,rep,name=extension_update_methods,json=extensionUpdateMethods,proto3" json:"extension_update_methods,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ActualCluster) Reset() {
@@ -871,6 +873,20 @@ func (x *ActualCluster) GetPostgresReady() bool {
 		return *x.PostgresReady
 	}
 	return false
+}
+
+func (x *ActualCluster) GetExtensionVersions() map[string]string {
+	if x != nil {
+		return x.ExtensionVersions
+	}
+	return nil
+}
+
+func (x *ActualCluster) GetExtensionUpdateMethods() map[string]string {
+	if x != nil {
+		return x.ExtensionUpdateMethods
+	}
+	return nil
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -1072,6 +1088,8 @@ type ActualBackup struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	LastSuccessUnixSeconds *int64                 `protobuf:"varint,1,opt,name=last_success_unix_seconds,json=lastSuccessUnixSeconds,proto3,oneof" json:"last_success_unix_seconds,omitempty"`
 	Config                 string                 `protobuf:"bytes,2,opt,name=config,proto3" json:"config,omitempty"`
+	SizeBytes              *uint64                `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3,oneof" json:"size_bytes,omitempty"`
+	Status                 string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1116,6 +1134,20 @@ func (x *ActualBackup) GetLastSuccessUnixSeconds() int64 {
 func (x *ActualBackup) GetConfig() string {
 	if x != nil {
 		return x.Config
+	}
+	return ""
+}
+
+func (x *ActualBackup) GetSizeBytes() uint64 {
+	if x != nil && x.SizeBytes != nil {
+		return *x.SizeBytes
+	}
+	return 0
+}
+
+func (x *ActualBackup) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -1360,7 +1392,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf1\x04\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xce\a\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1375,8 +1407,16 @@ const file_orca_proto_rawDesc = "" +
 	"\rvolume_exists\x18\n" +
 	" \x01(\bR\fvolumeExists\x12\x14\n" +
 	"\x05image\x18\v \x01(\tR\x05image\x12*\n" +
-	"\x0epostgres_ready\x18\f \x01(\bH\x02R\rpostgresReady\x88\x01\x01\x1a@\n" +
+	"\x0epostgres_ready\x18\f \x01(\bH\x02R\rpostgresReady\x88\x01\x01\x12\\\n" +
+	"\x12extension_versions\x18\r \x03(\v2-.orca.v1.ActualCluster.ExtensionVersionsEntryR\x11extensionVersions\x12l\n" +
+	"\x18extension_update_methods\x18\x0e \x03(\v22.orca.v1.ActualCluster.ExtensionUpdateMethodsEntryR\x16extensionUpdateMethods\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aD\n" +
+	"\x16ExtensionVersionsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aI\n" +
+	"\x1bExtensionUpdateMethodsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
 	"\v_pg_bouncerB\t\n" +
@@ -1403,11 +1443,15 @@ const file_orca_proto_rawDesc = "" +
 	"\x17admin_console_reachable\x18\x06 \x01(\bH\x02R\x15adminConsoleReachable\x88\x01\x01B\x1c\n" +
 	"\x1a_active_client_connectionsB\x19\n" +
 	"\x17_max_client_connectionsB\x1a\n" +
-	"\x18_admin_console_reachable\"\x84\x01\n" +
+	"\x18_admin_console_reachable\"\xcf\x01\n" +
 	"\fActualBackup\x12>\n" +
 	"\x19last_success_unix_seconds\x18\x01 \x01(\x03H\x00R\x16lastSuccessUnixSeconds\x88\x01\x01\x12\x16\n" +
-	"\x06config\x18\x02 \x01(\tR\x06configB\x1c\n" +
-	"\x1a_last_success_unix_seconds\"{\n" +
+	"\x06config\x18\x02 \x01(\tR\x06config\x12\"\n" +
+	"\n" +
+	"size_bytes\x18\x03 \x01(\x04H\x01R\tsizeBytes\x88\x01\x01\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06statusB\x1c\n" +
+	"\x1a_last_success_unix_secondsB\r\n" +
+	"\v_size_bytes\"{\n" +
 	"\fHealthReport\x127\n" +
 	"\fhost_metrics\x18\x01 \x01(\v2\x14.orca.v1.HostMetricsR\vhostMetrics\x122\n" +
 	"\bclusters\x18\x02 \x03(\v2\x16.orca.v1.ClusterHealthR\bclusters\"\xe5\x01\n" +
@@ -1441,7 +1485,7 @@ func file_orca_proto_rawDescGZIP() []byte {
 }
 
 var file_orca_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_orca_proto_goTypes = []any{
 	(ClusterStatus)(0),           // 0: orca.v1.ClusterStatus
 	(*DesiredStateMessage)(nil),  // 1: orca.v1.DesiredStateMessage
@@ -1464,6 +1508,8 @@ var file_orca_proto_goTypes = []any{
 	(*ClusterHealth)(nil),        // 18: orca.v1.ClusterHealth
 	nil,                          // 19: orca.v1.ClusterSpec.ParamsEntry
 	nil,                          // 20: orca.v1.ActualCluster.AppliedParamsEntry
+	nil,                          // 21: orca.v1.ActualCluster.ExtensionVersionsEntry
+	nil,                          // 22: orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
 }
 var file_orca_proto_depIdxs = []int32{
 	4,  // 0: orca.v1.DesiredStateMessage.desired_state:type_name -> orca.v1.DesiredState
@@ -1482,14 +1528,16 @@ var file_orca_proto_depIdxs = []int32{
 	14, // 13: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
 	15, // 14: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
 	20, // 15: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
-	17, // 16: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
-	18, // 17: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
-	0,  // 18: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	21, // 16: orca.v1.ActualCluster.extension_versions:type_name -> orca.v1.ActualCluster.ExtensionVersionsEntry
+	22, // 17: orca.v1.ActualCluster.extension_update_methods:type_name -> orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	17, // 18: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
+	18, // 19: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
+	0,  // 20: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_orca_proto_init() }
@@ -1508,7 +1556,7 @@ func file_orca_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orca_proto_rawDesc), len(file_orca_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

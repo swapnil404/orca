@@ -43,3 +43,17 @@ LEFT JOIN cluster_reports cr ON cr.host_id = c.host_id AND cr.cluster_id = c.id
 WHERE p.deleted_at IS NULL AND c.deleted_at IS NULL
   AND (sqlc.arg(project_id)::text = '' OR p.id = sqlc.arg(project_id))
 ORDER BY p.id, c.id;
+
+-- name: ListBackupJobs :many
+SELECT p.id AS project_id, p.name AS project_name,
+       c.id AS cluster_id, c.name AS cluster_name, c.pgbackrest_enabled,
+       COALESCE(cr.actual_state, 'null'::jsonb) AS actual_state,
+       COALESCE(cr.reported_at, 'epoch'::timestamptz) AS reported_at
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+JOIN clusters c ON c.project_id = p.id
+LEFT JOIN cluster_reports cr ON cr.host_id = c.host_id AND cr.cluster_id = c.id
+WHERE om.user_id = sqlc.arg(user_id)
+  AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+  AND (sqlc.arg(project_id)::text = '' OR p.id = sqlc.arg(project_id))
+ORDER BY p.name, p.id, c.name, c.id;

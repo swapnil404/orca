@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -166,6 +167,10 @@ func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *Desir
 			continue
 		}
 		action := Action{Type: ActionUpdateExtensions, ClusterID: cluster.Id}
+		cluster.ExtensionUpdateMethods = make(map[string]string)
+		for _, extension := range extensions.Supported() {
+			cluster.ExtensionUpdateMethods[extension] = string(extensions.ClassifyUpdate(extension))
+		}
 		if r.extensions == nil {
 			if len(desiredCluster.EnabledExtensions) > 0 {
 				results = append(results, ApplyResult{
@@ -176,12 +181,17 @@ func (r *Runner) populateInstalledExtensions(ctx context.Context, desired *Desir
 			}
 			continue
 		}
-		installed, err := extensions.Installed(ctx, r.extensions, cluster.ContainerId)
+		installed, err := extensions.InstalledDetails(ctx, r.extensions, cluster.ContainerId)
 		if err != nil {
 			results = append(results, ApplyResult{Action: action, Status: ApplyStatusFailed, Err: err})
 			continue
 		}
-		cluster.EnabledExtensions = installed
+		cluster.ExtensionVersions = installed
+		cluster.EnabledExtensions = make([]string, 0, len(installed))
+		for extension := range installed {
+			cluster.EnabledExtensions = append(cluster.EnabledExtensions, extension)
+		}
+		sort.Strings(cluster.EnabledExtensions)
 	}
 	return results
 }
@@ -217,13 +227,15 @@ func (r *Runner) populateBackupSuccess(ctx context.Context, actual *ActualState)
 		if cluster == nil || cluster.Backup == nil {
 			continue
 		}
-		unixSeconds, ok, err := pgbackrest.LastSuccessfulBackup(ctx, r.healthDatabase, cluster.ContainerId, cluster.Id)
+		observation, err := pgbackrest.ObserveBackups(ctx, r.healthDatabase, cluster.ContainerId, cluster.Id)
 		if err != nil {
 			errorsByCluster[cluster.Id] = err
 			continue
 		}
-		if ok {
-			cluster.Backup.LastSuccessUnixSeconds = &unixSeconds
+		cluster.Backup.Status = observation.Status
+		if observation.LastSuccessUnixSeconds > 0 {
+			cluster.Backup.LastSuccessUnixSeconds = &observation.LastSuccessUnixSeconds
+			cluster.Backup.SizeBytes = &observation.SizeBytes
 		}
 	}
 	return errorsByCluster

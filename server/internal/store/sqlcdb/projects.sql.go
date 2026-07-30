@@ -10,19 +10,28 @@ import (
 )
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (id, user_id, name)
-VALUES ($1, $2, $3)
-RETURNING id, user_id, name, created_at, updated_at, deleted_at
+INSERT INTO projects (id, user_id, organization_id, name)
+SELECT $1::text, $2::text, om.organization_id, $3::text
+FROM organization_memberships om
+WHERE om.organization_id = $4
+  AND om.user_id = $2
+RETURNING id, user_id, name, created_at, updated_at, deleted_at, organization_id
 `
 
 type CreateProjectParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
+	ID             string `json:"id"`
+	UserID         string `json:"user_id"`
+	Name           string `json:"name"`
+	OrganizationID string `json:"organization_id"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, createProject, arg.ID, arg.UserID, arg.Name)
+	row := q.db.QueryRowContext(ctx, createProject,
+		arg.ID,
+		arg.UserID,
+		arg.Name,
+		arg.OrganizationID,
+	)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -31,14 +40,16 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, user_id, name, created_at, updated_at, deleted_at
-FROM projects
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+SELECT p.id, p.user_id, p.name, p.created_at, p.updated_at, p.deleted_at, p.organization_id
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE p.id = $1 AND om.user_id = $2 AND p.deleted_at IS NULL
 `
 
 type GetProjectParams struct {
@@ -56,6 +67,7 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
@@ -93,10 +105,11 @@ func (q *Queries) ListProjectIDsForHost(ctx context.Context, hostID string) ([]s
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, user_id, name, created_at, updated_at, deleted_at
-FROM projects
-WHERE user_id = $1 AND deleted_at IS NULL
-ORDER BY created_at, id
+SELECT p.id, p.user_id, p.name, p.created_at, p.updated_at, p.deleted_at, p.organization_id
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE om.user_id = $1 AND p.deleted_at IS NULL
+ORDER BY p.created_at, p.id
 `
 
 func (q *Queries) ListProjects(ctx context.Context, userID string) ([]Project, error) {
@@ -115,6 +128,7 @@ func (q *Queries) ListProjects(ctx context.Context, userID string) ([]Project, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -130,10 +144,14 @@ func (q *Queries) ListProjects(ctx context.Context, userID string) ([]Project, e
 }
 
 const softDeleteProject = `-- name: SoftDeleteProject :one
-UPDATE projects
+UPDATE projects p
 SET deleted_at = NOW(), updated_at = NOW()
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-RETURNING id
+WHERE p.id = $1
+  AND p.organization_id IN (
+      SELECT om.organization_id FROM organization_memberships om WHERE om.user_id = $2
+  )
+  AND p.deleted_at IS NULL
+RETURNING p.id
 `
 
 type SoftDeleteProjectParams struct {
@@ -149,10 +167,14 @@ func (q *Queries) SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectPa
 }
 
 const updateProject = `-- name: UpdateProject :one
-UPDATE projects
+UPDATE projects p
 SET name = $3, updated_at = NOW()
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-RETURNING id, user_id, name, created_at, updated_at, deleted_at
+WHERE p.id = $1
+  AND p.organization_id IN (
+      SELECT om.organization_id FROM organization_memberships om WHERE om.user_id = $2
+  )
+  AND p.deleted_at IS NULL
+RETURNING p.id, p.user_id, p.name, p.created_at, p.updated_at, p.deleted_at, p.organization_id
 `
 
 type UpdateProjectParams struct {
@@ -171,6 +193,7 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }

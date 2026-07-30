@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
@@ -34,6 +35,7 @@ type resourceStore interface {
 	GetCluster(context.Context, string, string) (store.Cluster, error)
 	UpdateCluster(context.Context, store.UpdateClusterParams) (store.Cluster, error)
 	DeleteCluster(context.Context, string, string) error
+	ListProjectHosts(context.Context, string, string) ([]store.Host, error)
 }
 
 type desiredStatePusher interface {
@@ -64,6 +66,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /projects/{projectID}", h.updateProject)
 	mux.HandleFunc("DELETE /projects/{projectID}", h.deleteProject)
 	mux.HandleFunc("GET /projects/{projectID}/clusters", h.listClusters)
+	mux.HandleFunc("GET /projects/{projectID}/hosts", h.listProjectHosts)
 	mux.HandleFunc("POST /projects/{projectID}/clusters", h.createCluster)
 	mux.HandleFunc("GET /clusters/{clusterID}", h.getCluster)
 	mux.HandleFunc("PUT /clusters/{clusterID}", h.updateCluster)
@@ -76,7 +79,8 @@ func (h *ResourceHandler) createProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var request struct {
-		Name string `json:"name"`
+		Name           string `json:"name"`
+		OrganizationID string `json:"organization_id"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
@@ -85,13 +89,17 @@ func (h *ResourceHandler) createProject(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if !validUUID(request.OrganizationID) {
+		writeError(w, http.StatusBadRequest, "valid organization_id is required")
+		return
+	}
 	id, err := randomID(h.random)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate project ID")
 		return
 	}
 	project, err := h.store.CreateProject(r.Context(), store.CreateProjectParams{
-		ID: id, UserID: userID, Name: strings.TrimSpace(request.Name),
+		ID: id, UserID: userID, OrganizationID: request.OrganizationID, Name: strings.TrimSpace(request.Name),
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -179,6 +187,7 @@ type clusterRequest struct {
 	ReplicaCount      int32                   `json:"replica_count"`
 	EnabledExtensions []string                `json:"enabled_extensions"`
 	PgBouncerEnabled  bool                    `json:"pgbouncer_enabled"`
+	PgBouncer         store.PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *store.PgBackRestConfig `json:"pg_back_rest"`
 }
 
@@ -208,6 +217,7 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		Replicas:          replicas,
 		EnabledExtensions: request.EnabledExtensions,
 		PgBouncerEnabled:  request.PgBouncerEnabled,
+		PgBouncer:         request.PgBouncer,
 		PgBackRest:        request.PgBackRest,
 	})
 	if err != nil {
@@ -274,6 +284,7 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		Replicas:          replicas,
 		EnabledExtensions: request.EnabledExtensions,
 		PgBouncerEnabled:  request.PgBouncerEnabled,
+		PgBouncer:         request.PgBouncer,
 		PgBackRest:        request.PgBackRest,
 	})
 	if err != nil {
@@ -320,6 +331,31 @@ func (h *ResourceHandler) deleteCluster(w http.ResponseWriter, r *http.Request) 
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ResourceHandler) listProjectHosts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	hosts, err := h.store.ListProjectHosts(r.Context(), userID, r.PathValue("projectID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	type hostResponse struct {
+		ID          string           `json:"id"`
+		Status      store.HostStatus `json:"status"`
+		ConnectedAt *time.Time       `json:"connected_at,omitempty"`
+	}
+	response := make([]hostResponse, len(hosts))
+	for i, host := range hosts {
+		response[i] = hostResponse{ID: host.ID, Status: host.Status}
+		if host.ConnectedAt.Valid {
+			response[i].ConnectedAt = &host.ConnectedAt.Time
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *ResourceHandler) pushHosts(ctx context.Context, hostIDs ...string) {
@@ -370,6 +406,18 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 	if request.ReplicaCount < 0 {
 		writeError(w, http.StatusBadRequest, "replica_count cannot be negative")
 		return false
+	}
+	if request.PgBouncerEnabled {
+		switch request.PgBouncer.PoolMode {
+		case "", "session", "transaction", "statement":
+		default:
+			writeError(w, http.StatusBadRequest, "pg_bouncer.pool_mode is invalid")
+			return false
+		}
+		if request.PgBouncer.MaxConnections < 0 {
+			writeError(w, http.StatusBadRequest, "pg_bouncer.max_connections must be greater than zero")
+			return false
+		}
 	}
 	if request.PgBackRest != nil {
 		if strings.TrimSpace(request.PgBackRest.RepoPath) == "" || strings.ContainsAny(request.PgBackRest.RepoPath, "\r\n") {

@@ -91,6 +91,16 @@ func ClassifyUpdate(extension string) UpdateMethod {
 	return UpdateMethodHotApply
 }
 
+// Supported returns the extension names managed by the reconciler.
+func Supported() []string {
+	extensions := make([]string, 0, len(sqlNames))
+	for extension := range sqlNames {
+		extensions = append(extensions, extension)
+	}
+	sort.Strings(extensions)
+	return extensions
+}
+
 func extensionSet(extensions []string) (map[string]struct{}, error) {
 	set := make(map[string]struct{}, len(extensions))
 	for _, extension := range extensions {

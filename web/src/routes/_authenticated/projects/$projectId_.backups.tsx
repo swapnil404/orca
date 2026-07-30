@@ -4,8 +4,15 @@ import { useState, type FormEvent } from 'react'
 import { ApiError, getProjectTopology, updateCluster } from '../../../api'
 import type { Cluster, PgBackRestConfig } from '../../../types/resources'
 
+interface ProjectBackupsSearch {
+  restore?: string
+}
+
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/backups')({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): ProjectBackupsSearch => ({
+    restore: typeof search.restore === 'string' ? search.restore : undefined,
+  }),
   loader: ({ params }) => getProjectTopology(params.projectId),
   component: ProjectBackupsPage,
 })
@@ -19,9 +26,11 @@ type RestoreStep = 'timeline' | 'target' | 'confirm'
 function ProjectBackupsPage() {
   const initialTopology = Route.useLoaderData()
   const { projectId } = Route.useParams()
+  const search = Route.useSearch()
   const [clusters, setClusters] = useState(initialTopology.clusters)
   const backupClusters = clusters.filter((cluster) => cluster.pg_back_rest)
-  const [selectedClusterID, setSelectedClusterID] = useState(backupClusters[0]?.id ?? '')
+  const restoreClusterID = backupClusters.some((cluster) => cluster.id === search.restore) ? search.restore : undefined
+  const [selectedClusterID, setSelectedClusterID] = useState(restoreClusterID ?? backupClusters[0]?.id ?? '')
   const selectedCluster = clusters.find((cluster) => cluster.id === selectedClusterID)
 
   return (
@@ -94,6 +103,7 @@ function ScheduleEditor({ cluster, onUpdated }: { cluster: Cluster | undefined; 
         replica_count: cluster.replica_count,
         enabled_extensions: cluster.enabled_extensions,
         pgbouncer_enabled: cluster.pgbouncer_enabled,
+        pg_bouncer: cluster.pg_bouncer,
         pg_back_rest: pgBackRest,
       })
       onUpdated(updated)

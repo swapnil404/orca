@@ -10,3 +10,6 @@ sql:
         sql_package: "database/sql"
         emit_json_tags: true
         emit_interface: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "string"
