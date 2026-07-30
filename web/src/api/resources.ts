@@ -7,8 +7,8 @@ export function listProjects(): Promise<Project[]> {
   return apiRequest('/projects')
 }
 
-export function createProject(name: string): Promise<Project> {
-  return apiRequest('/projects', { method: 'POST', body: JSON.stringify({ name }) })
+export function createProject(name: string, organizationID: string): Promise<Project> {
+  return apiRequest('/projects', { method: 'POST', body: JSON.stringify({ name, organization_id: organizationID }) })
 }
 
 export function getProject(projectID: string): Promise<Project> {
