@@ -1,16 +1,32 @@
-import type { Edge } from '@xyflow/react'
 import type { Cluster, ProjectStateSnapshot } from '../types/resources'
+import type { LagTone, TopologyEdgeType } from './edges/TopologyEdge'
 import { pgBouncerStatus, primaryStatus, replicaStatus } from './status'
 import type { InfrastructureNode } from './nodes/types'
 
 export interface CanvasTopology {
   nodes: InfrastructureNode[]
-  edges: Edge[]
+  edges: TopologyEdgeType[]
+}
+
+function lagTone(status: string | undefined): LagTone {
+  if (status === 'known') return 'healthy'
+  if (status === 'lagging') return 'warning'
+  if (status === 'critical') return 'critical'
+  return 'unknown'
+}
+
+function formatLag(value: string | number | undefined): string | undefined {
+  if (value === undefined) return undefined
+  try {
+    return `${new Intl.NumberFormat().format(BigInt(value))} B lag`
+  } catch {
+    return `${value} B lag`
+  }
 }
 
 export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateSnapshot | null, now = Date.now()): CanvasTopology {
   const nodes: InfrastructureNode[] = []
-  const edges: Edge[] = []
+  const edges: TopologyEdgeType[] = []
 
   clusters.forEach((cluster, clusterIndex) => {
     const state = snapshot?.clusters.find((candidate) => candidate.cluster_id === cluster.id)
@@ -55,7 +71,13 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           actual,
         },
       })
-      edges.push({ id: `${primaryID}->${nodeID}`, source: primaryID, target: nodeID, animated: false })
+      edges.push({
+        id: `${primaryID}->${nodeID}`,
+        type: 'topology',
+        source: primaryID,
+        target: nodeID,
+        data: { lagLabel: formatLag(actual?.replication_lag_bytes), lagTone: lagTone(actual?.replication_lag_status) },
+      })
     })
 
     if (cluster.pgbouncer_enabled) {
@@ -78,7 +100,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           actual,
         },
       })
-      edges.push({ id: `${primaryID}->${nodeID}`, source: primaryID, target: nodeID })
+      edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })
     }
   })
 
