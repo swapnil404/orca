@@ -47,6 +47,12 @@ export interface ProjectHost {
   connected_at?: string
 }
 
+export interface HostRegistration {
+  host_id: string
+  status: 'never_connected'
+  docker_run_command: string
+}
+
 export interface PgBackRestConfig {
   repo_path: string
   retention_full: number

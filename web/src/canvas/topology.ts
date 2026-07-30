@@ -131,7 +131,8 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
     }
 
     cluster.enabled_extensions.forEach((extension, index) => {
-      const installed = state?.actual_state?.enabled_extensions?.includes(extension) ?? false
+      const reportedExtensions = state?.actual_state?.enabled_extensions
+      const installed = reportedExtensions?.includes(extension) ?? false
       const nodeID = extensionNodeID(cluster.id, extension)
       nodes.push({
         id: nodeID,
@@ -144,11 +145,13 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           extension,
           label: extension,
           eyebrow: 'PostgreSQL extension',
-          detail: installed ? `Version ${state?.actual_state?.extension_versions?.[extension] ?? 'not reported'}` : 'Awaiting installation report',
+          detail: installed ? `Version ${state?.actual_state?.extension_versions?.[extension] ?? 'not reported'}` : reportedExtensions ? 'Install pending or failed' : 'Awaiting installation report',
           status: installed ? primaryStatus(state, now) : 'unknown',
           cluster,
           state,
           version: state?.actual_state?.extension_versions?.[extension],
+          installed,
+          pendingInstall: !installed && reportedExtensions === undefined,
         },
       })
       edges.push({ id: `${primaryID}->${nodeID}`, type: 'topology', source: primaryID, target: nodeID })

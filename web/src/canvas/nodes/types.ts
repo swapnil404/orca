@@ -37,6 +37,8 @@ export interface ExtensionNodeData extends BaseNodeData {
   kind: 'extension'
   extension: string
   version?: string
+  installed: boolean
+  pendingInstall: boolean
 }
 
 export interface PendingNodeData extends Record<string, unknown> {

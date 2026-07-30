@@ -45,6 +45,44 @@ func (q *Queries) CreateHost(ctx context.Context, arg CreateHostParams) (Host, e
 	return i, err
 }
 
+const deleteUnusedHost = `-- name: DeleteUnusedHost :execrows
+WITH target_host AS (
+    SELECT h.id
+    FROM hosts h
+    WHERE h.id = $1
+      AND h.user_id = $2
+      AND h.status = 'never_connected'
+      AND NOT EXISTS (
+          SELECT 1 FROM clusters c
+          WHERE c.host_id = h.id AND c.deleted_at IS NULL
+      )
+), deleted_states AS (
+    DELETE FROM desired_states ds
+    USING clusters c, target_host h
+    WHERE ds.cluster_id = c.id AND c.host_id = h.id
+), deleted_clusters AS (
+    DELETE FROM clusters c
+    USING target_host h
+    WHERE c.host_id = h.id
+)
+DELETE FROM hosts h
+USING target_host target
+WHERE h.id = target.id
+`
+
+type DeleteUnusedHostParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) DeleteUnusedHost(ctx context.Context, arg DeleteUnusedHostParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnusedHost, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getHost = `-- name: GetHost :one
 SELECT id, user_id, token_hash, token_expires_at, status, created_at, connected_at
 FROM hosts
@@ -85,6 +123,35 @@ func (q *Queries) GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Hos
 		&i.ConnectedAt,
 	)
 	return i, err
+}
+
+const rotateHostToken = `-- name: RotateHostToken :execrows
+UPDATE hosts
+SET token_hash = $1,
+    token_expires_at = $2
+WHERE id = $3
+  AND user_id = $4
+  AND status = 'never_connected'
+`
+
+type RotateHostTokenParams struct {
+	TokenHash      []byte    `json:"token_hash"`
+	TokenExpiresAt time.Time `json:"token_expires_at"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+}
+
+func (q *Queries) RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rotateHostToken,
+		arg.TokenHash,
+		arg.TokenExpiresAt,
+		arg.ID,
+		arg.UserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateHostStatus = `-- name: UpdateHostStatus :exec

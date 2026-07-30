@@ -1,4 +1,4 @@
-import type { BackupJob, Cluster, ClusterInput, PgBouncerConfig, Project, ProjectHost, ProjectTopology } from '../types/resources'
+import type { BackupJob, Cluster, ClusterInput, HostRegistration, PgBouncerConfig, Project, ProjectHost, ProjectTopology } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -29,6 +29,18 @@ export function listClusters(projectID: string): Promise<Cluster[]> {
 
 export function listProjectHosts(projectID: string): Promise<ProjectHost[]> {
   return apiRequest(`/projects/${encode(projectID)}/hosts`)
+}
+
+export function registerHost(): Promise<HostRegistration> {
+  return apiRequest('/hosts', { method: 'POST' })
+}
+
+export function rotateHostToken(hostID: string): Promise<HostRegistration> {
+  return apiRequest(`/hosts/${encode(hostID)}/token`, { method: 'POST' })
+}
+
+export function deleteUnusedHost(hostID: string): Promise<void> {
+  return apiRequest(`/hosts/${encode(hostID)}`, { method: 'DELETE' })
 }
 
 export function createCluster(projectID: string, input: ClusterInput): Promise<Cluster> {
