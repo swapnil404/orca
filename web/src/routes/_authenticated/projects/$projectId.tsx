@@ -3,6 +3,7 @@ import { Copy, Eye, EyeOff, RefreshCw, Settings2, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectTopology, listProjectHosts, rotateHostToken } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
+import { isReportStale } from '../../../canvas/status'
 import { ConnectHostEmptyState } from '../../../components/ConnectHostEmptyState'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
@@ -42,14 +43,22 @@ function ProjectCanvasPage() {
   const { projectId } = Route.useParams()
   const [hostState, setHostState] = useState({ projectID: projectId, hosts: initialTopology.hosts })
   const snapshot = useTopologyStore((state) => state.snapshot)
-  const connected = useTopologyStore((state) => state.connected)
   useProjectEvents(projectId)
   useEffect(() => setClusters(initialTopology.clusters), [initialTopology.clusters, projectId])
   const projectSnapshot = snapshot?.project_id === projectId ? snapshot : null
+  const [now, setNow] = useState(() => Date.now())
+  const fresh = projectSnapshot !== null && projectSnapshot.clusters.length > 0 && projectSnapshot.clusters.every((state) => state.last_seen !== undefined && !isReportStale(state, now))
   const hosts = hostState.projectID === projectId ? hostState.hosts : initialTopology.hosts
   const awaitingHost = hosts.find((host) => host.status === 'never_connected')
   const [commandState, setCommandState] = useState<CommandState | null>(null)
   useEffect(() => setHostState({ projectID: projectId, hosts: initialTopology.hosts }), [initialTopology.hosts, projectId])
+  useEffect(() => {
+    if (projectSnapshot?.desired_clusters) setClusters(projectSnapshot.desired_clusters)
+  }, [projectSnapshot?.desired_clusters])
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => {
     let active = true
     const refresh = () => void listProjectHosts(projectId).then((nextHosts) => {
@@ -98,8 +107,8 @@ function ProjectCanvasPage() {
         <div className="flex items-center gap-2">
           <Link to="/projects/$projectId/settings" params={{ projectId }} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><Settings2 className="h-3.5 w-3.5" />Settings</Link>
           <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] shadow-[inset_0_1px_rgba(255,255,255,0.03)]">
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
-            {connected ? 'Live telemetry' : 'Telemetry unavailable'}
+            <span className={`h-1.5 w-1.5 rounded-full ${fresh ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
+            {fresh ? 'Live telemetry' : 'Telemetry stale or unavailable'}
           </div>
         </div>
       </header>

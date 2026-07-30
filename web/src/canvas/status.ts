@@ -53,9 +53,27 @@ export function pgBackRestStatus(
   return backup.status === 'succeeded' ? 'healthy' : 'unknown'
 }
 
-function isReportStale(state: ProjectClusterState, now: number): boolean {
+export function isReportStale(state: ProjectClusterState, now = Date.now()): boolean {
   if (state.stale) return true
   return state.last_seen !== undefined && now - new Date(state.last_seen).getTime() > reportStalenessWindowMs
+}
+
+export function extensionStatus(state: ProjectClusterState | undefined, desired: string[], now = Date.now()): NodeStatus {
+  const clusterStatus = primaryStatus(state, now)
+  if (clusterStatus !== 'healthy') return clusterStatus
+  const actual = state?.actual_state?.enabled_extensions
+  if (!actual) return 'unknown'
+  const expected = [...desired].sort()
+  const reported = [...actual].sort()
+  return expected.length === reported.length && expected.every((extension, index) => extension === reported[index]) ? 'healthy' : 'degraded'
+}
+
+export function extensionPresenceStatus(state: ProjectClusterState | undefined, extension: string, now = Date.now()): NodeStatus {
+  const clusterStatus = primaryStatus(state, now)
+  if (clusterStatus !== 'healthy') return clusterStatus
+  const actual = state?.actual_state?.enabled_extensions
+  if (!actual) return 'unknown'
+  return actual.includes(extension) ? 'healthy' : 'degraded'
 }
 
 function isRunning(status: string | undefined): boolean {

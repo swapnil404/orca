@@ -3,7 +3,7 @@ import { Bell, Blocks, DatabaseBackup, Network } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { fadeUp, staggerContainer } from '../lib/motion'
 import type { Cluster, ProjectClusterState } from '../types/resources'
-import { pgBackRestStatus, pgBouncerStatus, primaryStatus, type NodeStatus } from './status'
+import { extensionStatus, pgBackRestStatus, pgBouncerStatus, type NodeStatus } from './status'
 
 type ServiceStatus = NodeStatus | 'disabled' | 'unavailable'
 export type ServiceKind = 'pgbouncer' | 'pgbackrest' | 'extensions' | 'alerts'
@@ -32,16 +32,6 @@ const statusStyles: Record<ServiceStatus, string> = {
   unknown: 'border-slate-400/30 bg-slate-400/10 text-slate-300',
   disabled: 'border-slate-400/20 bg-slate-400/5 text-[var(--text-3)]',
   unavailable: 'border-slate-400/20 bg-slate-400/5 text-[var(--text-3)]',
-}
-
-function extensionStatus(cluster: Cluster, state: ProjectClusterState | undefined, now: number): NodeStatus {
-  const clusterStatus = primaryStatus(state, now)
-  if (clusterStatus !== 'healthy') return clusterStatus
-  const actual = state?.actual_state?.enabled_extensions
-  if (!actual) return 'unknown'
-  const desired = [...cluster.enabled_extensions].sort()
-  const reported = [...actual].sort()
-  return desired.length === reported.length && desired.every((extension, index) => extension === reported[index]) ? 'healthy' : 'degraded'
 }
 
 function ServiceCard({ title, detail, status, icon: Icon, onClick }: ServiceCardProps) {
@@ -83,7 +73,7 @@ export function ServiceCards({ clusters, states, now, onSelect }: ServiceCardsPr
             <motion.div variants={staggerContainer} initial="hidden" animate="show" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <ServiceCard title="PgBouncer" detail={cluster.pgbouncer_enabled ? connectionDetail : 'Not enabled'} status={cluster.pgbouncer_enabled ? pgBouncerStatus(state, pool, now) : 'disabled'} icon={Network} onClick={() => onSelect('pgbouncer', cluster.id)} />
               <ServiceCard title="pgBackRest" detail={cluster.pg_back_rest ? backup?.last_success_unix_seconds ? `Last success ${new Date(backup.last_success_unix_seconds * 1000).toLocaleString()}` : 'No successful backup reported' : 'Not enabled'} status={cluster.pg_back_rest ? pgBackRestStatus(state, backup, now) : 'disabled'} icon={DatabaseBackup} onClick={() => onSelect('pgbackrest', cluster.id)} />
-              <ServiceCard title="Extensions" detail={extensionDetail} status={extensionStatus(cluster, state, now)} icon={Blocks} onClick={() => onSelect('extensions', cluster.id)} />
+              <ServiceCard title="Extensions" detail={extensionDetail} status={extensionStatus(state, cluster.enabled_extensions, now)} icon={Blocks} onClick={() => onSelect('extensions', cluster.id)} />
               <ServiceCard title="Alerts" detail="Alert state not in project telemetry" status="unavailable" icon={Bell} onClick={() => onSelect('alerts', cluster.id)} />
             </motion.div>
           </section>

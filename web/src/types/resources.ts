@@ -20,6 +20,7 @@ export interface Cluster {
   pg_back_rest?: PgBackRestConfig
   created_at: string
   updated_at: string
+  desired_revision?: string
 }
 
 export interface ClusterInput {
@@ -30,7 +31,7 @@ export interface ClusterInput {
   replica_count: number
   enabled_extensions: string[]
   pgbouncer_enabled: boolean
-  pg_bouncer: PgBouncerConfig
+  pg_bouncer?: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
 }
 
@@ -106,6 +107,13 @@ export interface ActualCluster {
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'pending' | 'unknown'
 
+export interface ReconciliationResult {
+  action: string
+  cluster_id: string
+  status: 'success' | 'failed' | 'skipped_due_to_dependency'
+  error: string
+}
+
 export interface ProjectClusterState {
   cluster_id: string
   host_id: string
@@ -113,11 +121,14 @@ export interface ProjectClusterState {
   health: ClusterHealth
   last_seen?: string
   stale: boolean
+  desired_state_revision?: string
+  reconciliation_results: ReconciliationResult[]
 }
 
 export interface ProjectStateSnapshot {
   type: 'project_state'
   project_id: string
+  desired_clusters: Cluster[]
   clusters: ProjectClusterState[]
 }
 

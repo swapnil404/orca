@@ -63,10 +63,25 @@ func (h *HostRegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	hostID, err := randomID(h.random)
-	if err != nil {
-		http.Error(w, "failed to generate host ID", http.StatusInternalServerError)
+	var request struct {
+		HostID string `json:"host_id"`
+	}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &request) {
 		return
+	}
+	hostID := strings.TrimSpace(request.HostID)
+	if hostID != "" {
+		if !validUUID(hostID) {
+			writeError(w, http.StatusBadRequest, "host_id must be a valid UUID")
+			return
+		}
+	} else {
+		var err error
+		hostID, err = randomID(h.random)
+		if err != nil {
+			http.Error(w, "failed to generate host ID", http.StatusInternalServerError)
+			return
+		}
 	}
 	token, err := auth.GenerateAgentToken()
 	if err != nil {

@@ -169,6 +169,7 @@ func run(ctx context.Context, configuration config) error {
 	api.NewOrganizationHandler(metadata).RegisterRoutes(protected)
 	resources := api.NewResourceHandler(metadata, desiredStates)
 	resources.SetHostConnectionLookup(hub)
+	resources.SetProjectChangeNotifier(projectEvents)
 	resources.RegisterRoutes(protected)
 	api.NewBackupHandler(metadata).RegisterRoutes(protected)
 	api.NewAlertHandler(metadata).RegisterRoutes(protected)

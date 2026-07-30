@@ -1,7 +1,9 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowLeft, Blocks, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { useEffect } from 'react'
 import { ApiError, getProjectTopology, updateCluster } from '../../../api'
+import { isReportStale } from '../../../canvas/status'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
 import type { Cluster, ClusterInput, ProjectClusterState } from '../../../types/resources'
@@ -34,11 +36,19 @@ function ProjectExtensionsPage() {
   const [pending, setPending] = useState('')
   const [message, setMessage] = useState('')
   const snapshot = useTopologyStore((state) => state.snapshot)
-  const connected = useTopologyStore((state) => state.connected)
   useProjectEvents(projectId)
 
   const states = snapshot?.project_id === projectId ? snapshot.clusters : []
+  const [now, setNow] = useState(() => Date.now())
+  const fresh = states.length > 0 && states.every((state) => state.last_seen !== undefined && !isReportStale(state, now))
   const extensionNames = collectExtensionNames(clusters, states)
+  useEffect(() => {
+    if (snapshot?.project_id === projectId && snapshot.desired_clusters) setClusters(snapshot.desired_clusters)
+  }, [projectId, snapshot?.desired_clusters, snapshot?.project_id])
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function changeDesired(cluster: Cluster, extension: string, enabled: boolean) {
     const operation = `${cluster.id}:${extension}`
@@ -80,7 +90,7 @@ function ProjectExtensionsPage() {
           <Link to="/projects/$projectId" params={{ projectId }} search={{ tab: 'topology', restore: undefined }} className="mb-5 inline-flex items-center gap-2 text-xs text-[var(--text-3)] hover:text-[var(--text)]"><ArrowLeft className="h-3.5 w-3.5" />Topology</Link>
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div><p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-3)]">{initialTopology.project.name} / PostgreSQL</p><h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">Project extensions</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-2)]">Installed state and desired-state reconciliation across every primary node in this project.</p></div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--text-2)]"><span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />{connected ? 'Live agent data' : 'Agent data unavailable'}</span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--text-2)]"><span className={`h-1.5 w-1.5 rounded-full ${fresh ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />{fresh ? 'Live agent data' : 'Agent data stale or unavailable'}</span>
           </div>
         </header>
 

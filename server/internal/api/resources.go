@@ -15,7 +15,12 @@ import (
 	"github.com/swapnil404/orca/server/internal/store"
 )
 
-const maxBackupIntervalSeconds = int64((1<<63 - 1) / 1_000_000_000)
+const (
+	maxBackupIntervalSeconds = int64((1<<63 - 1) / 1_000_000_000)
+	// Each replica is a container on the same registered host. Ten keeps a
+	// request practical while allowing substantially larger test topologies.
+	maxReplicaCount = int32(10)
+)
 
 const maxRequestBodyBytes = 1 << 20
 
@@ -47,17 +52,27 @@ type hostConnectionLookup interface {
 	IsConnected(string) bool
 }
 
+type projectChangeNotifier interface {
+	NotifyProjectChange(context.Context, string) error
+}
+
 // ResourceHandler serves user-scoped project and cluster endpoints.
 type ResourceHandler struct {
-	store  resourceStore
-	random io.Reader
-	pusher desiredStatePusher
-	hosts  hostConnectionLookup
+	store    resourceStore
+	random   io.Reader
+	pusher   desiredStatePusher
+	hosts    hostConnectionLookup
+	notifier projectChangeNotifier
 }
 
 // SetHostConnectionLookup supplies the live agent-session source used by host status responses.
 func (h *ResourceHandler) SetHostConnectionLookup(hosts hostConnectionLookup) {
 	h.hosts = hosts
+}
+
+// SetProjectChangeNotifier supplies the frontend project event publisher.
+func (h *ResourceHandler) SetProjectChangeNotifier(notifier projectChangeNotifier) {
+	h.notifier = notifier
 }
 
 // NewResourceHandler creates the project and cluster API handler.
@@ -237,6 +252,7 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
 	writeJSON(w, http.StatusCreated, cluster)
 }
 
@@ -304,6 +320,7 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
 	writeJSON(w, http.StatusOK, cluster)
 }
 
@@ -342,6 +359,7 @@ func (h *ResourceHandler) deleteCluster(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -378,6 +396,7 @@ func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
 	writeJSON(w, http.StatusOK, cluster)
 }
 
@@ -439,6 +458,12 @@ func (h *ResourceHandler) pushHosts(ctx context.Context, hostIDs ...string) {
 	}
 }
 
+func (h *ResourceHandler) notifyProject(ctx context.Context, projectID string) {
+	if h.notifier != nil {
+		_ = h.notifier.NotifyProjectChange(ctx, projectID)
+	}
+}
+
 func clusterHostIDs(clusters []store.Cluster) []string {
 	hostIDs := make([]string, 0, len(clusters))
 	seen := make(map[string]struct{}, len(clusters))
@@ -476,6 +501,10 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 	}
 	if request.ReplicaCount < 0 {
 		writeError(w, http.StatusBadRequest, "replica_count cannot be negative")
+		return false
+	}
+	if request.ReplicaCount > maxReplicaCount {
+		writeError(w, http.StatusBadRequest, "replica_count cannot exceed 10")
 		return false
 	}
 	if request.PgBouncerEnabled {

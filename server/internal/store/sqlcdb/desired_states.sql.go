@@ -42,6 +42,19 @@ func (q *Queries) CreateDesiredState(ctx context.Context, arg CreateDesiredState
 	return i, err
 }
 
+const getDesiredStateRevisionForHost = `-- name: GetDesiredStateRevisionForHost :one
+SELECT COALESCE(MAX(id), 0)::BIGINT
+FROM desired_states
+WHERE host_id = $1
+`
+
+func (q *Queries) GetDesiredStateRevisionForHost(ctx context.Context, hostID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getDesiredStateRevisionForHost, hostID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listCurrentDesiredStatesForHost = `-- name: ListCurrentDesiredStatesForHost :many
 SELECT latest.id, latest.host_id, latest.cluster_id, latest.operation,
        latest.state, latest.created_at

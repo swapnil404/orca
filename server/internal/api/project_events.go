@@ -32,19 +32,22 @@ type projectEventStore interface {
 
 // ProjectStateSnapshot is the current actual state and health for a project.
 type ProjectStateSnapshot struct {
-	Type      string                `json:"type"`
-	ProjectID string                `json:"project_id"`
-	Clusters  []ProjectClusterState `json:"clusters"`
+	Type            string                `json:"type"`
+	ProjectID       string                `json:"project_id"`
+	DesiredClusters []store.Cluster       `json:"desired_clusters"`
+	Clusters        []ProjectClusterState `json:"clusters"`
 }
 
 // ProjectClusterState is the latest reported state for one desired cluster.
 type ProjectClusterState struct {
-	ClusterID   string               `json:"cluster_id"`
-	HostID      string               `json:"host_id"`
-	ActualState *types.ActualCluster `json:"actual_state"`
-	Health      string               `json:"health"`
-	LastSeen    *time.Time           `json:"last_seen,omitempty"`
-	Stale       bool                 `json:"stale"`
+	ClusterID             string                        `json:"cluster_id"`
+	HostID                string                        `json:"host_id"`
+	ActualState           *types.ActualCluster          `json:"actual_state"`
+	Health                string                        `json:"health"`
+	LastSeen              *time.Time                    `json:"last_seen,omitempty"`
+	Stale                 bool                          `json:"stale"`
+	DesiredStateRevision  string                        `json:"desired_state_revision,omitempty"`
+	ReconciliationResults []*types.ReconciliationResult `json:"reconciliation_results"`
 }
 
 type projectClient struct {
@@ -147,6 +150,11 @@ func (h *ProjectEventHandler) NotifyHostReport(ctx context.Context, hostID strin
 	return publishErr
 }
 
+// NotifyProjectChange publishes desired topology changes to project subscribers.
+func (h *ProjectEventHandler) NotifyProjectChange(ctx context.Context, projectID string) error {
+	return h.publish(ctx, projectID)
+}
+
 func (h *ProjectEventHandler) subscribe(ctx context.Context, userID, projectID string, client *projectClient) error {
 	// Snapshot loading and registration are atomic with publication: a report is
 	// either represented by this snapshot or delivered immediately afterward.
@@ -238,7 +246,7 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 	}
 
 	snapshot := ProjectStateSnapshot{
-		Type: "project_state", ProjectID: projectID,
+		Type: "project_state", ProjectID: projectID, DesiredClusters: clusters,
 		Clusters: make([]ProjectClusterState, 0, len(clusters)),
 	}
 	for _, cluster := range clusters {
@@ -248,6 +256,11 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 			state.Health = report.Health
 			state.LastSeen = &report.LastSeen
 			state.Stale = report.Stale
+			state.DesiredStateRevision = report.DesiredStateRevision
+			state.ReconciliationResults = report.ReconciliationResults
+		}
+		if state.ReconciliationResults == nil {
+			state.ReconciliationResults = []*types.ReconciliationResult{}
 		}
 		snapshot.Clusters = append(snapshot.Clusters, state)
 	}
