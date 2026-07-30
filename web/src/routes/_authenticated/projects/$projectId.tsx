@@ -23,7 +23,7 @@ function ProjectCanvasPage() {
       <header className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1">
         <div>
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--text-3)]">
-            <Link to="/" className="hover:text-[var(--text)]">Orca</Link>
+            <Link to="/organizations" className="hover:text-[var(--text)]">Orca</Link>
             <span className="mx-2 text-[var(--border)]">/</span>
             <span className="text-[var(--text-2)]">{project.name}</span>
           </p>

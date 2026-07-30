@@ -15,6 +15,7 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated/alerts'
 import { Route as AuthenticatedBackupsRouteImport } from './routes/_authenticated/backups'
+import { Route as AuthenticatedOrganizationsRouteImport } from './routes/_authenticated/organizations'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects/$projectId'
 import { Route as AuthenticatedProjectsProjectIdAlertsRouteImport } from './routes/_authenticated/projects/$projectId_.alerts'
@@ -51,6 +52,12 @@ const AuthenticatedBackupsRoute = AuthenticatedBackupsRouteImport.update({
   path: '/backups',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedOrganizationsRoute =
+  AuthenticatedOrganizationsRouteImport.update({
+    id: '/organizations',
+    path: '/organizations',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/alerts': typeof AuthenticatedAlertsRoute
   '/backups': typeof AuthenticatedBackupsRoute
+  '/organizations': typeof AuthenticatedOrganizationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
   '/projects/$projectId/alerts': typeof AuthenticatedProjectsProjectIdAlertsRoute
@@ -105,6 +113,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/alerts': typeof AuthenticatedAlertsRoute
   '/backups': typeof AuthenticatedBackupsRoute
+  '/organizations': typeof AuthenticatedOrganizationsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/': typeof AuthenticatedIndexRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
@@ -120,6 +129,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
   '/_authenticated/backups': typeof AuthenticatedBackupsRoute
+  '/_authenticated/organizations': typeof AuthenticatedOrganizationsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/alerts'
     | '/backups'
+    | '/organizations'
     | '/settings'
     | '/projects/$projectId'
     | '/projects/$projectId/alerts'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/alerts'
     | '/backups'
+    | '/organizations'
     | '/settings'
     | '/'
     | '/projects/$projectId'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_authenticated/alerts'
     | '/_authenticated/backups'
+    | '/_authenticated/organizations'
     | '/_authenticated/settings'
     | '/_authenticated/'
     | '/_authenticated/projects/$projectId'
@@ -221,6 +234,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBackupsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/organizations': {
+      id: '/_authenticated/organizations'
+      path: '/organizations'
+      fullPath: '/organizations'
+      preLoaderRoute: typeof AuthenticatedOrganizationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -269,6 +289,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
   AuthenticatedBackupsRoute: typeof AuthenticatedBackupsRoute
+  AuthenticatedOrganizationsRoute: typeof AuthenticatedOrganizationsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
@@ -281,6 +302,7 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAlertsRoute: AuthenticatedAlertsRoute,
   AuthenticatedBackupsRoute: AuthenticatedBackupsRoute,
+  AuthenticatedOrganizationsRoute: AuthenticatedOrganizationsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,
