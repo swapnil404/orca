@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/swapnil404/orca/server/internal/auth"
@@ -152,12 +153,17 @@ func (h *HostRegistrationHandler) writeRegistration(w http.ResponseWriter, hostI
 	}{
 		HostID:           hostID,
 		Status:           status,
-		DockerRunCommand: fmt.Sprintf("docker run -d \\\n  -e ORCA_TOKEN=%s \\\n  -e ORCA_SERVER_URL=%s \\\n  -v /var/run/docker.sock:/var/run/docker.sock \\\n  -v /proc:/host/proc:ro \\\n  -v /var/orca/data:/var/orca/data \\\n  orca/agent", token, h.serverURL),
+		DockerRunCommand: fmt.Sprintf("export ORCA_TOKEN=%s\nexport ORCA_SERVER_URL=%s\nexport ORCA_STATE_PATH='/var/orca/state/desired.json'\ngo run ./agent/cmd/agent", shellQuote(token), shellQuote(h.serverURL)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func randomID(random io.Reader) (string, error) {

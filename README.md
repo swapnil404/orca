@@ -88,13 +88,11 @@ curl -sS http://localhost:8080/hosts \
   -H "Authorization: Bearer $USER_JWT"
 ```
 
-`POST /hosts` returns the agent token only inside `docker_run_command`; copy its `ORCA_TOKEN` value into the agent environment. A new agent connection is accepted only during the token's 24-hour lifetime; an already-established connection is not reauthenticated when that lifetime elapses.
-
-The generated command currently names `orca/agent`, but this checkout has no agent Dockerfile or configured image source. For repository development, run the agent from source on the Docker host:
+`POST /hosts` returns the agent token only inside `docker_run_command`; the generated command runs the agent from source because this checkout has no published agent image yet. A new agent connection is accepted only during the token's 24-hour lifetime; an already-established connection is not reauthenticated when that lifetime elapses.
 
 ```sh
-export ORCA_TOKEN='token-from-the-generated-command'
-export ORCA_SERVER_URL='ws://localhost:3000/agent'
+export ORCA_TOKEN='<generated-token>'
+export ORCA_SERVER_URL='<configured-server-websocket-url>'
 export ORCA_STATE_PATH='/var/orca/state/desired.json'
 go run ./agent/cmd/agent
 ```
