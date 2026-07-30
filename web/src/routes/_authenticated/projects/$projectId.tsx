@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Copy, RefreshCw, Settings2, Terminal } from 'lucide-react'
+import { Copy, Eye, EyeOff, RefreshCw, Settings2, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectTopology, listProjectHosts, rotateHostToken } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
@@ -19,7 +19,6 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
 interface CommandState {
   hostID: string
   command: string
-  revealed: boolean
 }
 
 interface HostConnectionProps {
@@ -32,12 +31,8 @@ function commandKey(hostID: string) {
   return `orca.host-command.${hostID}`
 }
 
-function maskedCommandKey(hostID: string) {
-  return `orca.host-command-mask.${hostID}`
-}
-
 function maskCommand(command: string) {
-  return command.replace(/(export ORCA_TOKEN=')([^']+)(')/, (_, before: string, token: string, after: string) => `${before}••••${token.slice(-4)}${after}`)
+  return command.replace(/(export ORCA_TOKEN=')([^']+)(')/, (_, before: string, token: string, after: string) => `${before}${token.slice(0, 8)}••••••••${token.slice(-4)}${after}`)
 }
 
 function ProjectCanvasPage() {
@@ -68,7 +63,6 @@ function ProjectCanvasPage() {
       setCommandState((current) => {
         if (current) {
           window.sessionStorage.removeItem(commandKey(current.hostID))
-          window.sessionStorage.removeItem(maskedCommandKey(current.hostID))
         }
         return null
       })
@@ -76,24 +70,18 @@ function ProjectCanvasPage() {
     }
     const command = window.sessionStorage.getItem(commandKey(awaitingHost.id))
     if (command) {
-      const masked = maskCommand(command)
-      window.sessionStorage.removeItem(commandKey(awaitingHost.id))
-      window.sessionStorage.setItem(maskedCommandKey(awaitingHost.id), masked)
-      setCommandState({ hostID: awaitingHost.id, command, revealed: true })
+      setCommandState({ hostID: awaitingHost.id, command })
       return
     }
-    const masked = window.sessionStorage.getItem(maskedCommandKey(awaitingHost.id))
-    setCommandState((current) => current?.hostID === awaitingHost.id && current.revealed
-      ? current
-      : masked ? { hostID: awaitingHost.id, command: masked, revealed: false } : null)
+    window.sessionStorage.removeItem(`orca.host-command-mask.${awaitingHost.id}`)
+    setCommandState(null)
   }, [awaitingHost?.id])
 
-  function revealCommand(command: string) {
+  function storeCommand(command: string) {
     if (!awaitingHost) return
-    const masked = maskCommand(command)
-    window.sessionStorage.removeItem(commandKey(awaitingHost.id))
-    window.sessionStorage.setItem(maskedCommandKey(awaitingHost.id), masked)
-    setCommandState({ hostID: awaitingHost.id, command, revealed: true })
+    window.sessionStorage.setItem(commandKey(awaitingHost.id), command)
+    window.sessionStorage.removeItem(`orca.host-command-mask.${awaitingHost.id}`)
+    setCommandState({ hostID: awaitingHost.id, command })
   }
 
   return (
@@ -115,7 +103,7 @@ function ProjectCanvasPage() {
           </div>
         </div>
       </header>
-      {awaitingHost && <HostConnection hostID={awaitingHost.id} commandState={commandState?.hostID === awaitingHost.id ? commandState : null} onCommand={revealCommand} />}
+      {awaitingHost && <HostConnection hostID={awaitingHost.id} commandState={commandState?.hostID === awaitingHost.id ? commandState : null} onCommand={storeCommand} />}
       {clusters.length === 0 ? (
         <ConnectHostEmptyState className="flex-1" title="Connect a host to get started" description="Register an Orca agent on the infrastructure that will run PostgreSQL. Once the host connects, you can configure this project's topology." />
       ) : (
@@ -129,8 +117,17 @@ function HostConnection({ hostID, commandState, onCommand }: HostConnectionProps
   const [copied, setCopied] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+  const [revealed, setRevealed] = useState(false)
+  useEffect(() => {
+    setRevealed(false)
+  }, [commandState?.command])
+  useEffect(() => {
+    if (!revealed) return
+    const timer = window.setTimeout(() => setRevealed(false), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [revealed])
   async function copyCommand() {
-    if (!commandState?.revealed) return
+    if (!commandState) return
     await navigator.clipboard.writeText(commandState.command)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 2_000)
@@ -147,5 +144,6 @@ function HostConnection({ hostID, commandState, onCommand }: HostConnectionProps
       setGenerating(false)
     }
   }
-  return <section className="mb-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center"><div className="flex min-w-0 flex-1 gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] text-[var(--accent)]"><Terminal className="h-4 w-4" /></span><div><h2 className="text-sm font-semibold">Connect the registered host</h2><p className="mt-1 text-xs leading-5 text-[var(--text-2)]">Run this one-time command on the host that will provide storage and compute. Desired topology and extensions are waiting for its agent.</p></div></div>{commandState?.revealed ? <button type="button" onClick={copyCommand} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-xs font-medium text-[var(--text-2)] hover:border-[var(--accent)] hover:text-[var(--text)]"><Copy className="h-3.5 w-3.5" />{copied ? 'Copied' : 'Copy command'}</button> : <button type="button" disabled={generating} onClick={generateCommand} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />{generating ? 'Regenerating...' : commandState ? 'Regenerate' : 'Generate command'}</button>}</div>{error && <p role="alert" className="mt-3 text-xs text-[var(--critical)]">{error}</p>}{commandState && <><p className="mt-3 text-[11px] text-[var(--text-3)]">Requires the Orca repo checked out locally — a prebuilt Docker image is coming soon</p><pre className="mt-2 overflow-x-auto rounded-[var(--radius-sm)] bg-[var(--panel)] p-3 font-mono text-[11px] leading-5 text-[var(--text-2)]"><code>{commandState.command}</code></pre>{commandState.revealed ? <button type="button" disabled={generating} onClick={generateCommand} className="mt-2 text-[11px] text-[var(--text-3)] hover:text-[var(--text-2)]">{generating ? 'Regenerating...' : 'Regenerate and invalidate this token'}</button> : <p className="mt-2 text-[11px] text-[var(--text-3)]">The token is hidden because it has already been displayed.</p>}</>}</section>
+  const displayedCommand = commandState ? revealed ? commandState.command : maskCommand(commandState.command) : ''
+  return <section className="mb-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center"><div className="flex min-w-0 flex-1 gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] text-[var(--accent)]"><Terminal className="h-4 w-4" /></span><div><h2 className="text-sm font-semibold">Connect the registered host</h2><p className="mt-1 text-xs leading-5 text-[var(--text-2)]">Run this one-time command on the host that will provide storage and compute. Desired topology and extensions are waiting for its agent.</p></div></div>{commandState ? <button type="button" onClick={copyCommand} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-xs font-medium text-[var(--text-2)] hover:border-[var(--accent)] hover:text-[var(--text)]"><Copy className="h-3.5 w-3.5" />{copied ? 'Copied' : 'Copy command'}</button> : <button type="button" disabled={generating} onClick={generateCommand} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />{generating ? 'Generating...' : 'Generate command'}</button>}</div>{error && <p role="alert" className="mt-3 text-xs text-[var(--critical)]">{error}</p>}{commandState && <><p className="mt-3 text-[11px] text-[var(--text-3)]">Requires the Orca repo checked out locally — a prebuilt Docker image is coming soon</p><div className="relative mt-2"><pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-[var(--panel)] p-3 pr-24 font-mono text-[11px] leading-5 text-[var(--text-2)]"><code>{displayedCommand}</code></pre><button type="button" aria-label={revealed ? 'Hide token' : 'Reveal token'} onClick={() => setRevealed((current) => !current)} className="absolute right-2 top-2 inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[10px] font-medium text-[var(--text-2)] hover:border-[var(--accent)] hover:text-[var(--text)]">{revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}{revealed ? 'Hide' : 'Reveal'}</button></div><button type="button" disabled={generating} onClick={generateCommand} className="mt-2 text-[11px] text-[var(--text-3)] hover:text-[var(--text-2)]">{generating ? 'Regenerating...' : 'Regenerate and invalidate this token'}</button></>}</section>
 }
