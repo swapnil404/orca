@@ -21,6 +21,7 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
+	DeleteOrganization(ctx context.Context, id string) (int64, error)
 	DeleteUnusedHost(ctx context.Context, arg DeleteUnusedHostParams) (int64, error)
 	GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
@@ -30,6 +31,7 @@ type Querier interface {
 	GetOAuthIdentityUserID(ctx context.Context, arg GetOAuthIdentityUserIDParams) (string, error)
 	GetOrganizationByID(ctx context.Context, id string) (Organization, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
+	GetOrganizationDeletionState(ctx context.Context, arg GetOrganizationDeletionStateParams) (GetOrganizationDeletionStateRow, error)
 	GetProject(ctx context.Context, arg GetProjectParams) (Project, error)
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	ListActiveClustersForProject(ctx context.Context, arg ListActiveClustersForProjectParams) ([]Cluster, error)
@@ -57,6 +59,7 @@ type Querier interface {
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
 	UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterPgBouncerParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
+	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpsertAgentReport(ctx context.Context, arg UpsertAgentReportParams) error
 	UpsertClusterReport(ctx context.Context, arg UpsertClusterReportParams) (int64, error)

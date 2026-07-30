@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
-import { listOrganizationMembers, listOrganizations } from '../../api'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { AlertTriangle, Trash2 } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { ApiError, deleteOrganization, getSession, listOrganizationMembers, listOrganizations, updateOrganization } from '../../api'
 import type { Organization, OrganizationMember, OrganizationRole } from '../../types/organizations'
 
 const tabs = ['Profile', 'Members', 'Secrets', 'Certificates', 'Tokens'] as const
@@ -9,27 +10,39 @@ type SettingsTab = (typeof tabs)[number]
 interface SettingsData {
   organizations: Organization[]
   members: Record<string, OrganizationMember[]>
+  userID: string
+}
+
+interface SettingsSearch {
+  organizationId?: string
 }
 
 async function loadSettings(): Promise<SettingsData> {
-  const organizations = await listOrganizations()
+  const [organizations, session] = await Promise.all([listOrganizations(), getSession()])
   const memberLists = await Promise.all(organizations.map(async (organization) => (
     [organization.id, await listOrganizationMembers(organization.id)] as const
   )))
-  return { organizations, members: Object.fromEntries(memberLists) }
+  return { organizations, members: Object.fromEntries(memberLists), userID: session?.user_id ?? '' }
 }
 
 export const Route = createFileRoute('/_authenticated/settings')({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+    organizationId: typeof search.organizationId === 'string' ? search.organizationId : undefined,
+  }),
   loader: loadSettings,
   component: SettingsPage,
 })
 
 function SettingsPage() {
-  const { organizations, members } = Route.useLoaderData()
+  const { organizations, members, userID } = Route.useLoaderData()
+  const search = Route.useSearch()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<SettingsTab>('Profile')
-  const [organizationID, setOrganizationID] = useState(organizations[0]?.id ?? '')
+  const organizationID = organizations.some((item) => item.id === search.organizationId) ? search.organizationId ?? '' : organizations[0]?.id ?? ''
   const organization = organizations.find((item) => item.id === organizationID)
+  const organizationMembers = organization ? members[organization.id] ?? [] : []
+  const owner = organizationMembers.some((member) => member.user_id === userID && member.role === 'owner')
 
   return (
     <main className="min-h-[calc(100vh-56px)] px-4 py-6 text-[var(--text)] sm:px-6 lg:px-8">
@@ -46,7 +59,7 @@ function SettingsPage() {
               <select
                 className="mt-1 block min-w-56 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
                 value={organizationID}
-                onChange={(event) => setOrganizationID(event.target.value)}
+                onChange={(event) => void navigate({ to: '/settings', search: { organizationId: event.target.value }, replace: true })}
               >
                 {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
@@ -78,8 +91,8 @@ function SettingsPage() {
           </section>
         ) : (
           <div className="mt-6" role="tabpanel">
-            {activeTab === 'Profile' && <ProfileSection organization={organization} />}
-            {activeTab === 'Members' && <MembersSection members={members[organization.id] ?? []} />}
+            {activeTab === 'Profile' && <ProfileSection organization={organization} owner={owner} />}
+            {activeTab === 'Members' && <MembersSection members={organizationMembers} />}
             {activeTab === 'Secrets' && <UnavailableSection title="Organization secrets" description="Secret management is not available in the control-plane API yet." />}
             {activeTab === 'Certificates' && <UnavailableSection title="Certificates" description="Certificate listing and rotation status are not available in the control-plane API yet." />}
             {activeTab === 'Tokens' && <UnavailableSection title="API and CLI tokens" description="Token creation and revocation are not available in the control-plane API yet." />}
@@ -92,24 +105,65 @@ function SettingsPage() {
 
 interface ProfileSectionProps {
   organization: Organization
+  owner: boolean
 }
 
-function ProfileSection({ organization }: ProfileSectionProps) {
+function ProfileSection({ organization, owner }: ProfileSectionProps) {
+  const navigate = useNavigate()
+  const router = useRouter()
+  const [name, setName] = useState(organization.name)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  useEffect(() => {
+    setName(organization.name)
+    setMessage('')
+    setConfirmation('')
+    setDeleteError('')
+  }, [organization.id])
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const nextName = name.trim()
+    if (!nextName || nextName === organization.name) return
+    setSaving(true)
+    setMessage('')
+    try {
+      const updated = await updateOrganization(organization.id, nextName)
+      setName(updated.name)
+      await router.invalidate()
+      setMessage('Organization name updated.')
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : 'Could not update the organization.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (confirmation !== organization.name) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await deleteOrganization(organization.id)
+      await navigate({ to: '/organizations' })
+      await router.invalidate()
+    } catch (cause) {
+      setDeleteError(cause instanceof ApiError ? cause.message : 'Could not delete the organization.')
+      setDeleting(false)
+    }
+  }
+
   return (
-    <section className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)]">
-      <div className="border-b border-[var(--border-soft)] px-5 py-4">
-        <h2 className="text-base font-semibold">Organization profile</h2>
-        <p className="mt-1 text-sm text-[var(--text-2)]">Identity details used across this control plane.</p>
-      </div>
-      <dl className="divide-y divide-[var(--border-soft)] px-5">
-        <ProfileValue label="Name" value={organization.name} />
-        <ProfileValue label="Slug" value={organization.slug} monospace />
-        <ProfileValue label="Organization ID" value={organization.id} monospace />
-      </dl>
-      <div className="border-t border-[var(--border-soft)] bg-[var(--panel)] px-5 py-3 text-xs text-[var(--text-2)]">
-        <strong className="font-medium text-[var(--text)]">Editing coming soon.</strong> The organization API currently exposes these fields as read-only.
-      </div>
-    </section>
+    <div className="space-y-6">
+      <section className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)]">
+        <div className="border-b border-[var(--border-soft)] px-5 py-4"><h2 className="text-base font-semibold">Organization profile</h2><p className="mt-1 text-sm text-[var(--text-2)]">Identity details used across this control plane.</p></div>
+        <form onSubmit={handleSave} className="px-5 py-5"><label className="text-xs font-medium text-[var(--text-2)]">Name<input value={name} onChange={(event) => setName(event.target.value)} disabled={!owner || saving} required className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-50" /></label><dl className="mt-4 divide-y divide-[var(--border-soft)] border-y border-[var(--border-soft)]"><ProfileValue label="Slug" value={organization.slug} monospace /><ProfileValue label="Organization ID" value={organization.id} monospace /></dl><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-xs text-[var(--text-3)]">{message || (owner ? 'The slug remains stable when the name changes.' : 'Only organization owners can edit this profile.')}</p>{owner && <button disabled={saving || !name.trim() || name.trim() === organization.name} className="rounded-[var(--radius-sm)] bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:opacity-50">{saving ? 'Saving...' : 'Save changes'}</button>}</div></form>
+      </section>
+      {owner && <section className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--critical)]/35 bg-[var(--card)]"><div className="flex gap-3 border-b border-[var(--critical)]/25 bg-[var(--critical)]/5 px-5 py-4"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--critical)]" /><div><h2 className="font-medium text-[var(--critical)]">Delete organization</h2><p className="mt-1 text-xs leading-5 text-[var(--text-2)]">Deletion is permanent and is only available when the organization has no project history.</p></div></div><div className="px-5 py-5"><label className="text-xs font-medium text-[var(--text-2)]">Type <span className="font-mono text-[var(--text)]">{organization.name}</span> to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 text-sm text-[var(--text)] outline-none focus:border-[var(--critical)]" /></label>{deleteError && <p role="alert" className="mt-3 text-xs text-[var(--critical)]">{deleteError}</p>}<div className="mt-4 flex justify-end"><button type="button" onClick={handleDelete} disabled={deleting || confirmation !== organization.name} className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--critical)] px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"><Trash2 className="h-4 w-4" />{deleting ? 'Deleting...' : 'Delete organization'}</button></div></div></section>}
+    </div>
   )
 }
 
