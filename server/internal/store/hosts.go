@@ -92,6 +92,23 @@ func (s *Postgres) GetHost(ctx context.Context, hostID string) (Host, error) {
 	return hostFromSQLC(host), nil
 }
 
+// RotateHostToken replaces the connection token for an owned host that has never connected.
+func (s *Postgres) RotateHostToken(ctx context.Context, hostID, userID string, tokenHash []byte, expiresAt time.Time) (bool, error) {
+	count, err := s.queries.RotateHostToken(ctx, sqlcdb.RotateHostTokenParams{
+		ID:             hostID,
+		UserID:         userID,
+		TokenHash:      tokenHash,
+		TokenExpiresAt: expiresAt,
+	})
+	return count > 0, err
+}
+
+// DeleteUnusedHost removes an owned host when no cluster references it.
+func (s *Postgres) DeleteUnusedHost(ctx context.Context, hostID, userID string) (bool, error) {
+	count, err := s.queries.DeleteUnusedHost(ctx, sqlcdb.DeleteUnusedHostParams{ID: hostID, UserID: userID})
+	return count > 0, err
+}
+
 func hostFromSQLC(host sqlcdb.Host) Host {
 	return Host{
 		ID:             host.ID,

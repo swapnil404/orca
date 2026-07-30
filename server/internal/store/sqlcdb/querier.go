@@ -21,6 +21,7 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteClusterReportsForHost(ctx context.Context, hostID string) error
+	DeleteUnusedHost(ctx context.Context, arg DeleteUnusedHostParams) (int64, error)
 	GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error)
 	GetCluster(ctx context.Context, arg GetClusterParams) (Cluster, error)
 	GetHost(ctx context.Context, id string) (Host, error)
@@ -47,6 +48,7 @@ type Querier interface {
 	ListProjectIDsForHost(ctx context.Context, hostID string) ([]string, error)
 	ListProjects(ctx context.Context, userID string) ([]Project, error)
 	ListProjectsForOrganization(ctx context.Context, organizationID string) ([]Project, error)
+	RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (int64, error)
 	SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterParams) (SoftDeleteClusterRow, error)
 	SoftDeleteClustersForProject(ctx context.Context, arg SoftDeleteClustersForProjectParams) error
 	SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectParams) (string, error)
