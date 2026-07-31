@@ -33,8 +33,8 @@ interface TopBarProps {
 }
 
 const navItems = [
-  { label: 'Projects', href: '/' as const, icon: LayoutGrid },
   { label: 'Organizations', href: '/organizations' as const, icon: Building2 },
+  { label: 'Projects', href: '/' as const, icon: LayoutGrid },
   { label: 'Alerts', href: '/alerts' as const, icon: Bell },
   { label: 'Backups', href: '/backups' as const, icon: ArchiveRestore },
   { label: 'Settings', href: '/settings' as const, icon: Settings2 },
@@ -73,6 +73,31 @@ export function TopBar({ session, organizations, projects, loggingOut, onLogout,
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    document.querySelectorAll<HTMLDetailsElement>('header details[open]').forEach((details) => details.removeAttribute('open'))
+  }, [location.href])
+
+  useEffect(() => {
+    function closeMenus(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest('header details')) return
+      document.querySelectorAll<HTMLDetailsElement>('header details[open]').forEach((details) => details.removeAttribute('open'))
+    }
+
+    function closeOtherMenus(event: Event) {
+      if (!(event.target instanceof HTMLDetailsElement) || !event.target.open || !event.target.closest('header')) return
+      document.querySelectorAll<HTMLDetailsElement>('header details[open]').forEach((details) => {
+        if (details !== event.target) details.removeAttribute('open')
+      })
+    }
+
+    document.addEventListener('pointerdown', closeMenus)
+    document.addEventListener('toggle', closeOtherMenus, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeMenus)
+      document.removeEventListener('toggle', closeOtherMenus, true)
+    }
+  }, [])
+
   const projectMatch = matches.find((match) => match.routeId === '/_authenticated/projects/$projectId')
   const topology = isProjectTopology(projectMatch?.loaderData) ? projectMatch.loaderData : undefined
   const projectID = typeof projectMatch?.params.projectId === 'string' ? projectMatch.params.projectId : undefined
@@ -88,8 +113,10 @@ export function TopBar({ session, organizations, projects, loggingOut, onLogout,
         <Link to="/" search={{ organizationId: activeOrganizationID || undefined }} aria-label="Projects home" className="group flex shrink-0 items-center gap-2.5 border-r border-[var(--border)] pr-3 sm:pr-4"><span className="grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] bg-[var(--accent)] transition-transform duration-200 group-hover:-rotate-3"><OrcaLogo className="h-7 w-7 [&_path:first-of-type]:fill-[var(--accent-contrast)] [&_path:last-of-type]:fill-[var(--panel)]" /></span><span className="hidden leading-none lg:block"><strong className="block text-sm font-semibold tracking-[-0.02em]">orca</strong><span className="mt-1 block font-mono text-[8px] uppercase tracking-[0.18em] text-[var(--text-3)]">control plane</span></span></Link>
 
         <OrganizationSwitcher organizations={organizations} activeOrganizationID={activeOrganizationID} onSelect={(organizationID) => void navigate({ to: '/', search: { organizationId: organizationID } })} />
-        <span aria-hidden="true" className="relative mx-0.5 hidden h-7 w-2 shrink-0 sm:block"><span className="absolute right-0 top-1/2 h-px w-[21px] origin-right rotate-[73deg] bg-[var(--text-3)]" /><span className="absolute right-0 top-1/2 h-px w-[21px] origin-right -rotate-[73deg] bg-[var(--text-3)]" /></span>
+        <Link to="/organizations" search={{ create: true }} aria-label="New organization" title="New organization" className="hidden h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--text-3)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] lg:grid"><Plus aria-hidden="true" className="h-3.5 w-3.5" /></Link>
+        <span aria-hidden="true" className="mx-0.5 hidden w-2 shrink-0 text-center font-mono text-xl leading-none text-[var(--border)] sm:block" style={{ transform: 'scaleX(0.4) scaleY(1.9)' }}>&gt;</span>
         <ProjectSwitcher projects={organizationProjects} activeProjectID={projectID} organizationID={activeOrganizationID} onSelect={(selectedProjectID) => void navigate({ to: '/projects/$projectId', params: { projectId: selectedProjectID } })} />
+        {activeOrganizationID && <Link to="/projects/new" search={{ organizationId: activeOrganizationID }} aria-label="New project" title="New project" className="hidden h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--text-3)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] lg:grid"><Plus aria-hidden="true" className="h-3.5 w-3.5" /></Link>}
 
         <nav aria-label="Primary navigation" className="absolute inset-x-0 bottom-0 grid h-11 grid-cols-5 border-t border-[var(--border-soft)] bg-[var(--panel)] md:hidden">
           {navItems.map((item) => { const active = item.href === '/' ? location.pathname === '/' || location.pathname.startsWith('/projects/') : location.pathname === item.href; const Icon = item.icon; return <Link key={item.href} to={item.href} className={`relative flex items-center justify-center gap-1.5 px-2 py-2 text-[10px] font-medium transition-colors ${active ? 'text-[var(--text)] after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-[var(--accent)]' : 'text-[var(--text-3)] hover:text-[var(--text)]'}`}><Icon aria-hidden="true" className={`h-3.5 w-3.5 ${active ? 'text-[var(--accent)]' : ''}`} /><span className="hidden sm:inline">{item.label}</span></Link> })}
