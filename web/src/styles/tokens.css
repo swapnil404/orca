@@ -15,27 +15,27 @@
 }
 
 :root {
-  --bg: #0c0c0d;
-  --panel: #111112;
-  --card: #171718;
-  --card-raised: #1d1d1f;
-  --border: #2b2b2e;
-  --border-soft: #212123;
+  --bg: #0d0d0f;
+  --panel: #121214;
+  --card: #18181b;
+  --card-raised: #202024;
+  --border: #2a2a2f;
+  --border-soft: #222226;
   --text: #eeeeeb;
   --text-2: #aaa9a3;
   --text-3: #77766f;
   --accent: #eaf45b;
   --accent-hover: #f2f88d;
   --accent-contrast: #101105;
-  --accent-soft: rgba(242, 255, 61, 0.12);
+  --accent-soft: rgba(242, 255, 61, 0.16);
   --healthy: #62d98b;
   --warning: #e7b950;
   --critical: #ff706b;
   --streaming: #75b9ff;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-fast: 120ms;
   --dur-base: 160ms;

@@ -88,6 +88,7 @@ func NewResourceHandler(resources resourceStore, pushers ...desiredStatePusher) 
 func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects", h.listProjects)
 	mux.HandleFunc("POST /projects", h.createProject)
+	mux.HandleFunc("POST /orgs/{organizationID}/projects", h.createProject)
 	mux.HandleFunc("GET /projects/{projectID}", h.getProject)
 	mux.HandleFunc("PUT /projects/{projectID}", h.updateProject)
 	mux.HandleFunc("DELETE /projects/{projectID}", h.deleteProject)
@@ -116,7 +117,11 @@ func (h *ResourceHandler) createProject(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if !validUUID(request.OrganizationID) {
+	organizationID := r.PathValue("organizationID")
+	if organizationID == "" {
+		organizationID = request.OrganizationID
+	}
+	if !validUUID(organizationID) {
 		writeError(w, http.StatusBadRequest, "valid organization_id is required")
 		return
 	}
@@ -126,7 +131,7 @@ func (h *ResourceHandler) createProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	project, err := h.store.CreateProject(r.Context(), store.CreateProjectParams{
-		ID: id, UserID: userID, OrganizationID: request.OrganizationID, Name: strings.TrimSpace(request.Name),
+		ID: id, UserID: userID, OrganizationID: organizationID, Name: strings.TrimSpace(request.Name),
 	})
 	if err != nil {
 		writeStoreError(w, err)

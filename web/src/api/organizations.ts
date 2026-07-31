@@ -1,4 +1,5 @@
 import type { Organization, OrganizationMember } from '../types/organizations'
+import type { Project } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -21,4 +22,8 @@ export function deleteOrganization(organizationID: string): Promise<void> {
 
 export function listOrganizationMembers(organizationID: string): Promise<OrganizationMember[]> {
   return apiRequest(`/orgs/${encode(organizationID)}/members`)
+}
+
+export function listOrganizationProjects(organizationID: string): Promise<Project[]> {
+  return apiRequest(`/orgs/${encode(organizationID)}/projects`)
 }

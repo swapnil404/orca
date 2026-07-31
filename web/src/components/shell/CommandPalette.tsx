@@ -20,11 +20,15 @@ function isFormFieldFocused(paletteInput: HTMLInputElement | null): boolean {
     || activeElement.closest('[contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="searchbox"]') !== null
 }
 
-export function CommandPalette() {
+interface CommandPaletteProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
   const [mounted, setMounted] = useState(false)
-  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
@@ -44,12 +48,12 @@ export function CommandPalette() {
       const shortcutPressed = isMacPlatform() ? event.metaKey : event.ctrlKey
       if (!shortcutPressed) return
       event.preventDefault()
-      setOpen((current) => !current)
+      onOpenChange(!open)
     }
 
     document.addEventListener('keydown', handleShortcut)
     return () => document.removeEventListener('keydown', handleShortcut)
-  }, [mounted])
+  }, [mounted, onOpenChange, open])
 
   useEffect(() => {
     if (!open) return
@@ -81,12 +85,12 @@ export function CommandPalette() {
     if (!open) return
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') onOpenChange(false)
     }
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [open])
+  }, [onOpenChange, open])
 
   useEffect(() => {
     if (selectedIndex < commands.length) return
@@ -94,7 +98,7 @@ export function CommandPalette() {
   }, [commands.length, selectedIndex])
 
   async function execute(command: Command) {
-    setOpen(false)
+    onOpenChange(false)
     if (command.destination.to === '/projects/$projectId' && command.destination.projectId) {
       await navigate({ to: '/projects/$projectId', params: { projectId: command.destination.projectId } })
       return
@@ -105,7 +109,7 @@ export function CommandPalette() {
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
       event.preventDefault()
-      setOpen(false)
+      onOpenChange(false)
       return
     }
     if (event.key === 'ArrowDown') {
@@ -127,29 +131,29 @@ export function CommandPalette() {
   if (!mounted || !open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 px-3 pt-[14vh]" onMouseDown={() => setOpen(false)}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 px-3 pt-[14vh]" onMouseDown={() => onOpenChange(false)}>
       <section
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-full max-w-xl overflow-hidden rounded-2xl border border-white/[0.08] shadow-[0_28px_90px_rgba(0,0,0,0.55)]"
-        style={{ backgroundColor: 'rgba(20,20,23,0.76)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}
+        className="relative w-full max-w-2xl overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[color:rgba(17,17,18,0.96)] shadow-[0_28px_90px_rgba(0,0,0,0.65)] backdrop-blur-xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center gap-3 border-b border-white/[0.08] px-4">
-          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--text-3)]" />
+        <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-80" />
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5">
+          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--accent)]" />
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => { setQuery(event.target.value); setSelectedIndex(0) }}
             onKeyDown={handleKeyDown}
-            placeholder="Search commands or projects..."
+            placeholder="Search projects, settings, or actions..."
             aria-label="Search commands"
             aria-controls="command-palette-results"
             aria-activedescendant={commands[selectedIndex] ? `command-${commands[selectedIndex].id}` : undefined}
-            className="h-14 min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-3)]"
+            className="h-16 min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-3)]"
           />
-          <kbd className="rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-3)]">Esc</kbd>
+          <kbd className="rounded-[4px] border border-[var(--border)] bg-[var(--card)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-3)]">ESC</kbd>
         </div>
 
         <div id="command-palette-results" role="listbox" className="max-h-[min(420px,55vh)] overflow-y-auto p-2">
@@ -173,7 +177,7 @@ export function CommandPalette() {
           {projectsError ? <p className="px-3 py-2 text-xs text-[var(--warning)]">Projects could not be loaded.</p> : null}
         </div>
 
-        <footer className="flex items-center gap-3 border-t border-white/[0.08] px-4 py-2 text-[10px] text-[var(--text-3)]">
+        <footer className="flex items-center gap-3 border-t border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-[10px] text-[var(--text-3)]">
           <span className="inline-flex items-center gap-1"><ArrowUp className="h-3 w-3" /><ArrowDown className="h-3 w-3" /> Navigate</span>
           <span className="inline-flex items-center gap-1"><CornerDownLeft className="h-3 w-3" /> Open</span>
         </footer>
