@@ -1,12 +1,12 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Check, ChevronLeft, ChevronRight, Database, Info, Minus, Network, Plus, Server, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Database, Info, Minus, Network, Plus, Server, X } from 'lucide-react'
 import { useState } from 'react'
 import { ApiError, createCluster, createProject, deleteProject, deleteUnusedHost, enablePgBouncer, listOrganizations, registerHost, rotateHostToken } from '../../../api'
 import type { PgBouncerPoolMode } from '../../../types/resources'
 
 const projectNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const maxReplicaCount = 10
-const steps = ['Instance Config', 'Topology', 'Review'] as const
+const steps = ['Instance Config', 'Topology'] as const
 const creationPhaseLabels = {
   project: 'Creating project',
   host: 'Registering host slot',
@@ -25,17 +25,26 @@ type ExtensionID = (typeof extensions)[number]['id']
 type Topology = 'replicas' | 'single'
 type CreationPhase = keyof typeof creationPhaseLabels
 
+interface NewProjectSearch {
+  organizationId?: string
+}
+
 export const Route = createFileRoute('/_authenticated/projects/new')({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): NewProjectSearch => ({
+    organizationId: typeof search.organizationId === 'string' ? search.organizationId : undefined,
+  }),
   loader: listOrganizations,
   component: NewProjectPage,
 })
 
 function NewProjectPage() {
   const organizations = Route.useLoaderData()
+  const search = Route.useSearch()
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [organizationID, setOrganizationID] = useState(organizations[0]?.id ?? '')
+  const initialOrganizationID = organizations.some((organization) => organization.id === search.organizationId) ? search.organizationId : organizations[0]?.id
+  const [organizationID, setOrganizationID] = useState(initialOrganizationID ?? '')
   const [name, setName] = useState('')
   const [postgresVersion, setPostgresVersion] = useState<(typeof postgresVersions)[number]>('17')
   const [selectedExtensions, setSelectedExtensions] = useState<ExtensionID[]>([])
@@ -137,20 +146,16 @@ function NewProjectPage() {
     <main className="min-h-[calc(100vh-56px)] px-4 py-8 text-[var(--text)] sm:px-6 lg:px-8 lg:py-10">
       <div className="mx-auto max-w-6xl">
         <header className="flex items-start justify-between gap-4">
-          <div><p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--text-3)]">New project</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">Create a project</h1></div>
+          <div><p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--accent)]">New project</p><h1 className="mt-2 text-2xl font-semibold tracking-tight">Create a <span className="text-[var(--accent)]">project</span></h1></div>
           <Link to="/" aria-label="Cancel project creation" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--panel)] text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><X aria-hidden="true" className="h-4 w-4" /></Link>
         </header>
 
-        <StepIndicator current={step} />
-
-        <div className="mt-9 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="min-w-0">
-            <div className="mb-6"><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">Step {step + 1} of {steps.length}</p><h2 className="mt-1.5 text-xl font-semibold">{steps[step]}</h2></div>
+            <div className="mb-6"><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--accent)]">Step {step + 1} of {steps.length}</p><h2 className="mt-1.5 text-xl font-semibold">{steps[step]}</h2></div>
 
             {step === 0 && <InstanceConfig organizationID={organizationID} organizations={organizations} name={name} nameIsValid={nameIsValid} postgresVersion={postgresVersion} selectedExtensions={selectedExtensions} onOrganizationChange={setOrganizationID} onNameChange={setName} onVersionChange={setPostgresVersion} onToggleExtension={toggleExtension} />}
             {step === 1 && <><TopologyStep topology={topology} replicaCount={replicaCount} onTopologyChange={setTopology} onReplicaCountChange={setReplicaCount} /><PoolingSettings enabled={poolingEnabled} poolMode={poolMode} maxConnections={maxConnections} onEnabledChange={setPoolingEnabled} onPoolModeChange={setPoolMode} onMaxConnectionsChange={setMaxConnections} /></>}
-            {step === 2 && <Review organization={selectedOrganization?.name ?? 'Not selected'} name={name} postgresVersion={postgresVersion} replicaCount={effectiveReplicaCount} selectedExtensions={selectedExtensions} poolingEnabled={poolingEnabled} poolMode={poolMode} maxConnections={maxConnections} />}
-
             {step === steps.length - 1 && error && <div role="alert" className="mt-6 rounded-[var(--radius-sm)] border border-[var(--critical)]/40 bg-[var(--critical)]/5 px-4 py-3 text-sm text-[var(--critical)]">{error}</div>}
 
             <div className="mt-8 flex items-center justify-between border-t border-[var(--border)] pt-5">
@@ -164,10 +169,6 @@ function NewProjectPage() {
       </div>
     </main>
   )
-}
-
-function StepIndicator({ current }: { current: number }) {
-  return <ol aria-label="Project creation progress" className="mt-8 flex max-w-2xl items-start">{steps.map((label, index) => { const complete = index < current; const active = index === current; return <li key={label} aria-current={active ? 'step' : undefined} className={`relative flex flex-1 flex-col items-center text-center last:flex-none ${index < steps.length - 1 ? 'after:absolute after:left-[calc(50%+20px)] after:top-4 after:h-px after:w-[calc(100%-40px)] after:bg-[var(--border)]' : ''}`}><span className={`relative z-10 grid h-8 w-8 place-items-center rounded-full border font-mono text-xs ${complete ? 'border-[var(--healthy)] bg-[var(--panel)] text-[var(--healthy)]' : active ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border)] bg-[var(--panel)] text-[var(--text-3)]'}`}>{complete ? <Check className="h-4 w-4" /> : index + 1}</span><span className={`mt-2 hidden text-xs sm:block ${complete ? 'text-[var(--healthy)]' : active ? 'text-[var(--text)]' : 'text-[var(--text-3)]'}`}>{label}</span></li> })}</ol>
 }
 
 interface InstanceConfigProps {
@@ -205,11 +206,6 @@ interface PoolingSettingsProps {
 
 function PoolingSettings({ enabled, poolMode, maxConnections, onEnabledChange, onPoolModeChange, onMaxConnectionsChange }: PoolingSettingsProps) {
   return <div className="mt-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-4"><label className="flex items-start gap-3"><input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" /><span><span className="block text-sm font-medium">Enable connection pooling</span><span className="mt-1 block text-xs leading-5 text-[var(--text-3)]">Add PgBouncer to desired state. It remains pending until the host connects.</span></span></label>{enabled && <div className="mt-4 grid gap-4 border-t border-[var(--border-soft)] pt-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select value={poolMode} onChange={(event) => onPoolModeChange(event.target.value as PgBouncerPoolMode)} className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"><option value="session">session</option><option value="transaction">transaction</option><option value="statement">statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Max connections<input type="number" min="1" step="1" required value={maxConnections} onChange={(event) => onMaxConnectionsChange(event.target.valueAsNumber)} className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]" /></label></div>}</div>
-}
-
-function Review({ organization, name, postgresVersion, replicaCount, selectedExtensions, poolingEnabled, poolMode, maxConnections }: { organization: string; name: string; postgresVersion: string; replicaCount: number; selectedExtensions: ExtensionID[]; poolingEnabled: boolean; poolMode: PgBouncerPoolMode; maxConnections: number }) {
-  const rows = [['Organization', organization], ['Project name', name], ['PostgreSQL', `Version ${postgresVersion}`], ['Topology', replicaCount === 0 ? '1 primary' : `1 primary + ${replicaCount} ${replicaCount === 1 ? 'replica' : 'replicas'}`], ['Extensions', selectedExtensions.length > 0 ? selectedExtensions.join(', ') : 'None'], ['Connection pooling', poolingEnabled ? `${poolMode}, ${maxConnections} max connections (pending host connection)` : 'Disabled']]
-  return <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)]"><div className="divide-y divide-[var(--border-soft)]">{rows.map(([label, value]) => <div key={label} className="grid gap-1 px-5 py-4 sm:grid-cols-[150px_1fr]"><span className="text-xs text-[var(--text-3)]">{label}</span><span className="text-sm text-[var(--text)]">{value}</span></div>)}</div></div>
 }
 
 function ProjectSummary({ organization, name, postgresVersion, replicaCount, selectedExtensions, poolingEnabled, poolMode, maxConnections }: { organization?: string; name: string; postgresVersion: string; replicaCount: number; selectedExtensions: ExtensionID[]; poolingEnabled: boolean; poolMode: PgBouncerPoolMode; maxConnections: number }) {
