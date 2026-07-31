@@ -23,6 +23,7 @@ function clusterInput(cluster: Cluster, extensions: string[]): ClusterInput {
     parameters: cluster.parameters,
     replica_count: cluster.replica_count,
     enabled_extensions: extensions,
+    pg_hba_rules: cluster.pg_hba_rules,
     pgbouncer_enabled: cluster.pgbouncer_enabled,
     pg_bouncer: cluster.pg_bouncer,
     pg_back_rest: cluster.pg_back_rest,

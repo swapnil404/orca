@@ -26,6 +26,7 @@ type Cluster struct {
 	ReplicaCount      int32             `json:"replica_count"`
 	Replicas          []Replica         `json:"replicas"`
 	EnabledExtensions []string          `json:"enabled_extensions"`
+	PgHbaRules        []PgHbaRule       `json:"pg_hba_rules"`
 	PgBouncerEnabled  bool              `json:"pgbouncer_enabled"`
 	PgBouncer         PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *PgBackRestConfig `json:"pg_back_rest,omitempty"`
@@ -38,6 +39,23 @@ type Cluster struct {
 type PgBouncerConfig struct {
 	PoolMode       string `json:"pool_mode"`
 	MaxConnections int32  `json:"max_connections"`
+}
+
+// PgHbaRule contains one ordered PostgreSQL client authentication rule.
+type PgHbaRule struct {
+	Type     string `json:"type"`
+	Database string `json:"database"`
+	User     string `json:"user"`
+	Address  string `json:"address"`
+	Method   string `json:"method"`
+}
+
+// DefaultPgHbaRules returns the deny-by-default client authentication rules.
+func DefaultPgHbaRules() []PgHbaRule {
+	return []PgHbaRule{
+		{Type: "host", Database: "all", User: "all", Address: "0.0.0.0/0", Method: "reject"},
+		{Type: "host", Database: "all", User: "all", Address: "::/0", Method: "reject"},
+	}
 }
 
 // Replica identifies a desired PostgreSQL replica.
@@ -68,6 +86,10 @@ type pgBackRestScheduleDesired struct {
 	IncrIntervalSeconds int64 `json:"incr_interval_seconds"`
 }
 
+type pgHbaDesiredState struct {
+	Rules []PgHbaRule `json:"rules"`
+}
+
 // CreateClusterParams contains the values needed to create a cluster.
 type CreateClusterParams struct {
 	ID                string
@@ -80,6 +102,7 @@ type CreateClusterParams struct {
 	ReplicaCount      int32
 	Replicas          []Replica
 	EnabledExtensions []string
+	PgHbaRules        []PgHbaRule
 	PgBouncerEnabled  bool
 	PgBouncer         PgBouncerConfig
 	PgBackRest        *PgBackRestConfig
@@ -95,6 +118,7 @@ type UpdateClusterParams struct {
 	ReplicaCount      int32
 	Replicas          []Replica
 	EnabledExtensions []string
+	PgHbaRules        []PgHbaRule
 	PgBouncerEnabled  bool
 	PgBouncer         PgBouncerConfig
 	PgBackRest        *PgBackRestConfig
@@ -105,6 +129,12 @@ type UpdatePgBouncerParams struct {
 	ID             string
 	PoolMode       string
 	MaxConnections int32
+}
+
+// UpdatePgHbaParams contains one cluster's ordered authentication rules.
+type UpdatePgHbaParams struct {
+	ID    string
+	Rules []PgHbaRule
 }
 
 // DesiredState is one version of a cluster's desired configuration.
@@ -131,6 +161,10 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 	if err != nil {
 		return Cluster{}, fmt.Errorf("marshal enabled extensions: %w", err)
 	}
+	pgHbaRules, err := json.Marshal(pgHbaRuleList(params.PgHbaRules))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal pg_hba rules: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Cluster{}, err
@@ -145,6 +179,7 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
+		PgHbaRules:                    pgHbaRules,
 		PgbackrestEnabled:             params.PgBackRest != nil,
 		PgbackrestRepoPath:            pgBackRestRepoPath(params.PgBackRest),
 		PgbackrestRetentionFull:       pgBackRestRetentionFull(params.PgBackRest),
@@ -212,6 +247,10 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 	if err != nil {
 		return Cluster{}, fmt.Errorf("marshal enabled extensions: %w", err)
 	}
+	pgHbaRules, err := json.Marshal(pgHbaRuleList(params.PgHbaRules))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal pg_hba rules: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Cluster{}, err
@@ -226,6 +265,7 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
+		PgHbaRules:                    pgHbaRules,
 		PgbackrestEnabled:             params.PgBackRest != nil,
 		PgbackrestRepoPath:            pgBackRestRepoPath(params.PgBackRest),
 		PgbackrestRetentionFull:       pgBackRestRetentionFull(params.PgBackRest),
@@ -264,6 +304,37 @@ func (s *Postgres) UpdatePgBouncer(ctx context.Context, params UpdatePgBouncerPa
 		ClusterID: params.ID, PgbouncerPoolMode: params.PoolMode,
 		PgbouncerMaxConnections: params.MaxConnections,
 	})
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster, err := clusterFromSQLC(row)
+	if err != nil {
+		return Cluster{}, err
+	}
+	desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
+	if err := tx.Commit(); err != nil {
+		return Cluster{}, err
+	}
+	return cluster, nil
+}
+
+// UpdatePgHba updates only authentication rules and appends the resulting desired state atomically.
+func (s *Postgres) UpdatePgHba(ctx context.Context, params UpdatePgHbaParams) (Cluster, error) {
+	rules, err := json.Marshal(pgHbaRuleList(params.Rules))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal pg_hba rules: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Cluster{}, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateClusterPgHba(ctx, sqlcdb.UpdateClusterPgHbaParams{ClusterID: params.ID, PgHbaRules: rules})
 	if err != nil {
 		return Cluster{}, err
 	}
@@ -346,6 +417,10 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 	if err := json.Unmarshal(cluster.EnabledExtensions, &enabledExtensions); err != nil {
 		return Cluster{}, fmt.Errorf("decode enabled extensions: %w", err)
 	}
+	var pgHbaRules []PgHbaRule
+	if err := json.Unmarshal(cluster.PgHbaRules, &pgHbaRules); err != nil {
+		return Cluster{}, fmt.Errorf("decode pg_hba rules: %w", err)
+	}
 	result := Cluster{
 		ID: cluster.ID, ProjectID: cluster.ProjectID, HostID: cluster.HostID,
 		Name: cluster.Name, PostgresVersion: cluster.PostgresVersion, Parameters: parameters,
@@ -353,7 +428,7 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 		PgBouncer: PgBouncerConfig{
 			PoolMode: cluster.PgbouncerPoolMode, MaxConnections: cluster.PgbouncerMaxConnections,
 		},
-		Replicas: replicasFromIDs(replicaIDs), EnabledExtensions: enabledExtensions,
+		Replicas: replicasFromIDs(replicaIDs), EnabledExtensions: enabledExtensions, PgHbaRules: pgHbaRules,
 		CreatedAt: cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
 	}
 	if cluster.PgbackrestEnabled {
@@ -389,10 +464,12 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		Databases         []*orcatypes.DatabaseSpec `json:"databases,omitempty"`
 		EnabledExtensions []string                  `json:"enabled_extensions,omitempty"`
 		PgBackRest        *pgBackRestDesiredState   `json:"pg_back_rest,omitempty"`
+		PgHba             *pgHbaDesiredState        `json:"pg_hba,omitempty"`
 	}{
 		ID: cluster.ID, Version: cluster.PostgresVersion, Params: cluster.Parameters,
 		Replicas: cluster.Replicas, EnabledExtensions: cluster.EnabledExtensions,
 	}
+	state.PgHba = &pgHbaDesiredState{Rules: cluster.PgHbaRules}
 	if cluster.PgBouncerEnabled {
 		state.PgBouncer = &orcatypes.PgBouncerSpec{
 			PoolMode:       cluster.PgBouncer.PoolMode,
@@ -443,6 +520,13 @@ func replicaIDStrings(replicas []Replica) []string {
 
 func stringList(values []string) []string {
 	return append([]string{}, values...)
+}
+
+func pgHbaRuleList(values []PgHbaRule) []PgHbaRule {
+	if values == nil {
+		return DefaultPgHbaRules()
+	}
+	return append([]PgHbaRule{}, values...)
 }
 
 func replicasFromIDs(ids []string) []Replica {

@@ -16,6 +16,7 @@ export interface Cluster {
   replica_count: number
   replicas: Array<{ id: string }>
   enabled_extensions: string[]
+  pg_hba_rules: PgHbaRule[]
   pgbouncer_enabled: boolean
   pg_bouncer: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
@@ -31,6 +32,7 @@ export interface ClusterInput {
   parameters: Record<string, string>
   replica_count: number
   enabled_extensions: string[]
+  pg_hba_rules: PgHbaRule[]
   pgbouncer_enabled: boolean
   pg_bouncer?: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
@@ -41,6 +43,17 @@ export type PgBouncerPoolMode = 'session' | 'transaction' | 'statement'
 export interface PgBouncerConfig {
   pool_mode: PgBouncerPoolMode
   max_connections: number
+}
+
+export type PgHbaType = 'host' | 'hostssl' | 'local'
+export type PgHbaMethod = 'trust' | 'md5' | 'scram-sha-256' | 'reject'
+
+export interface PgHbaRule {
+  type: PgHbaType
+  database: string
+  user: string
+  address: string
+  method: PgHbaMethod
 }
 
 export interface ProjectHost {
@@ -74,6 +87,8 @@ export interface ActualReplica {
   last_wal_received_lsn?: string
   last_wal_replayed_lsn?: string
   replication_lag_status?: string
+  pg_hba_rules?: PgHbaRule[]
+  pg_hba_observed?: boolean
 }
 
 export interface ActualPgBouncer {
@@ -104,6 +119,10 @@ export interface ActualCluster {
   extension_versions?: Record<string, string>
   extension_update_methods?: Record<string, 'hot_apply' | 'restart'>
   postgres_ready?: boolean
+  pg_hba_rules?: PgHbaRule[]
+  pg_hba_observed?: boolean
+  network_cidrs?: string[]
+  pg_hba_replication_cidrs?: string[]
 }
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'pending' | 'unknown'

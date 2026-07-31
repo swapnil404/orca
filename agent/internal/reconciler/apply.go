@@ -2,6 +2,8 @@ package reconciler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -125,7 +127,7 @@ func isPrimaryMutation(actionType ActionType) bool {
 
 func isPrimaryDependentAction(actionType ActionType) bool {
 	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
-		actionType == ActionUpdateExtensions || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
+		actionType == ActionUpdateExtensions || actionType == ActionUpdatePgHba || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
 }
 
 func isPrimaryDependentDelete(actionType ActionType) bool {
@@ -166,6 +168,8 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		return updatePgBouncer(ctx, docker, action)
 	case ActionUpdateExtensions:
 		return updateExtensions(ctx, docker, action)
+	case ActionUpdatePgHba:
+		return updatePgHba(ctx, docker, action)
 	case ActionCreatePgBackRest, ActionUpdatePgBackRest:
 		return configurePgBackRest(ctx, docker, backups, action)
 	case ActionDeletePgBackRest:
@@ -217,6 +221,24 @@ type pgBouncerDockerClient interface {
 type extensionDockerClient interface {
 	DockerClient
 	extensions.PrimaryExecutor
+}
+
+type pgHbaDockerClient interface {
+	DockerClient
+	postgres.HBAExecutor
+}
+
+func updatePgHba(ctx context.Context, docker DockerClient, action Action) error {
+	update, ok := action.Spec.(*pgHbaUpdateSpec)
+	if !ok || update.Desired == nil {
+		return errors.New("update_pg_hba action requires desired cluster state")
+	}
+	client, ok := docker.(pgHbaDockerClient)
+	if !ok {
+		return errors.New("docker client does not support pg_hba reconciliation")
+	}
+	slog.Info("reloading PostgreSQL authentication configuration", "cluster_id", action.ClusterID)
+	return postgres.ApplyHBA(ctx, client, update.Desired, update.Actual)
 }
 
 type pgBackRestDockerClient interface {
@@ -314,7 +336,7 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	if len(addresses) == 0 {
 		return errors.New("primary container has no network address")
 	}
-	_, err = postgres.CreateReplica(ctx, replicaDocker, postgres.ReplicaSpec{
+	replicaID, err := postgres.CreateReplica(ctx, replicaDocker, postgres.ReplicaSpec{
 		ClusterID:       cluster.Id,
 		ReplicaID:       action.ReplicaID,
 		PostgresVersion: cluster.Version,
@@ -322,7 +344,15 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 			Host: addresses[0],
 		},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if cluster.PgHba != nil {
+		if err := postgres.ApplyReplicaHBA(ctx, replicaDocker, cluster, replicaID); err != nil {
+			return fmt.Errorf("apply replica pg_hba.conf: %w", err)
+		}
+	}
+	return nil
 }
 
 func desiredReplica(desired *DesiredState, clusterID, replicaID string) (*ClusterSpec, error) {
@@ -354,6 +384,11 @@ func createAndStart(ctx context.Context, docker DockerClient, spec orcadocker.Co
 }
 
 func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.ContainerSpec, params map[string]string) error {
+	password := make([]byte, 32)
+	if _, err := rand.Read(password); err != nil {
+		return fmt.Errorf("generate initial PostgreSQL password: %w", err)
+	}
+	spec.Env = append(spec.Env, "POSTGRES_PASSWORD="+base64.RawURLEncoding.EncodeToString(password))
 	containerID, err := docker.CreateContainer(ctx, spec)
 	if err != nil {
 		return err
@@ -593,7 +628,7 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		Kind:      orcadocker.ContainerKindPrimary,
 		Image:     primaryImage(cluster),
 		Env: []string{
-			"POSTGRES_HOST_AUTH_METHOD=trust",
+			"POSTGRES_HOST_AUTH_METHOD=reject",
 			"PGDATA=" + orcadocker.VolumeMountPath(cluster.Id) + "/primary",
 		},
 		Command:   []string{"postgres", "-c", "config_file=" + orcadocker.PostgresConfigContainerPath},
@@ -634,7 +669,7 @@ func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		ReplicaID: replica.Id,
 		Image:     postgresImage(""),
 		Env: []string{
-			"POSTGRES_HOST_AUTH_METHOD=trust",
+			"POSTGRES_HOST_AUTH_METHOD=reject",
 			"PGDATA=" + identity.DataPath,
 		},
 		UseVolume: true,

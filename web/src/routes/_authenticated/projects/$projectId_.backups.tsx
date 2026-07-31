@@ -105,6 +105,7 @@ function ScheduleEditor({ cluster, onUpdated }: { cluster: Cluster | undefined; 
         parameters: cluster.parameters,
         replica_count: cluster.replica_count,
         enabled_extensions: cluster.enabled_extensions,
+        pg_hba_rules: cluster.pg_hba_rules,
         pgbouncer_enabled: cluster.pgbouncer_enabled,
         pg_bouncer: cluster.pg_bouncer,
         pg_back_rest: pgBackRest,
