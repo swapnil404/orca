@@ -30,6 +30,7 @@ type Cluster struct {
 	PgBouncerEnabled  bool              `json:"pgbouncer_enabled"`
 	PgBouncer         PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *PgBackRestConfig `json:"pg_back_rest,omitempty"`
+	RestartGeneration int64             `json:"-"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
 	DesiredRevision   string            `json:"desired_revision,omitempty"`
@@ -142,6 +143,12 @@ type UpdateParametersParams struct {
 	ID         string
 	UserID     string
 	Parameters map[string]string
+}
+
+// RestartProjectParams identifies an owned project whose managed containers should restart.
+type RestartProjectParams struct {
+	ProjectID string
+	UserID    string
 }
 
 // DesiredState is one version of a cluster's desired configuration.
@@ -391,6 +398,44 @@ func (s *Postgres) UpdateParameters(ctx context.Context, params UpdateParameters
 	return cluster, nil
 }
 
+// RestartProject increments every active cluster's restart generation and appends complete desired states atomically.
+func (s *Postgres) RestartProject(ctx context.Context, params RestartProjectParams) ([]Cluster, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	if _, err := queries.GetProject(ctx, sqlcdb.GetProjectParams{ID: params.ProjectID, UserID: params.UserID}); err != nil {
+		return nil, err
+	}
+	rows, err := queries.ListActiveClustersForProject(ctx, sqlcdb.ListActiveClustersForProjectParams{ProjectID: params.ProjectID, UserID: params.UserID})
+	if err != nil {
+		return nil, err
+	}
+	clusters := make([]Cluster, 0, len(rows))
+	for _, current := range rows {
+		row, err := queries.UpdateClusterRestart(ctx, sqlcdb.UpdateClusterRestartParams{ClusterID: current.ID, UserID: params.UserID})
+		if err != nil {
+			return nil, err
+		}
+		cluster, err := clusterFromSQLC(row)
+		if err != nil {
+			return nil, err
+		}
+		desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+		if err != nil {
+			return nil, err
+		}
+		cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
+		clusters = append(clusters, cluster)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return clusters, nil
+}
+
 // DeleteCluster soft-deletes a cluster and appends a deletion desired state atomically.
 func (s *Postgres) DeleteCluster(ctx context.Context, userID, clusterID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -467,7 +512,8 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 			PoolMode: cluster.PgbouncerPoolMode, MaxConnections: cluster.PgbouncerMaxConnections,
 		},
 		Replicas: replicasFromIDs(replicaIDs), EnabledExtensions: enabledExtensions, PgHbaRules: pgHbaRules,
-		CreatedAt: cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
+		RestartGeneration: cluster.RestartGeneration,
+		CreatedAt:         cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
 	}
 	if cluster.PgbackrestEnabled {
 		result.PgBackRest = &PgBackRestConfig{
@@ -503,9 +549,10 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		EnabledExtensions []string                  `json:"enabled_extensions,omitempty"`
 		PgBackRest        *pgBackRestDesiredState   `json:"pg_back_rest,omitempty"`
 		PgHba             *pgHbaDesiredState        `json:"pg_hba,omitempty"`
+		RestartGeneration int64                     `json:"restart_generation,omitempty"`
 	}{
 		ID: cluster.ID, Version: cluster.PostgresVersion, Params: cluster.Parameters,
-		Replicas: cluster.Replicas, EnabledExtensions: cluster.EnabledExtensions,
+		Replicas: cluster.Replicas, EnabledExtensions: cluster.EnabledExtensions, RestartGeneration: cluster.RestartGeneration,
 	}
 	state.PgHba = &pgHbaDesiredState{Rules: cluster.PgHbaRules}
 	if cluster.PgBouncerEnabled {

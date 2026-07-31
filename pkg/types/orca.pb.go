@@ -333,6 +333,7 @@ type ClusterSpec struct {
 	PgBackRest        *PgBackRestSpec        `protobuf:"bytes,7,opt,name=pg_back_rest,json=pgBackRest,proto3,oneof" json:"pg_back_rest,omitempty"`
 	EnabledExtensions []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
 	PgHba             *PgHbaSpec             `protobuf:"bytes,9,opt,name=pg_hba,json=pgHba,proto3,oneof" json:"pg_hba,omitempty"`
+	RestartGeneration uint64                 `protobuf:"varint,10,opt,name=restart_generation,json=restartGeneration,proto3" json:"restart_generation,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -428,6 +429,13 @@ func (x *ClusterSpec) GetPgHba() *PgHbaSpec {
 		return x.PgHba
 	}
 	return nil
+}
+
+func (x *ClusterSpec) GetRestartGeneration() uint64 {
+	if x != nil {
+		return x.RestartGeneration
+	}
+	return 0
 }
 
 // PgHbaSpec contains an ordered PostgreSQL client authentication policy.
@@ -888,29 +896,30 @@ func (x *ActualState) GetClusters() []*ActualCluster {
 
 // ActualCluster describes an observed Postgres primary and its child resources.
 type ActualCluster struct {
-	state                  protoimpl.MessageState             `protogen:"open.v1"`
-	Id                     string                             `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ContainerId            string                             `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Status                 string                             `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Version                string                             `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	Replicas               []*ActualReplica                   `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
-	PgBouncer              *ActualPgBouncer                   `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
-	Backup                 *ActualBackup                      `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
-	EnabledExtensions      []string                           `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
-	AppliedParams          map[string]string                  `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	VolumeExists           bool                               `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
-	Image                  string                             `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
-	PostgresReady          *bool                              `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
-	ExtensionVersions      map[string]string                  `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ExtensionUpdateMethods map[string]string                  `protobuf:"bytes,14,rep,name=extension_update_methods,json=extensionUpdateMethods,proto3" json:"extension_update_methods,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	PgHbaRules             []*PgHbaRule                       `protobuf:"bytes,15,rep,name=pg_hba_rules,json=pgHbaRules,proto3" json:"pg_hba_rules,omitempty"`
-	PgHbaObserved          bool                               `protobuf:"varint,16,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
-	NetworkCidrs           []string                           `protobuf:"bytes,17,rep,name=network_cidrs,json=networkCidrs,proto3" json:"network_cidrs,omitempty"`
-	PgHbaReplicationCidrs  []string                           `protobuf:"bytes,18,rep,name=pg_hba_replication_cidrs,json=pgHbaReplicationCidrs,proto3" json:"pg_hba_replication_cidrs,omitempty"`
-	ParameterStates        map[string]*PostgresParameterState `protobuf:"bytes,19,rep,name=parameter_states,json=parameterStates,proto3" json:"parameter_states,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ParametersObserved     bool                               `protobuf:"varint,20,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                    protoimpl.MessageState             `protogen:"open.v1"`
+	Id                       string                             `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ContainerId              string                             `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Status                   string                             `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Version                  string                             `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Replicas                 []*ActualReplica                   `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PgBouncer                *ActualPgBouncer                   `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
+	Backup                   *ActualBackup                      `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
+	EnabledExtensions        []string                           `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	AppliedParams            map[string]string                  `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	VolumeExists             bool                               `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
+	Image                    string                             `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	PostgresReady            *bool                              `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
+	ExtensionVersions        map[string]string                  `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ExtensionUpdateMethods   map[string]string                  `protobuf:"bytes,14,rep,name=extension_update_methods,json=extensionUpdateMethods,proto3" json:"extension_update_methods,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	PgHbaRules               []*PgHbaRule                       `protobuf:"bytes,15,rep,name=pg_hba_rules,json=pgHbaRules,proto3" json:"pg_hba_rules,omitempty"`
+	PgHbaObserved            bool                               `protobuf:"varint,16,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
+	NetworkCidrs             []string                           `protobuf:"bytes,17,rep,name=network_cidrs,json=networkCidrs,proto3" json:"network_cidrs,omitempty"`
+	PgHbaReplicationCidrs    []string                           `protobuf:"bytes,18,rep,name=pg_hba_replication_cidrs,json=pgHbaReplicationCidrs,proto3" json:"pg_hba_replication_cidrs,omitempty"`
+	ParameterStates          map[string]*PostgresParameterState `protobuf:"bytes,19,rep,name=parameter_states,json=parameterStates,proto3" json:"parameter_states,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ParametersObserved       bool                               `protobuf:"varint,20,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
+	AppliedRestartGeneration uint64                             `protobuf:"varint,21,opt,name=applied_restart_generation,json=appliedRestartGeneration,proto3" json:"applied_restart_generation,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ActualCluster) Reset() {
@@ -1081,6 +1090,13 @@ func (x *ActualCluster) GetParametersObserved() bool {
 		return x.ParametersObserved
 	}
 	return false
+}
+
+func (x *ActualCluster) GetAppliedRestartGeneration() uint64 {
+	if x != nil {
+		return x.AppliedRestartGeneration
+	}
+	return 0
 }
 
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.
@@ -1677,7 +1693,7 @@ const file_orca_proto_rawDesc = "" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x120\n" +
 	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\x12\x1a\n" +
-	"\brevision\x18\x03 \x01(\tR\brevision\"\x99\x04\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\"\xc8\x04\n" +
 	"\vClusterSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x128\n" +
@@ -1689,7 +1705,9 @@ const file_orca_proto_rawDesc = "" +
 	"\fpg_back_rest\x18\a \x01(\v2\x17.orca.v1.PgBackRestSpecH\x01R\n" +
 	"pgBackRest\x88\x01\x01\x12-\n" +
 	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensions\x12.\n" +
-	"\x06pg_hba\x18\t \x01(\v2\x12.orca.v1.PgHbaSpecH\x02R\x05pgHba\x88\x01\x01\x1a9\n" +
+	"\x06pg_hba\x18\t \x01(\v2\x12.orca.v1.PgHbaSpecH\x02R\x05pgHba\x88\x01\x01\x12-\n" +
+	"\x12restart_generation\x18\n" +
+	" \x01(\x04R\x11restartGeneration\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
@@ -1723,8 +1741,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf8\n" +
-	"\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xb6\v\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1748,7 +1765,8 @@ const file_orca_proto_rawDesc = "" +
 	"\rnetwork_cidrs\x18\x11 \x03(\tR\fnetworkCidrs\x127\n" +
 	"\x18pg_hba_replication_cidrs\x18\x12 \x03(\tR\x15pgHbaReplicationCidrs\x12V\n" +
 	"\x10parameter_states\x18\x13 \x03(\v2+.orca.v1.ActualCluster.ParameterStatesEntryR\x0fparameterStates\x12/\n" +
-	"\x13parameters_observed\x18\x14 \x01(\bR\x12parametersObserved\x1a@\n" +
+	"\x13parameters_observed\x18\x14 \x01(\bR\x12parametersObserved\x12<\n" +
+	"\x1aapplied_restart_generation\x18\x15 \x01(\x04R\x18appliedRestartGeneration\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aD\n" +

@@ -23,6 +23,10 @@ export function deleteProject(projectID: string): Promise<void> {
   return apiRequest(`/projects/${encode(projectID)}`, { method: 'DELETE' })
 }
 
+export function restartProject(projectID: string): Promise<void> {
+  return apiRequest(`/projects/${encode(projectID)}/restart`, { method: 'POST' })
+}
+
 export function listClusters(projectID: string): Promise<Cluster[]> {
   return apiRequest(`/projects/${encode(projectID)}/clusters`)
 }

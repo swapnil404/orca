@@ -1,0 +1,2 @@
+ALTER TABLE clusters
+ADD COLUMN restart_generation BIGINT NOT NULL DEFAULT 0;

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
@@ -127,7 +129,8 @@ func isPrimaryMutation(actionType ActionType) bool {
 
 func isPrimaryDependentAction(actionType ActionType) bool {
 	return actionType == ActionCreateReplica || actionType == ActionDeleteReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
-		actionType == ActionUpdateExtensions || actionType == ActionUpdatePgHba || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
+		actionType == ActionUpdateExtensions || actionType == ActionUpdatePgHba || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest ||
+		actionType == ActionRestartCluster
 }
 
 func isPrimaryDependentDelete(actionType ActionType) bool {
@@ -174,6 +177,8 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		return configurePgBackRest(ctx, docker, backups, action)
 	case ActionDeletePgBackRest:
 		return deletePgBackRest(ctx, docker, backups, action)
+	case ActionRestartCluster:
+		return restartCluster(ctx, docker, action)
 	case ActionDeletePrimary:
 		cluster, ok := action.Spec.(*ActualCluster)
 		if !ok {
@@ -206,6 +211,87 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		return stopAndRemove(ctx, docker, containerID)
 	default:
 		return fmt.Errorf("unknown action type %q", action.Type)
+	}
+}
+
+func restartCluster(ctx context.Context, docker DockerClient, action Action) error {
+	cluster, ok := action.Spec.(*ClusterSpec)
+	if !ok || cluster == nil {
+		return errors.New("restart_cluster action requires desired cluster state")
+	}
+	containers, err := docker.ListOrcaContainers(ctx)
+	if err != nil {
+		return err
+	}
+	targets := make([]orcadocker.ContainerInfo, 0)
+	for _, container := range containers {
+		if container.ClusterID == action.ClusterID && container.Kind != orcadocker.ContainerKindPgBackRest {
+			targets = append(targets, container)
+		}
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("cluster %q has no managed containers to restart", action.ClusterID)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		return restartOrder(targets[i].Kind) < restartOrder(targets[j].Kind)
+	})
+	stopped := make([]orcadocker.ContainerInfo, 0, len(targets))
+	for _, container := range targets {
+		if container.Status == "running" {
+			if err := docker.StopContainer(ctx, container.ID); err != nil {
+				return errors.Join(err, startContainers(ctx, docker, stopped))
+			}
+		}
+		stopped = append(stopped, container)
+	}
+	primaryIndex := -1
+	for index, container := range stopped {
+		if container.Kind == orcadocker.ContainerKindPrimary {
+			primaryIndex = index
+			break
+		}
+	}
+	if primaryIndex < 0 {
+		return errors.Join(errors.New("managed primary container is missing"), startContainers(ctx, docker, stopped))
+	}
+	if err := docker.StartContainer(ctx, stopped[primaryIndex].ID); err != nil {
+		return fmt.Errorf("start primary after project restart: %w", err)
+	}
+	dependents := append([]orcadocker.ContainerInfo(nil), stopped[:primaryIndex]...)
+	dependents = append(dependents, stopped[primaryIndex+1:]...)
+	if err := startContainers(ctx, docker, dependents); err != nil {
+		return err
+	}
+	configDocker, ok := docker.(interface {
+		WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+	})
+	if !ok {
+		return errors.New("docker client does not support restart state persistence")
+	}
+	return configDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.RestartAppliedRelativePath,
+		Content:      strconv.FormatUint(cluster.RestartGeneration, 10),
+	})
+}
+
+func startContainers(ctx context.Context, docker DockerClient, containers []orcadocker.ContainerInfo) error {
+	var startErr error
+	for index := len(containers) - 1; index >= 0; index-- {
+		startErr = errors.Join(startErr, docker.StartContainer(ctx, containers[index].ID))
+	}
+	return startErr
+}
+
+func restartOrder(kind orcadocker.ContainerKind) int {
+	switch kind {
+	case orcadocker.ContainerKindPgBouncer:
+		return 0
+	case orcadocker.ContainerKindReplica:
+		return 1
+	case orcadocker.ContainerKindPrimary:
+		return 2
+	default:
+		return 3
 	}
 }
 

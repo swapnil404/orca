@@ -424,6 +424,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 			cluster.Status = container.Status
 			cluster.Image = container.Image
 			cluster.Version = postgresVersionFromImage(container.Image)
+			cluster.AppliedRestartGeneration = container.RestartGeneration
 			cluster.AppliedParams, _ = postgres.ParseConfig(container.Config)
 			if container.BackupConfig != "" {
 				cluster.Backup = &types.ActualBackup{Config: container.BackupConfig}
