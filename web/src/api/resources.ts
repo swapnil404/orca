@@ -112,6 +112,13 @@ export function updatePgHba(clusterID: string, rules: PgHbaRule[]): Promise<Clus
   })
 }
 
+export function updateParameters(clusterID: string, parameters: Record<string, string>): Promise<Cluster> {
+  return apiRequest(`/clusters/${encode(clusterID)}/parameters`, {
+    method: 'PUT',
+    body: JSON.stringify({ parameters }),
+  })
+}
+
 export function deleteCluster(clusterID: string): Promise<void> {
   return apiRequest(`/clusters/${encode(clusterID)}`, { method: 'DELETE' })
 }

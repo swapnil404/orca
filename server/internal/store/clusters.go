@@ -137,6 +137,13 @@ type UpdatePgHbaParams struct {
 	Rules []PgHbaRule
 }
 
+// UpdateParametersParams contains one cluster's PostgreSQL parameters.
+type UpdateParametersParams struct {
+	ID         string
+	UserID     string
+	Parameters map[string]string
+}
+
 // DesiredState is one version of a cluster's desired configuration.
 type DesiredState struct {
 	ID        int64           `json:"id"`
@@ -335,6 +342,37 @@ func (s *Postgres) UpdatePgHba(ctx context.Context, params UpdatePgHbaParams) (C
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
 	row, err := queries.UpdateClusterPgHba(ctx, sqlcdb.UpdateClusterPgHbaParams{ClusterID: params.ID, PgHbaRules: rules})
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster, err := clusterFromSQLC(row)
+	if err != nil {
+		return Cluster{}, err
+	}
+	desiredState, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster.DesiredRevision = fmt.Sprint(desiredState.ID)
+	if err := tx.Commit(); err != nil {
+		return Cluster{}, err
+	}
+	return cluster, nil
+}
+
+// UpdateParameters updates only PostgreSQL parameters and appends the resulting desired state atomically.
+func (s *Postgres) UpdateParameters(ctx context.Context, params UpdateParametersParams) (Cluster, error) {
+	parameters, err := json.Marshal(params.Parameters)
+	if err != nil {
+		return Cluster{}, fmt.Errorf("marshal cluster parameters: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Cluster{}, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateClusterParameters(ctx, sqlcdb.UpdateClusterParametersParams{ClusterID: params.ID, Parameters: parameters, UserID: params.UserID})
 	if err != nil {
 		return Cluster{}, err
 	}

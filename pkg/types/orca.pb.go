@@ -888,25 +888,27 @@ func (x *ActualState) GetClusters() []*ActualCluster {
 
 // ActualCluster describes an observed Postgres primary and its child resources.
 type ActualCluster struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	Id                     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ContainerId            string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Status                 string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Version                string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	Replicas               []*ActualReplica       `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
-	PgBouncer              *ActualPgBouncer       `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
-	Backup                 *ActualBackup          `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
-	EnabledExtensions      []string               `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
-	AppliedParams          map[string]string      `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	VolumeExists           bool                   `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
-	Image                  string                 `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
-	PostgresReady          *bool                  `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
-	ExtensionVersions      map[string]string      `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ExtensionUpdateMethods map[string]string      `protobuf:"bytes,14,rep,name=extension_update_methods,json=extensionUpdateMethods,proto3" json:"extension_update_methods,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	PgHbaRules             []*PgHbaRule           `protobuf:"bytes,15,rep,name=pg_hba_rules,json=pgHbaRules,proto3" json:"pg_hba_rules,omitempty"`
-	PgHbaObserved          bool                   `protobuf:"varint,16,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
-	NetworkCidrs           []string               `protobuf:"bytes,17,rep,name=network_cidrs,json=networkCidrs,proto3" json:"network_cidrs,omitempty"`
-	PgHbaReplicationCidrs  []string               `protobuf:"bytes,18,rep,name=pg_hba_replication_cidrs,json=pgHbaReplicationCidrs,proto3" json:"pg_hba_replication_cidrs,omitempty"`
+	state                  protoimpl.MessageState             `protogen:"open.v1"`
+	Id                     string                             `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ContainerId            string                             `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Status                 string                             `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Version                string                             `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Replicas               []*ActualReplica                   `protobuf:"bytes,5,rep,name=replicas,proto3" json:"replicas,omitempty"`
+	PgBouncer              *ActualPgBouncer                   `protobuf:"bytes,6,opt,name=pg_bouncer,json=pgBouncer,proto3,oneof" json:"pg_bouncer,omitempty"`
+	Backup                 *ActualBackup                      `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
+	EnabledExtensions      []string                           `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
+	AppliedParams          map[string]string                  `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	VolumeExists           bool                               `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
+	Image                  string                             `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
+	PostgresReady          *bool                              `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
+	ExtensionVersions      map[string]string                  `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ExtensionUpdateMethods map[string]string                  `protobuf:"bytes,14,rep,name=extension_update_methods,json=extensionUpdateMethods,proto3" json:"extension_update_methods,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	PgHbaRules             []*PgHbaRule                       `protobuf:"bytes,15,rep,name=pg_hba_rules,json=pgHbaRules,proto3" json:"pg_hba_rules,omitempty"`
+	PgHbaObserved          bool                               `protobuf:"varint,16,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
+	NetworkCidrs           []string                           `protobuf:"bytes,17,rep,name=network_cidrs,json=networkCidrs,proto3" json:"network_cidrs,omitempty"`
+	PgHbaReplicationCidrs  []string                           `protobuf:"bytes,18,rep,name=pg_hba_replication_cidrs,json=pgHbaReplicationCidrs,proto3" json:"pg_hba_replication_cidrs,omitempty"`
+	ParameterStates        map[string]*PostgresParameterState `protobuf:"bytes,19,rep,name=parameter_states,json=parameterStates,proto3" json:"parameter_states,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ParametersObserved     bool                               `protobuf:"varint,20,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1067,6 +1069,113 @@ func (x *ActualCluster) GetPgHbaReplicationCidrs() []string {
 	return nil
 }
 
+func (x *ActualCluster) GetParameterStates() map[string]*PostgresParameterState {
+	if x != nil {
+		return x.ParameterStates
+	}
+	return nil
+}
+
+func (x *ActualCluster) GetParametersObserved() bool {
+	if x != nil {
+		return x.ParametersObserved
+	}
+	return false
+}
+
+// PostgresParameterState describes PostgreSQL's live view of one managed parameter.
+type PostgresParameterState struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Setting        string                 `protobuf:"bytes,1,opt,name=setting,proto3" json:"setting,omitempty"`
+	Unit           string                 `protobuf:"bytes,2,opt,name=unit,proto3" json:"unit,omitempty"`
+	Context        string                 `protobuf:"bytes,3,opt,name=context,proto3" json:"context,omitempty"`
+	UpdateMethod   string                 `protobuf:"bytes,4,opt,name=update_method,json=updateMethod,proto3" json:"update_method,omitempty"`
+	PendingRestart bool                   `protobuf:"varint,5,opt,name=pending_restart,json=pendingRestart,proto3" json:"pending_restart,omitempty"`
+	Error          string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	Applied        bool                   `protobuf:"varint,7,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PostgresParameterState) Reset() {
+	*x = PostgresParameterState{}
+	mi := &file_orca_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PostgresParameterState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PostgresParameterState) ProtoMessage() {}
+
+func (x *PostgresParameterState) ProtoReflect() protoreflect.Message {
+	mi := &file_orca_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PostgresParameterState.ProtoReflect.Descriptor instead.
+func (*PostgresParameterState) Descriptor() ([]byte, []int) {
+	return file_orca_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PostgresParameterState) GetSetting() string {
+	if x != nil {
+		return x.Setting
+	}
+	return ""
+}
+
+func (x *PostgresParameterState) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *PostgresParameterState) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
+func (x *PostgresParameterState) GetUpdateMethod() string {
+	if x != nil {
+		return x.UpdateMethod
+	}
+	return ""
+}
+
+func (x *PostgresParameterState) GetPendingRestart() bool {
+	if x != nil {
+		return x.PendingRestart
+	}
+	return false
+}
+
+func (x *PostgresParameterState) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *PostgresParameterState) GetApplied() bool {
+	if x != nil {
+		return x.Applied
+	}
+	return false
+}
+
 // ActualReplica describes an observed Postgres replica.
 type ActualReplica struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
@@ -1081,13 +1190,15 @@ type ActualReplica struct {
 	ReplicationLagStatus string                 `protobuf:"bytes,9,opt,name=replication_lag_status,json=replicationLagStatus,proto3" json:"replication_lag_status,omitempty"`
 	PgHbaRules           []*PgHbaRule           `protobuf:"bytes,10,rep,name=pg_hba_rules,json=pgHbaRules,proto3" json:"pg_hba_rules,omitempty"`
 	PgHbaObserved        bool                   `protobuf:"varint,11,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
+	AppliedParams        map[string]string      `protobuf:"bytes,12,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ParametersObserved   bool                   `protobuf:"varint,13,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ActualReplica) Reset() {
 	*x = ActualReplica{}
-	mi := &file_orca_proto_msgTypes[14]
+	mi := &file_orca_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1099,7 +1210,7 @@ func (x *ActualReplica) String() string {
 func (*ActualReplica) ProtoMessage() {}
 
 func (x *ActualReplica) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[14]
+	mi := &file_orca_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1112,7 +1223,7 @@ func (x *ActualReplica) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualReplica.ProtoReflect.Descriptor instead.
 func (*ActualReplica) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{14}
+	return file_orca_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ActualReplica) GetId() string {
@@ -1192,6 +1303,20 @@ func (x *ActualReplica) GetPgHbaObserved() bool {
 	return false
 }
 
+func (x *ActualReplica) GetAppliedParams() map[string]string {
+	if x != nil {
+		return x.AppliedParams
+	}
+	return nil
+}
+
+func (x *ActualReplica) GetParametersObserved() bool {
+	if x != nil {
+		return x.ParametersObserved
+	}
+	return false
+}
+
 // ActualPgBouncer describes an observed PgBouncer sidecar.
 type ActualPgBouncer struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
@@ -1207,7 +1332,7 @@ type ActualPgBouncer struct {
 
 func (x *ActualPgBouncer) Reset() {
 	*x = ActualPgBouncer{}
-	mi := &file_orca_proto_msgTypes[15]
+	mi := &file_orca_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1219,7 +1344,7 @@ func (x *ActualPgBouncer) String() string {
 func (*ActualPgBouncer) ProtoMessage() {}
 
 func (x *ActualPgBouncer) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[15]
+	mi := &file_orca_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1232,7 +1357,7 @@ func (x *ActualPgBouncer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualPgBouncer.ProtoReflect.Descriptor instead.
 func (*ActualPgBouncer) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{15}
+	return file_orca_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ActualPgBouncer) GetContainerId() string {
@@ -1290,7 +1415,7 @@ type ActualBackup struct {
 
 func (x *ActualBackup) Reset() {
 	*x = ActualBackup{}
-	mi := &file_orca_proto_msgTypes[16]
+	mi := &file_orca_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1302,7 +1427,7 @@ func (x *ActualBackup) String() string {
 func (*ActualBackup) ProtoMessage() {}
 
 func (x *ActualBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[16]
+	mi := &file_orca_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1315,7 +1440,7 @@ func (x *ActualBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualBackup.ProtoReflect.Descriptor instead.
 func (*ActualBackup) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{16}
+	return file_orca_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ActualBackup) GetLastSuccessUnixSeconds() int64 {
@@ -1357,7 +1482,7 @@ type HealthReport struct {
 
 func (x *HealthReport) Reset() {
 	*x = HealthReport{}
-	mi := &file_orca_proto_msgTypes[17]
+	mi := &file_orca_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1369,7 +1494,7 @@ func (x *HealthReport) String() string {
 func (*HealthReport) ProtoMessage() {}
 
 func (x *HealthReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[17]
+	mi := &file_orca_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1382,7 +1507,7 @@ func (x *HealthReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthReport.ProtoReflect.Descriptor instead.
 func (*HealthReport) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{17}
+	return file_orca_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *HealthReport) GetHostMetrics() *HostMetrics {
@@ -1413,7 +1538,7 @@ type HostMetrics struct {
 
 func (x *HostMetrics) Reset() {
 	*x = HostMetrics{}
-	mi := &file_orca_proto_msgTypes[18]
+	mi := &file_orca_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1425,7 +1550,7 @@ func (x *HostMetrics) String() string {
 func (*HostMetrics) ProtoMessage() {}
 
 func (x *HostMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[18]
+	mi := &file_orca_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1438,7 +1563,7 @@ func (x *HostMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostMetrics.ProtoReflect.Descriptor instead.
 func (*HostMetrics) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{18}
+	return file_orca_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *HostMetrics) GetCpuUsagePercent() float64 {
@@ -1487,7 +1612,7 @@ type ClusterHealth struct {
 
 func (x *ClusterHealth) Reset() {
 	*x = ClusterHealth{}
-	mi := &file_orca_proto_msgTypes[19]
+	mi := &file_orca_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1499,7 +1624,7 @@ func (x *ClusterHealth) String() string {
 func (*ClusterHealth) ProtoMessage() {}
 
 func (x *ClusterHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[19]
+	mi := &file_orca_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1512,7 +1637,7 @@ func (x *ClusterHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterHealth.ProtoReflect.Descriptor instead.
 func (*ClusterHealth) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{19}
+	return file_orca_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ClusterHealth) GetClusterId() string {
@@ -1598,7 +1723,8 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\x8a\t\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf8\n" +
+	"\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1620,7 +1746,9 @@ const file_orca_proto_rawDesc = "" +
 	"pgHbaRules\x12&\n" +
 	"\x0fpg_hba_observed\x18\x10 \x01(\bR\rpgHbaObserved\x12#\n" +
 	"\rnetwork_cidrs\x18\x11 \x03(\tR\fnetworkCidrs\x127\n" +
-	"\x18pg_hba_replication_cidrs\x18\x12 \x03(\tR\x15pgHbaReplicationCidrs\x1a@\n" +
+	"\x18pg_hba_replication_cidrs\x18\x12 \x03(\tR\x15pgHbaReplicationCidrs\x12V\n" +
+	"\x10parameter_states\x18\x13 \x03(\v2+.orca.v1.ActualCluster.ParameterStatesEntryR\x0fparameterStates\x12/\n" +
+	"\x13parameters_observed\x18\x14 \x01(\bR\x12parametersObserved\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aD\n" +
@@ -1629,10 +1757,21 @@ const file_orca_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aI\n" +
 	"\x1bExtensionUpdateMethodsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1ac\n" +
+	"\x14ParameterStatesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x125\n" +
+	"\x05value\x18\x02 \x01(\v2\x1f.orca.v1.PostgresParameterStateR\x05value:\x028\x01B\r\n" +
 	"\v_pg_bouncerB\t\n" +
 	"\a_backupB\x11\n" +
-	"\x0f_postgres_ready\"\x98\x04\n" +
+	"\x0f_postgres_ready\"\xde\x01\n" +
+	"\x16PostgresParameterState\x12\x18\n" +
+	"\asetting\x18\x01 \x01(\tR\asetting\x12\x12\n" +
+	"\x04unit\x18\x02 \x01(\tR\x04unit\x12\x18\n" +
+	"\acontext\x18\x03 \x01(\tR\acontext\x12#\n" +
+	"\rupdate_method\x18\x04 \x01(\tR\fupdateMethod\x12'\n" +
+	"\x0fpending_restart\x18\x05 \x01(\bR\x0ependingRestart\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12\x18\n" +
+	"\aapplied\x18\a \x01(\bR\aapplied\"\xdd\x05\n" +
 	"\rActualReplica\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -1646,7 +1785,12 @@ const file_orca_proto_rawDesc = "" +
 	"\fpg_hba_rules\x18\n" +
 	" \x03(\v2\x12.orca.v1.PgHbaRuleR\n" +
 	"pgHbaRules\x12&\n" +
-	"\x0fpg_hba_observed\x18\v \x01(\bR\rpgHbaObservedB\x18\n" +
+	"\x0fpg_hba_observed\x18\v \x01(\bR\rpgHbaObserved\x12P\n" +
+	"\x0eapplied_params\x18\f \x03(\v2).orca.v1.ActualReplica.AppliedParamsEntryR\rappliedParams\x12/\n" +
+	"\x13parameters_observed\x18\r \x01(\bR\x12parametersObserved\x1a@\n" +
+	"\x12AppliedParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
 	"\x16_replication_lag_bytesB\x14\n" +
 	"\x12_standby_connected\"\xf2\x02\n" +
 	"\x0fActualPgBouncer\x12!\n" +
@@ -1700,41 +1844,44 @@ func file_orca_proto_rawDescGZIP() []byte {
 }
 
 var file_orca_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_orca_proto_goTypes = []any{
-	(ClusterStatus)(0),           // 0: orca.v1.ClusterStatus
-	(*DesiredStateMessage)(nil),  // 1: orca.v1.DesiredStateMessage
-	(*AgentReportMessage)(nil),   // 2: orca.v1.AgentReportMessage
-	(*ReconciliationResult)(nil), // 3: orca.v1.ReconciliationResult
-	(*DesiredState)(nil),         // 4: orca.v1.DesiredState
-	(*ClusterSpec)(nil),          // 5: orca.v1.ClusterSpec
-	(*PgHbaSpec)(nil),            // 6: orca.v1.PgHbaSpec
-	(*PgHbaRule)(nil),            // 7: orca.v1.PgHbaRule
-	(*ReplicaSpec)(nil),          // 8: orca.v1.ReplicaSpec
-	(*DatabaseSpec)(nil),         // 9: orca.v1.DatabaseSpec
-	(*PgBouncerSpec)(nil),        // 10: orca.v1.PgBouncerSpec
-	(*PgBackRestSpec)(nil),       // 11: orca.v1.PgBackRestSpec
-	(*BackupSchedule)(nil),       // 12: orca.v1.BackupSchedule
-	(*ActualState)(nil),          // 13: orca.v1.ActualState
-	(*ActualCluster)(nil),        // 14: orca.v1.ActualCluster
-	(*ActualReplica)(nil),        // 15: orca.v1.ActualReplica
-	(*ActualPgBouncer)(nil),      // 16: orca.v1.ActualPgBouncer
-	(*ActualBackup)(nil),         // 17: orca.v1.ActualBackup
-	(*HealthReport)(nil),         // 18: orca.v1.HealthReport
-	(*HostMetrics)(nil),          // 19: orca.v1.HostMetrics
-	(*ClusterHealth)(nil),        // 20: orca.v1.ClusterHealth
-	nil,                          // 21: orca.v1.ClusterSpec.ParamsEntry
-	nil,                          // 22: orca.v1.ActualCluster.AppliedParamsEntry
-	nil,                          // 23: orca.v1.ActualCluster.ExtensionVersionsEntry
-	nil,                          // 24: orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	(ClusterStatus)(0),             // 0: orca.v1.ClusterStatus
+	(*DesiredStateMessage)(nil),    // 1: orca.v1.DesiredStateMessage
+	(*AgentReportMessage)(nil),     // 2: orca.v1.AgentReportMessage
+	(*ReconciliationResult)(nil),   // 3: orca.v1.ReconciliationResult
+	(*DesiredState)(nil),           // 4: orca.v1.DesiredState
+	(*ClusterSpec)(nil),            // 5: orca.v1.ClusterSpec
+	(*PgHbaSpec)(nil),              // 6: orca.v1.PgHbaSpec
+	(*PgHbaRule)(nil),              // 7: orca.v1.PgHbaRule
+	(*ReplicaSpec)(nil),            // 8: orca.v1.ReplicaSpec
+	(*DatabaseSpec)(nil),           // 9: orca.v1.DatabaseSpec
+	(*PgBouncerSpec)(nil),          // 10: orca.v1.PgBouncerSpec
+	(*PgBackRestSpec)(nil),         // 11: orca.v1.PgBackRestSpec
+	(*BackupSchedule)(nil),         // 12: orca.v1.BackupSchedule
+	(*ActualState)(nil),            // 13: orca.v1.ActualState
+	(*ActualCluster)(nil),          // 14: orca.v1.ActualCluster
+	(*PostgresParameterState)(nil), // 15: orca.v1.PostgresParameterState
+	(*ActualReplica)(nil),          // 16: orca.v1.ActualReplica
+	(*ActualPgBouncer)(nil),        // 17: orca.v1.ActualPgBouncer
+	(*ActualBackup)(nil),           // 18: orca.v1.ActualBackup
+	(*HealthReport)(nil),           // 19: orca.v1.HealthReport
+	(*HostMetrics)(nil),            // 20: orca.v1.HostMetrics
+	(*ClusterHealth)(nil),          // 21: orca.v1.ClusterHealth
+	nil,                            // 22: orca.v1.ClusterSpec.ParamsEntry
+	nil,                            // 23: orca.v1.ActualCluster.AppliedParamsEntry
+	nil,                            // 24: orca.v1.ActualCluster.ExtensionVersionsEntry
+	nil,                            // 25: orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	nil,                            // 26: orca.v1.ActualCluster.ParameterStatesEntry
+	nil,                            // 27: orca.v1.ActualReplica.AppliedParamsEntry
 }
 var file_orca_proto_depIdxs = []int32{
 	4,  // 0: orca.v1.DesiredStateMessage.desired_state:type_name -> orca.v1.DesiredState
 	13, // 1: orca.v1.AgentReportMessage.actual_state:type_name -> orca.v1.ActualState
-	18, // 2: orca.v1.AgentReportMessage.health_report:type_name -> orca.v1.HealthReport
+	19, // 2: orca.v1.AgentReportMessage.health_report:type_name -> orca.v1.HealthReport
 	3,  // 3: orca.v1.AgentReportMessage.reconciliation_results:type_name -> orca.v1.ReconciliationResult
 	5,  // 4: orca.v1.DesiredState.clusters:type_name -> orca.v1.ClusterSpec
-	21, // 5: orca.v1.ClusterSpec.params:type_name -> orca.v1.ClusterSpec.ParamsEntry
+	22, // 5: orca.v1.ClusterSpec.params:type_name -> orca.v1.ClusterSpec.ParamsEntry
 	8,  // 6: orca.v1.ClusterSpec.replicas:type_name -> orca.v1.ReplicaSpec
 	10, // 7: orca.v1.ClusterSpec.pg_bouncer:type_name -> orca.v1.PgBouncerSpec
 	9,  // 8: orca.v1.ClusterSpec.databases:type_name -> orca.v1.DatabaseSpec
@@ -1743,22 +1890,25 @@ var file_orca_proto_depIdxs = []int32{
 	7,  // 11: orca.v1.PgHbaSpec.rules:type_name -> orca.v1.PgHbaRule
 	12, // 12: orca.v1.PgBackRestSpec.schedule:type_name -> orca.v1.BackupSchedule
 	14, // 13: orca.v1.ActualState.clusters:type_name -> orca.v1.ActualCluster
-	15, // 14: orca.v1.ActualCluster.replicas:type_name -> orca.v1.ActualReplica
-	16, // 15: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
-	17, // 16: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
-	22, // 17: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
-	23, // 18: orca.v1.ActualCluster.extension_versions:type_name -> orca.v1.ActualCluster.ExtensionVersionsEntry
-	24, // 19: orca.v1.ActualCluster.extension_update_methods:type_name -> orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	16, // 14: orca.v1.ActualCluster.replicas:type_name -> orca.v1.ActualReplica
+	17, // 15: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
+	18, // 16: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
+	23, // 17: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
+	24, // 18: orca.v1.ActualCluster.extension_versions:type_name -> orca.v1.ActualCluster.ExtensionVersionsEntry
+	25, // 19: orca.v1.ActualCluster.extension_update_methods:type_name -> orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
 	7,  // 20: orca.v1.ActualCluster.pg_hba_rules:type_name -> orca.v1.PgHbaRule
-	7,  // 21: orca.v1.ActualReplica.pg_hba_rules:type_name -> orca.v1.PgHbaRule
-	19, // 22: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
-	20, // 23: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
-	0,  // 24: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	26, // 21: orca.v1.ActualCluster.parameter_states:type_name -> orca.v1.ActualCluster.ParameterStatesEntry
+	7,  // 22: orca.v1.ActualReplica.pg_hba_rules:type_name -> orca.v1.PgHbaRule
+	27, // 23: orca.v1.ActualReplica.applied_params:type_name -> orca.v1.ActualReplica.AppliedParamsEntry
+	20, // 24: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
+	21, // 25: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
+	0,  // 26: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
+	15, // 27: orca.v1.ActualCluster.ParameterStatesEntry.value:type_name -> orca.v1.PostgresParameterState
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_orca_proto_init() }
@@ -1768,16 +1918,16 @@ func file_orca_proto_init() {
 	}
 	file_orca_proto_msgTypes[4].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[13].OneofWrappers = []any{}
-	file_orca_proto_msgTypes[14].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[15].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[16].OneofWrappers = []any{}
+	file_orca_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orca_proto_rawDesc), len(file_orca_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

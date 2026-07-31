@@ -58,6 +58,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id string) (string, error)
 	UpdateAlertRuleState(ctx context.Context, arg UpdateAlertRuleStateParams) (UpdateAlertRuleStateRow, error)
 	UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error)
+	UpdateClusterParameters(ctx context.Context, arg UpdateClusterParametersParams) (Cluster, error)
 	UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterPgBouncerParams) (Cluster, error)
 	UpdateClusterPgHba(ctx context.Context, arg UpdateClusterPgHbaParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error

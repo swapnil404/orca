@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ type resourceStore interface {
 	UpdateCluster(context.Context, store.UpdateClusterParams) (store.Cluster, error)
 	UpdatePgBouncer(context.Context, store.UpdatePgBouncerParams) (store.Cluster, error)
 	UpdatePgHba(context.Context, store.UpdatePgHbaParams) (store.Cluster, error)
+	UpdateParameters(context.Context, store.UpdateParametersParams) (store.Cluster, error)
 	DeleteCluster(context.Context, string, string) error
 	GetHost(context.Context, string) (store.Host, error)
 }
@@ -101,6 +103,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /clusters/{clusterID}", h.updateCluster)
 	mux.HandleFunc("PUT /clusters/{clusterID}/pgbouncer", h.updatePgBouncer)
 	mux.HandleFunc("PUT /clusters/{clusterID}/pg-hba", h.updatePgHba)
+	mux.HandleFunc("PUT /clusters/{clusterID}/parameters", h.updateParameters)
 	mux.HandleFunc("DELETE /clusters/{clusterID}", h.deleteCluster)
 }
 
@@ -437,6 +440,32 @@ func (h *ResourceHandler) updatePgHba(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cluster)
 }
 
+func (h *ResourceHandler) updateParameters(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		Parameters map[string]string `json:"parameters"`
+	}
+	if !decodeJSON(w, r, &request) || !validateParameters(w, request.Parameters) {
+		return
+	}
+	current, err := h.store.GetCluster(r.Context(), userID, r.PathValue("clusterID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	cluster, err := h.store.UpdateParameters(r.Context(), store.UpdateParametersParams{ID: current.ID, UserID: userID, Parameters: normalizeParameters(request.Parameters)})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
+	writeJSON(w, http.StatusOK, cluster)
+}
+
 func (h *ResourceHandler) listProjectHosts(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -536,8 +565,7 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 		writeError(w, http.StatusBadRequest, "postgres_version is required")
 		return false
 	}
-	if _, exists := request.Parameters["hba_file"]; exists {
-		writeError(w, http.StatusBadRequest, "parameters.hba_file is managed by Orca")
+	if !validateParameters(w, request.Parameters) {
 		return false
 	}
 	if request.PgHbaRules != nil && !validatePgHbaRules(w, *request.PgHbaRules) {
@@ -665,10 +693,51 @@ func validPgHbaList(value string) bool {
 }
 
 func normalizeParameters(parameters map[string]string) map[string]string {
-	if parameters == nil {
-		return map[string]string{}
+	normalized := make(map[string]string, len(parameters))
+	for name, value := range parameters {
+		normalized[strings.ToLower(strings.TrimSpace(name))] = value
 	}
-	return parameters
+	return normalized
+}
+
+var postgresParameterNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+
+var orcaManagedPostgresParameters = map[string]struct{}{
+	"archive_command": {}, "archive_mode": {}, "config_file": {}, "data_directory": {},
+	"hba_file": {}, "hot_standby": {}, "ident_file": {}, "listen_addresses": {}, "port": {},
+	"primary_conninfo": {}, "primary_slot_name": {}, "recovery_target": {}, "recovery_target_action": {},
+	"recovery_target_inclusive": {}, "recovery_target_lsn": {}, "recovery_target_name": {},
+	"recovery_target_time": {}, "recovery_target_timeline": {}, "recovery_target_xid": {},
+	"shared_preload_libraries": {}, "unix_socket_directories": {}, "wal_level": {},
+}
+
+func validateParameters(w http.ResponseWriter, parameters map[string]string) bool {
+	if len(parameters) > 100 {
+		writeError(w, http.StatusBadRequest, "parameters cannot exceed 100 entries")
+		return false
+	}
+	seen := make(map[string]struct{}, len(parameters))
+	for name, value := range parameters {
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		if !postgresParameterNamePattern.MatchString(normalized) {
+			writeError(w, http.StatusBadRequest, "parameters contains an invalid PostgreSQL parameter name")
+			return false
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			writeError(w, http.StatusBadRequest, "parameters contains duplicate names")
+			return false
+		}
+		seen[normalized] = struct{}{}
+		if _, managed := orcaManagedPostgresParameters[normalized]; managed {
+			writeError(w, http.StatusBadRequest, "parameters."+normalized+" is managed by Orca")
+			return false
+		}
+		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
+			writeError(w, http.StatusBadRequest, "parameter values must be single-line and at most 4096 bytes")
+			return false
+		}
+	}
+	return true
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) bool {

@@ -117,6 +117,19 @@ message ActualCluster {
   bool pg_hba_observed = 16;
   repeated string network_cidrs = 17;
   repeated string pg_hba_replication_cidrs = 18;
+  map<string, PostgresParameterState> parameter_states = 19;
+  bool parameters_observed = 20;
+}
+
+// PostgresParameterState describes PostgreSQL's live view of one managed parameter.
+message PostgresParameterState {
+  string setting = 1;
+  string unit = 2;
+  string context = 3;
+  string update_method = 4;
+  bool pending_restart = 5;
+  string error = 6;
+  bool applied = 7;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -132,6 +145,8 @@ message ActualReplica {
   string replication_lag_status = 9;
   repeated PgHbaRule pg_hba_rules = 10;
   bool pg_hba_observed = 11;
+  map<string, string> applied_params = 12;
+  bool parameters_observed = 13;
 }
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.

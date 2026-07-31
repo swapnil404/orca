@@ -36,9 +36,9 @@ While connected, cached reconciliation also runs every 30 seconds. During discon
 
 Containers use `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, and temporary `orca-<cluster-id>-pgbackrest` names. Each cluster has an explicit Docker named volume mounted inside managed containers at `/var/orca/data/<cluster-id>`; this is not a host bind path. Orphan volumes remain observable and deletion is retried on later passes.
 
-Primaries use deterministic Orca-owned Postgres parameter configuration. Parameter changes are classified as reloadable or restart-required. A version change currently replaces the primary container while preserving its data volume; this is not a valid PostgreSQL major-version migration because no `pg_upgrade` or dump/restore path exists.
+Primaries and replicas use deterministic Orca-owned PostgreSQL include files mounted at `/etc/orca/postgresql.conf`. Before changing a file, the agent rejects names absent from the running version's `pg_settings` and asks that version's `postgres` binary to parse each desired value. The live `pg_settings.context` classifies the complete change as reloadable unless at least one parameter has `postmaster` context, in which case every node is restarted. Orca-owned settings for authentication, replication, extension preload, and archiving are excluded from the arbitrary parameter map. A version change currently replaces the primary container while preserving its data volume; this is not a valid PostgreSQL major-version migration because no `pg_upgrade` or dump/restore path exists.
 
-Replicas are provisioned with a base backup and streaming-replication configuration. Reported replica state includes connectivity, streaming state, lag bytes, and lag classification. PgBouncer configuration is generated from desired pool settings and includes read aliases for replica meshes.
+Replicas are provisioned with a base backup and streaming-replication configuration. Reported replica state includes connectivity, streaming state, lag bytes, lag classification, and the last successfully applied parameter map. PgBouncer configuration is generated from desired pool settings and includes read aliases for replica meshes.
 
 The extensions package manages `pgvector`, `powa`, `timescaledb`, `pg_partman`, and `postgis` when the selected primary image provides their files and libraries. It preserves unmanaged extensions and preload libraries.
 
@@ -56,7 +56,7 @@ PITR has no API, tunnel message, CLI, development RPC, or UI caller. It also doe
 
 Agent reports are transactionally persisted before frontend subscribers are notified. Report reads mark data older than two minutes stale and return cluster health as `unknown`; no expiry worker is required.
 
-The web UI lists existing projects and renders desired primary, replica, and PgBouncer nodes at deterministic, non-persistent positions. Nodes cannot be dragged or connected. Selecting a node opens a read-only panel. Status badges are derived from persisted agent observations, server health, and report staleness rather than hardcoded values. pgBackRest and extensions have only unused placeholder panels and are not represented as usable controls.
+The web UI lists existing projects and renders desired primary, replica, and PgBouncer nodes at deterministic, non-persistent positions. Nodes cannot be dragged or connected. Selecting a node opens a read-only panel. Status badges are derived from persisted agent observations, server health, and report staleness rather than hardcoded values. Project settings expose PostgreSQL parameter rows with agent-reported reload/restart classification, effective values, and desired-versus-applied state across the primary and replicas.
 
 The project page opens a JSON WebSocket separate from the protobuf agent tunnel. It receives full snapshots after reports are committed and replaces the latest actual-state snapshot in the frontend store. Desired topology is loaded by REST; resource mutations do not themselves publish a refreshed desired topology to an already-open browser page.
 

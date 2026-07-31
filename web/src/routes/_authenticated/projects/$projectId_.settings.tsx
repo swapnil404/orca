@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, ArrowLeft, KeyRound, Network, ServerCog, ShieldCheck, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, KeyRound, Network, Plus, ServerCog, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { ApiError, deleteProject, getProjectTopology, listProjectHosts, updatePgBouncer, updatePgHba } from '../../../api'
+import { ApiError, deleteProject, getProjectTopology, listProjectHosts, updateParameters, updatePgBouncer, updatePgHba } from '../../../api'
 import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
@@ -57,6 +57,10 @@ function ProjectSettingsPage() {
         </header>
 
         <div className="space-y-6">
+          <SettingsSection icon={Settings2} title="PostgreSQL parameters" description="Parameters are validated by the running PostgreSQL version, then reloaded or restarted according to pg_settings.context on every node.">
+            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <ParameterEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={state?.actual_state ?? undefined} stale={state?.stale ?? true} results={state?.reconciliation_results ?? []} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>
+          </SettingsSection>
+
           <SettingsSection icon={ShieldCheck} title="PostgreSQL access control" description="Rules are persisted in order, applied to the primary and replicas, and reloaded without restarting PostgreSQL.">
             <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <PgHbaEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={state?.actual_state ?? undefined} stale={state?.stale ?? true} results={state?.reconciliation_results ?? []} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>
           </SettingsSection>
@@ -79,6 +83,74 @@ function ProjectSettingsPage() {
       </div>
     </main>
   )
+}
+
+interface ParameterRow {
+  id: number
+  name: string
+  value: string
+}
+
+interface ParameterEditorProps {
+  cluster: Cluster
+  actual?: ActualCluster
+  stale: boolean
+  results: ReconciliationResult[]
+  onUpdated: (cluster: Cluster) => void
+}
+
+const parameterNamePattern = /^[a-zA-Z][a-zA-Z0-9_]*$/
+
+function parametersEqual(desired: Record<string, string>, applied: Record<string, string> | undefined, observed: boolean): boolean {
+  if (!observed) return false
+  const desiredValues = Object.fromEntries(Object.entries(desired).map(([name, value]) => [name.trim().toLowerCase(), value]))
+  const observedValues = Object.fromEntries(Object.entries(applied ?? {}).map(([name, value]) => [name.trim().toLowerCase(), value]))
+  const desiredKeys = Object.keys(desiredValues).sort()
+  const appliedKeys = Object.keys(observedValues).sort()
+  return JSON.stringify(desiredKeys) === JSON.stringify(appliedKeys) && desiredKeys.every((name) => desiredValues[name] === observedValues[name])
+}
+
+function ParameterEditor({ cluster, actual, stale, results, onUpdated }: ParameterEditorProps) {
+  const initialRows = Object.entries(cluster.parameters).sort(([left], [right]) => left.localeCompare(right)).map(([name, value], id) => ({ id, name, value }))
+  const [rows, setRows] = useState<ParameterRow[]>(initialRows)
+  const [nextID, setNextID] = useState(initialRows.length)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const names = rows.map((row) => row.name.trim().toLowerCase()).filter(Boolean)
+  const invalid = rows.some((row) => !parameterNamePattern.test(row.name.trim()) || row.value.includes('\n') || row.value.includes('\r')) || new Set(names).size !== names.length
+  const desiredApplied = parametersEqual(cluster.parameters, actual?.applied_params, actual?.parameters_observed === true)
+  const replicasApplied = cluster.replicas.every((replica) => { const observed = actual?.replicas?.find((candidate) => candidate.id === replica.id); return parametersEqual(cluster.parameters, observed?.applied_params, observed?.parameters_observed === true) })
+  const pendingRestart = Object.values(actual?.parameter_states ?? {}).some((state) => state.pending_restart)
+  const applied = !stale && actual?.postgres_ready === true && desiredApplied && replicasApplied && !pendingRestart
+  const failure = [...results].reverse().find((result) => ['create_primary', 'update_primary', 'create_replica', 'observe_parameters'].includes(result.action) && result.status === 'failed')
+
+  function updateRow(id: number, changes: Partial<ParameterRow>) {
+    setRows((current) => current.map((row) => row.id === id ? { ...row, ...changes } : row))
+  }
+
+  function addRow() {
+    setRows((current) => [...current, { id: nextID, name: '', value: '' }])
+    setNextID((current) => current + 1)
+  }
+
+  async function save() {
+    if (invalid) return
+    const parameters = Object.fromEntries(rows.map((row) => [row.name.trim().toLowerCase(), row.value]))
+    setSaving(true)
+    setMessage('')
+    try {
+      const updated = await updateParameters(cluster.id, parameters)
+      onUpdated(updated)
+      setMessage('Desired parameters saved. Waiting for every PostgreSQL node to report the applied values.')
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : 'Could not save PostgreSQL parameters.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const badgeTone = applied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : failure ? 'border-[var(--critical)]/30 text-[var(--critical)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'
+  return <div className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${badgeTone}`}><span className={`h-1.5 w-1.5 rounded-full ${applied ? 'bg-[var(--healthy)]' : failure ? 'bg-[var(--critical)]' : 'bg-[var(--warning)]'}`} />{applied ? 'Applied' : failure ? 'Apply failed' : pendingRestart ? 'Restart pending' : 'Desired differs'}</span></div><div className="space-y-2">{rows.length === 0 && <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] px-4 py-5 text-center text-xs text-[var(--text-3)]">No PostgreSQL overrides are configured.</div>}{rows.map((row) => { const name = row.name.trim().toLowerCase(); const state = actual?.parameter_states?.[name]; const method = state?.update_method; return <div key={row.id} className="grid gap-2 rounded-[var(--radius-md)] border border-[var(--border-soft)] bg-[var(--panel)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-start"><label className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-3)]">Parameter<input aria-label="Parameter name" value={row.name} disabled={saving} onChange={(event) => updateRow(row.id, { name: event.target.value })} placeholder="log_min_duration_statement" className={fieldClass} /></label><label className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-3)]">Desired value<input aria-label={`${row.name || 'Parameter'} value`} value={row.value} disabled={saving} onChange={(event) => updateRow(row.id, { value: event.target.value })} placeholder="250ms" className={fieldClass} /></label><div className="pt-0 sm:pt-5"><span className={`inline-flex rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase ${method === 'restart' ? 'border-[var(--warning)]/30 text-[var(--warning)]' : method === 'reload' ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--border)] text-[var(--text-3)]'}`}>{method === 'restart' ? 'Restart required' : method === 'reload' ? 'Reload' : state?.error || 'Not reported'}</span>{state && !state.error && <p className="mt-1 max-w-44 font-mono text-[10px] text-[var(--text-3)]">Effective: {state.setting}{state.unit ? ` ${state.unit}` : ''}</p>}</div><button type="button" aria-label={`Remove ${row.name || 'parameter'}`} disabled={saving} onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))} className="mt-0 rounded-[var(--radius-sm)] p-2 text-[var(--text-3)] hover:bg-[var(--critical)]/10 hover:text-[var(--critical)] sm:mt-5"><X className="h-4 w-4" /></button></div>})}</div><div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[var(--border-soft)] pt-4"><div><button type="button" onClick={addRow} disabled={saving} className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><Plus className="h-3.5 w-3.5" />Add parameter</button><p role={failure ? 'alert' : 'status'} className={`mt-2 max-w-2xl text-xs leading-5 ${failure ? 'text-[var(--critical)]' : 'text-[var(--text-3)]'}`}>{message || failure?.error || (invalid ? 'Use unique PostgreSQL parameter names and single-line values.' : stale ? 'Applied state is unavailable or stale.' : applied ? `Primary and ${cluster.replicas.length} replica${cluster.replicas.length === 1 ? '' : 's'} match desired state.` : 'Desired and applied values differ; the agent has not completed this change.')}</p></div><button type="button" disabled={saving || invalid} onClick={save} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save parameters'}</button></div></div>
 }
 
 interface SettingsSectionProps {
