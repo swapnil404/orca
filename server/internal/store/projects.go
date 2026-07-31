@@ -91,6 +91,12 @@ func (s *Postgres) DeleteProject(ctx context.Context, userID, projectID string) 
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
 
+	if _, err := queries.GetProject(ctx, sqlcdb.GetProjectParams{ID: projectID, UserID: userID}); err != nil {
+		return err
+	}
+	if err := lockProjectClusterMutations(ctx, queries, userID, projectID); err != nil {
+		return err
+	}
 	clusters, err := queries.ListActiveClustersForProject(ctx, sqlcdb.ListActiveClustersForProjectParams{
 		ProjectID: projectID, UserID: userID,
 	})

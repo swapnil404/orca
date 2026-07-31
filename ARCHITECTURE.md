@@ -11,6 +11,8 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - OAuth identities are keyed by provider and provider user ID. Provider email is metadata and is not trusted for implicit account linking.
 - Agent/server tunnel messages use protobuf; frontend REST and WebSocket shapes do not.
 - Alert evaluation is separate from report ingestion, metrics exposition, and future notification delivery.
+- Restore operations are durable host-level state included with each complete desired-state snapshot. Agent journals make destructive phases resumable without relying on event replay.
+- PITR supports in-place recovery and clone-to-new-cluster recovery on the source host. Physical restore requires the PostgreSQL major version recorded by the repository.
 
 ## Known Limitations
 
@@ -27,8 +29,10 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - **Backup schedule restart behavior:** schedule timestamps are in memory and tickers wait a full interval, so restarting the agent resets each interval and can delay the next backup by up to that interval.
 - **Alert delivery and debounce:** rules are evaluated and state transitions are stored, but there is no alert API, UI, or notification sink, and restarting an evaluator resets an in-progress duration-before-firing window.
 - **Backup image trust:** missing `orca-postgres:<version>` images are built automatically, but existing tags are not inspected and builds require Docker and external parent/package access.
-- **PITR exposure and coordination:** recovery is only an internal package function and does not coordinate replicas, PgBouncer, or the reconciliation/backup operation gate; a production entry point is deferred until those safety boundaries are designed.
-- **PITR failure cleanup:** failures after restore begins intentionally leave the primary stopped, and a process crash can leave a temporary restore container that ordinary observation does not classify for cleanup, because automatic restart could expose partially restored data.
-- **Read-only web product:** beyond login and signup, the UI has no host, mutation, backup, extension, PITR, alert, or persisted-layout workflow; implementing controls before their complete persistence contracts would overstate product behavior.
+- **PITR placement:** clone restores are limited to the source host because local repositories live in source-host Docker volumes. Cross-host clones require a future remote/shared repository contract.
+- **PITR recovery bounds:** pgBackRest metadata and backup verification establish a candidate recovery range, but WAL availability through an exact wall-clock target is ultimately proven by restore replay.
+- **PITR execution responsiveness:** restore execution currently runs synchronously inside a reconciliation pass, so a long pgBackRest command delays subsequent desired-state handling and intermediate phase reports. Durable journal checkpoints preserve restart safety.
+- **PITR rollback storage:** an in-place restore retains the original primary directory on the same volume until finalize. Rollback depends on that directory remaining intact and requires capacity for both copies.
+- **Web product coverage:** host, resource, backup, extension, and PITR mutation workflows exist, but topology positions remain deterministic and alert management remains incomplete.
 - **Development packaging:** Compose packages Postgres, the API, and the same-origin proxy, but Vite and the agent still run from source and there is no published agent image configuration.
 - **Automated coverage:** there are no committed Go or frontend tests, so reconciler resource paths, auth/store/API behavior, backup/PITR behavior, and WebSocket concurrency have no behavioral or race-test safety net.

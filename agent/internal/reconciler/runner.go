@@ -43,6 +43,7 @@ type Runner struct {
 	mu             sync.Mutex
 	backups        *pgbackrest.Scheduler
 	operations     *pgbackrest.OperationGate
+	restores       *pgbackrest.RestoreManager
 }
 
 type volumeLister interface {
@@ -62,6 +63,9 @@ func NewRunner(cache state.StateCache, docker orcadocker.DockerClient, scheduler
 	if len(schedulers) > 0 {
 		runner.backups = schedulers[0]
 		runner.backups.SetOperationGate(runner.operations)
+	}
+	if restoreDocker, ok := docker.(pgbackrest.RestoreDocker); ok {
+		runner.restores = pgbackrest.NewRestoreManager(os.Getenv("ORCA_STATE_PATH"), restoreDocker)
 	}
 	return runner
 }
@@ -100,6 +104,12 @@ func (r *Runner) ReconcileCached(ctx context.Context) (Pass, error) {
 }
 
 func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (Pass, error) {
+	if r.restores != nil {
+		if err := r.restores.Process(ctx, desired); err != nil {
+			return Pass{}, fmt.Errorf("process restore operations: %w", err)
+		}
+	}
+	blocked := r.blockedRestoreClusters(desired)
 	containers, err := r.docker.ListOrcaContainers(ctx)
 	if err != nil {
 		return Pass{}, err
@@ -113,7 +123,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	r.populatePgHba(ctx, desired, actual, false)
 	r.populateInstalledExtensions(ctx, desired, actual)
 	r.populateParameterStates(ctx, desired, actual, false)
-	actions := Diff(desired, actual)
+	actions := withoutBlockedActions(Diff(desired, actual), blocked)
 	results := apply(ctx, r.docker, r.backups, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
 	if err != nil {
@@ -125,9 +135,9 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	}
 	actual = ActualStateFromDocker(containers, volumes)
 	r.populatePgHba(ctx, desired, actual, false)
-	r.ensureBackupSchedules(desired, actual)
+	r.ensureBackupSchedules(desired, actual, blocked)
 	r.populateInstalledExtensions(ctx, desired, actual)
-	extensionResults := apply(ctx, r.docker, r.backups, extensionOnlyActions(Diff(desired, actual)), desired)
+	extensionResults := apply(ctx, r.docker, r.backups, extensionOnlyActions(withoutBlockedActions(Diff(desired, actual), blocked)), desired)
 	results = append(results, extensionResults...)
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
 	results = append(results, r.populatePgHba(ctx, desired, actual, true)...)
@@ -138,7 +148,11 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	pgbouncer.PopulateStatus(ctx, r.pgBouncer, actual)
 	backupObservationErrors := r.populateBackupSuccess(ctx, actual)
 	hostMetrics, _ := r.hostMetrics.Collect()
-	pass := Pass{Results: results, Report: reportFor(desired, actual, results, hostMetrics, backupObservationErrors)}
+	report := reportFor(desired, actual, results, hostMetrics, backupObservationErrors)
+	if r.restores != nil {
+		report.RestoreOperationReports = r.restores.Reports()
+	}
+	pass := Pass{Results: results, Report: report}
 	if pendingBackupResults > 0 {
 		var once sync.Once
 		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
@@ -381,15 +395,24 @@ func (r *Runner) populateBackupSuccess(ctx context.Context, actual *ActualState)
 	return errorsByCluster
 }
 
-func (r *Runner) ensureBackupSchedules(desired *DesiredState, actual *ActualState) {
+func (r *Runner) ensureBackupSchedules(desired *DesiredState, actual *ActualState, blocked map[string]struct{}) {
 	if r.backups == nil {
 		return
+	}
+	for clusterID := range blocked {
+		r.backups.RemoveSchedule(clusterID)
 	}
 	actualByID := make(map[string]*ActualCluster, len(actual.Clusters))
 	for _, cluster := range actual.Clusters {
 		actualByID[cluster.Id] = cluster
 	}
 	for _, cluster := range desired.Clusters {
+		if cluster != nil {
+			if _, isBlocked := blocked[cluster.Id]; isBlocked {
+				r.backups.RemoveSchedule(cluster.Id)
+				continue
+			}
+		}
 		if cluster == nil || cluster.PgBackRest == nil {
 			continue
 		}
@@ -399,6 +422,26 @@ func (r *Runner) ensureBackupSchedules(desired *DesiredState, actual *ActualStat
 			r.backups.SetSchedule(cluster)
 		}
 	}
+}
+
+func (r *Runner) blockedRestoreClusters(desired *DesiredState) map[string]struct{} {
+	if r.restores == nil {
+		return nil
+	}
+	return r.restores.BlockedClusters(desired)
+}
+
+func withoutBlockedActions(actions []Action, blocked map[string]struct{}) []Action {
+	if len(blocked) == 0 {
+		return actions
+	}
+	filtered := make([]Action, 0, len(actions))
+	for _, action := range actions {
+		if _, isBlocked := blocked[action.ClusterID]; !isBlocked {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
 }
 
 // ActualStateFromContainers converts Docker observations into the reconciler's actual state.

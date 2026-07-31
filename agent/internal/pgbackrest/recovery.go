@@ -26,76 +26,11 @@ type RecoveryExecutor interface {
 	RemoveContainer(ctx context.Context, containerID string) error
 }
 
-// RestoreToTime restores a primary to target, pauses at the target for a
-// consistency check, promotes it, and verifies that it is read-write.
+// RestoreToTime rejects the legacy unjournaled restore path. RestoreManager is
+// required so destructive recovery can be resumed or rolled back after a crash.
+// Deprecated: submit a RestoreOperation through the reconciliation runner.
 func RestoreToTime(ctx context.Context, executor RecoveryExecutor, desired *ClusterDesiredState, target time.Time) error {
-	if executor == nil {
-		return errors.New("executor is nil")
-	}
-	if desired == nil {
-		return errors.New("desired cluster is nil")
-	}
-	if target.IsZero() {
-		return errors.New("recovery target time is required")
-	}
-	config, err := GeneratePgBackRestConfig(desired)
-	if err != nil {
-		return err
-	}
-	if err := validateRecoveryRepository(desired); err != nil {
-		return err
-	}
-	primary, err := primaryContainerName(desired.Id)
-	if err != nil {
-		return err
-	}
-
-	if err := executor.StopContainer(ctx, primary); err != nil {
-		return fmt.Errorf("stop primary for point-in-time recovery: %w", err)
-	}
-
-	restoreStarted := false
-	restoreID := ""
-	recoverStartup := func(cause error) error {
-		var cleanupErr error
-		if restoreID != "" {
-			cleanupErr = removeRecoveryContainer(ctx, executor, restoreID)
-		}
-		if !restoreStarted {
-			cleanupErr = errors.Join(cleanupErr, executor.StartContainer(ctx, primary))
-		}
-		return errors.Join(cause, cleanupErr)
-	}
-
-	restoreID, err = executor.CreateContainer(ctx, recoveryContainerSpec(desired, config))
-	if err != nil {
-		return recoverStartup(fmt.Errorf("create pgBackRest recovery container: %w", err))
-	}
-	if err := executor.StartContainer(ctx, restoreID); err != nil {
-		return recoverStartup(fmt.Errorf("start pgBackRest recovery container: %w", err))
-	}
-	restoreStarted = true
-	if _, err := executor.ExecContainer(ctx, restoreID, restoreCommand(desired.Id, target)); err != nil {
-		return recoverStartup(fmt.Errorf("restore stanza %q to %s: %w", desired.Id, target.Format(time.RFC3339Nano), err))
-	}
-	if err := removeRecoveryContainer(ctx, executor, restoreID); err != nil {
-		return fmt.Errorf("remove pgBackRest recovery container: %w", err)
-	}
-	restoreID = ""
-
-	if err := executor.StartContainer(ctx, primary); err != nil {
-		return fmt.Errorf("start restored primary in recovery: %w", err)
-	}
-	if err := waitForRecoveryTarget(ctx, executor, primary); err != nil {
-		return err
-	}
-	if _, err := executor.ExecContainer(ctx, primary, psqlCommand("SELECT pg_wal_replay_resume()")); err != nil {
-		return fmt.Errorf("resume WAL replay at recovery target: %w", err)
-	}
-	if err := waitForReadWrite(ctx, executor, primary); err != nil {
-		return err
-	}
-	return nil
+	return errors.New("unjournaled restore is disabled; use RestoreManager through the reconciliation runner")
 }
 
 func validateRecoveryRepository(desired *ClusterDesiredState) error {
@@ -105,48 +40,12 @@ func validateRecoveryRepository(desired *ClusterDesiredState) error {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("pgBackRest repository %q must be within shared cluster volume %q for recovery", repositoryPath, volumePath)
 	}
+	first, _, _ := strings.Cut(relative, string(filepath.Separator))
+	if relative == "." || first == "primary" || first == "replicas" || first == "pgbackrest" ||
+		strings.HasPrefix(first, "restore-original-") || strings.HasPrefix(first, ".orca-restore-") {
+		return fmt.Errorf("pgBackRest repository %q overlaps Orca-managed data inside %q", repositoryPath, volumePath)
+	}
 	return nil
-}
-
-func recoveryContainerSpec(desired *ClusterDesiredState, config string) orcadocker.ContainerSpec {
-	image := "orca-postgres:latest"
-	if desired.Version != "" {
-		image = "orca-postgres:" + desired.Version
-	}
-	return orcadocker.ContainerSpec{
-		ClusterID: desired.Id,
-		Kind:      orcadocker.ContainerKindPgBackRest,
-		Image:     image,
-		Env:       []string{"PGDATA=" + orcadocker.VolumeMountPath(desired.Id) + "/primary"},
-		Command:   []string{"sleep", "infinity"},
-		UseVolume: true,
-		Config: &orcadocker.ConfigMount{
-			RelativePath:  configRelativePath,
-			ContainerPath: recoveryConfigPath,
-			Content:       config,
-		},
-	}
-}
-
-func restoreCommand(clusterID string, target time.Time) []string {
-	return []string{
-		"sh", "-c",
-		`install -d -m 0700 -o postgres -g postgres "$1" && shift && exec gosu postgres pgbackrest "$@"`,
-		"sh", orcadocker.VolumeMountPath(clusterID) + "/primary",
-		"--config=" + recoveryConfigPath,
-		"--stanza=" + clusterID,
-		"--delta",
-		"--type=time",
-		"--target=" + target.Format("2006-01-02 15:04:05.000000-07:00"),
-		"--target-action=pause",
-		"restore",
-	}
-}
-
-func removeRecoveryContainer(ctx context.Context, executor RecoveryExecutor, containerID string) error {
-	stopErr := executor.StopContainer(ctx, containerID)
-	removeErr := executor.RemoveContainer(ctx, containerID)
-	return errors.Join(stopErr, removeErr)
 }
 
 func waitForRecoveryTarget(ctx context.Context, executor Executor, primary string) error {

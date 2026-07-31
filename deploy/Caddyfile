@@ -11,7 +11,7 @@
 	reverse_proxy @projectEvents 127.0.0.1:8080
 
 	@serverRoutes {
-		path /auth/* /account /hosts /hosts/* /clusters/* /metrics* /agent
+		path /auth/* /account /hosts /hosts/* /clusters/* /restore-operations/* /metrics* /agent
 	}
 	reverse_proxy @serverRoutes 127.0.0.1:8080
 

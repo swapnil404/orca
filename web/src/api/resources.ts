@@ -1,4 +1,4 @@
-import type { BackupJob, Cluster, ClusterInput, HostRegistration, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ProjectTopology } from '../types/resources'
+import type { BackupJob, Cluster, ClusterInput, CreateRestoreOperationInput, HostRegistration, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ProjectTopology, RestoreOperation } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -135,4 +135,40 @@ export async function getProjectTopology(projectID: string): Promise<ProjectTopo
 export function listBackupJobs(projectID?: string): Promise<BackupJob[]> {
   const query = projectID ? `?project_id=${encode(projectID)}` : ''
   return apiRequest(`/backups${query}`)
+}
+
+export function createRestoreOperation(clusterID: string, input: CreateRestoreOperationInput, idempotencyKey: string): Promise<RestoreOperation> {
+  return apiRequest(`/clusters/${encode(clusterID)}/restore-operations`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  })
+}
+
+export function listRestoreOperations(projectID: string): Promise<RestoreOperation[]> {
+  return apiRequest(`/projects/${encode(projectID)}/restore-operations`)
+}
+
+export function getRestoreOperation(operationID: string): Promise<RestoreOperation> {
+  return apiRequest(`/restore-operations/${encode(operationID)}`)
+}
+
+export function confirmRestoreOperation(operationID: string, confirmation: string): Promise<RestoreOperation> {
+  return apiRequest(`/restore-operations/${encode(operationID)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ confirmation }),
+  })
+}
+
+export type ConfirmedRestoreOperationAction = 'rollback' | 'finalize'
+
+export function cancelRestoreOperation(operationID: string): Promise<RestoreOperation> {
+  return apiRequest(`/restore-operations/${encode(operationID)}/cancel`, { method: 'POST' })
+}
+
+export function requestRestoreOperationAction(operationID: string, action: ConfirmedRestoreOperationAction, confirmation: string): Promise<RestoreOperation> {
+  return apiRequest(`/restore-operations/${encode(operationID)}/${action}`, {
+    method: 'POST',
+    body: JSON.stringify({ confirmation }),
+  })
 }

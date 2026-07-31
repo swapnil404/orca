@@ -1,9 +1,12 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Archive, ArrowLeft, CalendarClock, ChevronRight, DatabaseBackup, ShieldAlert } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
-import { ApiError, getProjectTopology, listBackupJobs, updateCluster } from '../../../api'
+import { Archive, ArrowLeft, CalendarClock, DatabaseBackup } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { ApiError, getProjectTopology, listBackupJobs, listRestoreOperations, updateCluster } from '../../../api'
 import { BackupTable } from '../../../components/backups/BackupTable'
-import type { BackupJob, Cluster, PgBackRestConfig } from '../../../types/resources'
+import { RestoreWorkflow } from '../../../components/backups/RestoreWorkflow'
+import { useProjectEvents } from '../../../hooks/useProjectEvents'
+import { useTopologyStore } from '../../../store/topology'
+import type { BackupJob, Cluster, PgBackRestConfig, RestoreOperation } from '../../../types/resources'
 
 interface ProjectBackupsSearch {
   restore?: string
@@ -15,30 +18,57 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/backu
     restore: typeof search.restore === 'string' ? search.restore : undefined,
   }),
   loader: async ({ params }) => {
-    const [topology, backupJobs] = await Promise.all([
+    const [topology, backupJobs, restoreOperations] = await Promise.all([
       getProjectTopology(params.projectId),
       listBackupJobs(params.projectId),
+      listRestoreOperations(params.projectId),
     ])
-    return { ...topology, backupJobs }
+    return { ...topology, backupJobs, restoreOperations }
   },
   component: ProjectBackupsPage,
 })
 
 const fieldClass = 'mt-2 w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none hover:border-[var(--text-3)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-50'
 const buttonClass = 'inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--card)] disabled:cursor-not-allowed disabled:opacity-50'
-const secondaryButtonClass = 'inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] px-4 py-2.5 text-sm font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]'
-
-type RestoreStep = 'timeline' | 'target' | 'confirm'
 
 function ProjectBackupsPage() {
   const initialTopology = Route.useLoaderData()
   const { projectId } = Route.useParams()
   const search = Route.useSearch()
   const [clusters, setClusters] = useState(initialTopology.clusters)
+  const [backupJobs, setBackupJobs] = useState(initialTopology.backupJobs)
+  const [restoreOperations, setRestoreOperations] = useState(initialTopology.restoreOperations)
+  const snapshot = useTopologyStore((state) => state.snapshot)
+  useProjectEvents(projectId)
+  const projectSnapshot = snapshot?.project_id === projectId ? snapshot : null
   const backupClusters = clusters.filter((cluster) => cluster.pg_back_rest)
   const restoreClusterID = backupClusters.some((cluster) => cluster.id === search.restore) ? search.restore : undefined
   const [selectedClusterID, setSelectedClusterID] = useState(restoreClusterID ?? backupClusters[0]?.id ?? '')
   const selectedCluster = clusters.find((cluster) => cluster.id === selectedClusterID)
+  const selectedOperations = restoreOperations.filter((operation) => operation.source_cluster_id === selectedClusterID)
+  const restoreConflict = selectedOperations.some((operation) => operation.status === 'pending' || operation.status === 'ready' || operation.status === 'running')
+
+  useEffect(() => {
+    if (projectSnapshot) {
+      setClusters(projectSnapshot.desired_clusters)
+      setRestoreOperations(projectSnapshot.restore_operations)
+    }
+  }, [projectSnapshot])
+
+  useEffect(() => {
+    if (!projectSnapshot) return
+    let cancelled = false
+    void listBackupJobs(projectId).then((jobs) => {
+      if (!cancelled) setBackupJobs(jobs)
+    }).catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, projectSnapshot])
+
+  function replaceOperation(updated: RestoreOperation) {
+    setRestoreOperations((current) => [updated, ...current.filter((operation) => operation.id !== updated.id)])
+  }
 
   return (
     <main className="min-h-screen px-4 py-8 text-[var(--text)] sm:px-8 lg:px-12 lg:py-10">
@@ -53,10 +83,10 @@ function ProjectBackupsPage() {
 
         {backupClusters.length === 0 ? <EmptyConfiguration /> : (
           <div className="space-y-6">
-            <BackupInventory cluster={selectedCluster} jobs={initialTopology.backupJobs} />
+            <BackupInventory cluster={selectedCluster} jobs={backupJobs} />
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
-              <ScheduleEditor cluster={selectedCluster} onUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
-              <RestoreWizard key={selectedClusterID} clusters={backupClusters} initialClusterID={selectedClusterID} />
+              <ScheduleEditor cluster={selectedCluster} disabled={restoreConflict} onUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
+              {selectedCluster && <RestoreWorkflow key={selectedClusterID} cluster={selectedCluster} operations={selectedOperations} onOperation={replaceOperation} />}
             </div>
           </div>
         )}
@@ -79,14 +109,14 @@ function BackupInventory({ cluster, jobs }: { cluster: Cluster | undefined; jobs
   )
 }
 
-function ScheduleEditor({ cluster, onUpdated }: { cluster: Cluster | undefined; onUpdated: (cluster: Cluster) => void }) {
+function ScheduleEditor({ cluster, disabled, onUpdated }: { cluster: Cluster | undefined; disabled: boolean; onUpdated: (cluster: Cluster) => void }) {
   const config = cluster?.pg_back_rest
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!cluster || !config) return
+    if (!cluster || !config || disabled) return
     const form = new FormData(event.currentTarget)
     const pgBackRest: PgBackRestConfig = {
       repo_path: String(form.get('repo_path') ?? '').trim(),
@@ -123,10 +153,11 @@ function ScheduleEditor({ cluster, onUpdated }: { cluster: Cluster | undefined; 
     <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
       <div className="mb-6 flex items-center gap-2"><CalendarClock className="h-4 w-4 text-[var(--accent)]" /><div><h2 className="font-medium">Schedule and retention</h2><p className="mt-1 text-xs text-[var(--text-3)]">Values map directly to the current pgBackRest desired-state contract.</p></div></div>
       {config && cluster ? <form key={`${cluster.id}:${cluster.updated_at}`} onSubmit={handleSubmit} className="space-y-5">
-        <label className="block text-xs font-medium text-[var(--text-2)]">Repository path<input required name="repo_path" defaultValue={config.repo_path} className={fieldClass} /></label>
+        <fieldset disabled={saving || disabled} className="space-y-5"><label className="block text-xs font-medium text-[var(--text-2)]">Repository path<input required name="repo_path" defaultValue={config.repo_path} className={fieldClass} /></label>
         <div className="grid gap-4 sm:grid-cols-2"><NumberField name="retention_full" label="Full backups retained" value={config.retention_full} min={1} /><NumberField name="retention_diff" label="Differential backups retained" value={config.retention_diff} min={1} /></div>
-        <div className="grid gap-4 sm:grid-cols-3"><NumberField name="full_interval_seconds" label="Full interval (sec)" value={config.full_interval_seconds} /><NumberField name="diff_interval_seconds" label="Diff interval (sec)" value={config.diff_interval_seconds} /><NumberField name="incr_interval_seconds" label="Incremental interval (sec)" value={config.incr_interval_seconds} /></div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5"><p role="status" className="text-xs text-[var(--text-3)]">{message || 'Zero disables that backup interval.'}</p><button type="submit" disabled={saving} className={buttonClass}>{saving ? 'Saving...' : 'Save schedule'}</button></div>
+        <div className="grid gap-4 sm:grid-cols-3"><NumberField name="full_interval_seconds" label="Full interval (sec)" value={config.full_interval_seconds} /><NumberField name="diff_interval_seconds" label="Diff interval (sec)" value={config.diff_interval_seconds} /><NumberField name="incr_interval_seconds" label="Incremental interval (sec)" value={config.incr_interval_seconds} /></div></fieldset>
+        {disabled && <p role="status" className="rounded-[var(--radius-md)] border border-[var(--warning)]/25 bg-[var(--warning)]/5 px-3 py-2 text-xs leading-5 text-[var(--warning)]">Schedule edits are locked while this cluster has an active restore operation.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5"><p role="status" className="text-xs text-[var(--text-3)]">{message || 'Zero disables that backup interval.'}</p><button type="submit" disabled={saving || disabled} className={buttonClass}>{saving ? 'Saving...' : 'Save schedule'}</button></div>
       </form> : <p className="text-sm text-[var(--text-3)]">Select a configured cluster to edit its schedule.</p>}
     </section>
   )
@@ -134,27 +165,4 @@ function ScheduleEditor({ cluster, onUpdated }: { cluster: Cluster | undefined; 
 
 function NumberField({ name, label, value, min = 0 }: { name: string; label: string; value: number; min?: number }) {
   return <label className="block text-xs font-medium text-[var(--text-2)]">{label}<input required name={name} type="number" min={min} step={1} defaultValue={value} className={fieldClass} /></label>
-}
-
-function RestoreWizard({ clusters, initialClusterID }: { clusters: Cluster[]; initialClusterID: string }) {
-  const [step, setStep] = useState<RestoreStep>('timeline')
-  const [recoveryTime, setRecoveryTime] = useState('')
-  const [targetClusterID, setTargetClusterID] = useState(initialClusterID)
-  const source = clusters.find((cluster) => cluster.id === initialClusterID)
-  const target = clusters.find((cluster) => cluster.id === targetClusterID)
-  const maxDateTime = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-
-  return (
-    <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
-      <div className="mb-6 flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-[var(--warning)]/30 bg-[var(--warning)]/10"><ShieldAlert className="h-4 w-4 text-[var(--warning)]" /></span><div><h2 className="font-medium">Point-in-time restore</h2><p className="mt-1 text-xs leading-5 text-[var(--text-3)]">Prepare and review a destructive recovery operation.</p></div></div>
-      <ol className="mb-7 grid grid-cols-3 border-y border-[var(--border)] py-3 text-[10px] uppercase tracking-[0.12em] text-[var(--text-3)]">{(['timeline', 'target', 'confirm'] as RestoreStep[]).map((item, index) => <li key={item} className={step === item ? 'text-[var(--accent)]' : ''}>{index + 1}. {item}</li>)}</ol>
-      {step === 'timeline' && <div><label className="block text-xs font-medium text-[var(--text-2)]">Recovery date and time<input required type="datetime-local" max={maxDateTime} value={recoveryTime} onChange={(event) => setRecoveryTime(event.target.value)} className={fieldClass} /></label><ContractWarning /><div className="mt-6 flex justify-end"><button type="button" disabled={!recoveryTime || !source} onClick={() => setStep('target')} className={buttonClass}>Choose target<ChevronRight className="ml-1.5 h-4 w-4" /></button></div></div>}
-      {step === 'target' && <div><label className="block text-xs font-medium text-[var(--text-2)]">Restore target<select value={targetClusterID} onChange={(event) => setTargetClusterID(event.target.value)} className={fieldClass}>{clusters.map((cluster) => <option key={cluster.id} value={cluster.id}>{cluster.name} ({cluster.host_id})</option>)}</select></label><p className="mt-3 text-xs leading-5 text-[var(--text-3)]">The current API has no restore target contract. This selection is review-only and is never submitted.</p><div className="mt-6 flex justify-between gap-3"><button type="button" onClick={() => setStep('timeline')} className={secondaryButtonClass}>Back</button><button type="button" disabled={!target} onClick={() => setStep('confirm')} className={buttonClass}>Review restore<ChevronRight className="ml-1.5 h-4 w-4" /></button></div></div>}
-      {step === 'confirm' && <div><div className="rounded-[var(--radius-md)] border border-[var(--warning)]/25 bg-[var(--panel)] p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--warning)]">Confirmation required</p><p className="mt-3 text-sm leading-6 text-[var(--text)]">Restore <strong>{source?.name}</strong> to <strong>{new Date(recoveryTime).toLocaleString()}</strong> on target <strong>{target?.name}</strong>. A real restore may stop PostgreSQL, replace target data, replay WAL, and make data after the recovery time unavailable.</p></div><p className="mt-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-3 text-xs leading-5 text-[var(--text-2)]"><strong className="text-[var(--text)]">Restore not yet wired.</strong> No server-side PITR endpoint exists, so execution is disabled. Nothing has been changed.</p><div className="mt-6 flex justify-between gap-3"><button type="button" onClick={() => setStep('target')} className={secondaryButtonClass}>Back</button><button type="button" disabled className={buttonClass}>Execute restore</button></div></div>}
-    </section>
-  )
-}
-
-function ContractWarning() {
-  return <p className="mt-3 text-xs leading-5 text-[var(--text-3)]">The API does not expose backup-set retention boundaries yet. The selected time cannot be validated against recoverable WAL and will not be submitted.</p>
 }

@@ -420,7 +420,7 @@ func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	cluster, err := h.store.UpdatePgBouncer(r.Context(), store.UpdatePgBouncerParams{
-		ID: current.ID, PoolMode: request.PoolMode,
+		ID: current.ID, UserID: userID, PoolMode: request.PoolMode,
 		MaxConnections: request.MaxConnections,
 	})
 	if err != nil {
@@ -448,7 +448,7 @@ func (h *ResourceHandler) updatePgHba(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	cluster, err := h.store.UpdatePgHba(r.Context(), store.UpdatePgHbaParams{ID: current.ID, Rules: normalizePgHbaRules(request.Rules)})
+	cluster, err := h.store.UpdatePgHba(r.Context(), store.UpdatePgHbaParams{ID: current.ID, UserID: userID, Rules: normalizePgHbaRules(request.Rules)})
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -774,6 +774,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) bool {
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrRestoreOperationInProgress) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "resource not found")
 		return

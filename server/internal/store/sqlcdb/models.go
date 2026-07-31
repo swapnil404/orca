@@ -55,6 +55,141 @@ func (ns NullOrganizationRole) Value() (driver.Value, error) {
 	return string(ns.OrganizationRole), nil
 }
 
+type RestoreOperationIntent string
+
+const (
+	RestoreOperationIntentPreflight RestoreOperationIntent = "preflight"
+	RestoreOperationIntentExecute   RestoreOperationIntent = "execute"
+	RestoreOperationIntentCancel    RestoreOperationIntent = "cancel"
+	RestoreOperationIntentRollback  RestoreOperationIntent = "rollback"
+	RestoreOperationIntentFinalize  RestoreOperationIntent = "finalize"
+)
+
+func (e *RestoreOperationIntent) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RestoreOperationIntent(s)
+	case string:
+		*e = RestoreOperationIntent(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RestoreOperationIntent: %T", src)
+	}
+	return nil
+}
+
+type NullRestoreOperationIntent struct {
+	RestoreOperationIntent RestoreOperationIntent `json:"restore_operation_intent"`
+	Valid                  bool                   `json:"valid"` // Valid is true if RestoreOperationIntent is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRestoreOperationIntent) Scan(value interface{}) error {
+	if value == nil {
+		ns.RestoreOperationIntent, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RestoreOperationIntent.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRestoreOperationIntent) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RestoreOperationIntent), nil
+}
+
+type RestoreOperationMode string
+
+const (
+	RestoreOperationModeInPlace RestoreOperationMode = "in_place"
+	RestoreOperationModeClone   RestoreOperationMode = "clone"
+)
+
+func (e *RestoreOperationMode) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RestoreOperationMode(s)
+	case string:
+		*e = RestoreOperationMode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RestoreOperationMode: %T", src)
+	}
+	return nil
+}
+
+type NullRestoreOperationMode struct {
+	RestoreOperationMode RestoreOperationMode `json:"restore_operation_mode"`
+	Valid                bool                 `json:"valid"` // Valid is true if RestoreOperationMode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRestoreOperationMode) Scan(value interface{}) error {
+	if value == nil {
+		ns.RestoreOperationMode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RestoreOperationMode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRestoreOperationMode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RestoreOperationMode), nil
+}
+
+type RestoreOperationStatus string
+
+const (
+	RestoreOperationStatusPending    RestoreOperationStatus = "pending"
+	RestoreOperationStatusReady      RestoreOperationStatus = "ready"
+	RestoreOperationStatusRunning    RestoreOperationStatus = "running"
+	RestoreOperationStatusSucceeded  RestoreOperationStatus = "succeeded"
+	RestoreOperationStatusFailed     RestoreOperationStatus = "failed"
+	RestoreOperationStatusCancelled  RestoreOperationStatus = "cancelled"
+	RestoreOperationStatusRolledBack RestoreOperationStatus = "rolled_back"
+	RestoreOperationStatusFinalized  RestoreOperationStatus = "finalized"
+)
+
+func (e *RestoreOperationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RestoreOperationStatus(s)
+	case string:
+		*e = RestoreOperationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RestoreOperationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRestoreOperationStatus struct {
+	RestoreOperationStatus RestoreOperationStatus `json:"restore_operation_status"`
+	Valid                  bool                   `json:"valid"` // Valid is true if RestoreOperationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRestoreOperationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RestoreOperationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RestoreOperationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRestoreOperationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RestoreOperationStatus), nil
+}
+
 type AgentReport struct {
 	HostID                string          `json:"host_id"`
 	ActualState           json.RawMessage `json:"actual_state"`
@@ -176,6 +311,37 @@ type Project struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 	DeletedAt      sql.NullTime `json:"deleted_at"`
 	OrganizationID string       `json:"organization_id"`
+}
+
+type RestoreOperation struct {
+	ID                 string                 `json:"id"`
+	ProjectID          string                 `json:"project_id"`
+	HostID             string                 `json:"host_id"`
+	SourceClusterID    string                 `json:"source_cluster_id"`
+	TargetClusterID    sql.NullString         `json:"target_cluster_id"`
+	TargetClusterName  sql.NullString         `json:"target_cluster_name"`
+	TargetSpec         json.RawMessage        `json:"target_spec"`
+	Mode               RestoreOperationMode   `json:"mode"`
+	Intent             RestoreOperationIntent `json:"intent"`
+	Status             RestoreOperationStatus `json:"status"`
+	TargetTime         time.Time              `json:"target_time"`
+	RequestFingerprint string                 `json:"request_fingerprint"`
+	IdempotencyKey     string                 `json:"idempotency_key"`
+	RequestedByUserID  string                 `json:"requested_by_user_id"`
+	ReportSequence     int64                  `json:"report_sequence"`
+	Report             json.RawMessage        `json:"report"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+	FinalizedAt        sql.NullTime           `json:"finalized_at"`
+}
+
+type RestoreOperationEvent struct {
+	ID          int64           `json:"id"`
+	OperationID string          `json:"operation_id"`
+	HostID      string          `json:"host_id"`
+	EventType   string          `json:"event_type"`
+	Payload     json.RawMessage `json:"payload"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 type User struct {

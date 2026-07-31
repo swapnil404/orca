@@ -124,13 +124,14 @@ func (x *DesiredStateMessage) GetDesiredState() *DesiredState {
 
 // AgentReportMessage carries the agent's observed state and current health to the server.
 type AgentReportMessage struct {
-	state                 protoimpl.MessageState  `protogen:"open.v1"`
-	ActualState           *ActualState            `protobuf:"bytes,1,opt,name=actual_state,json=actualState,proto3" json:"actual_state,omitempty"`
-	HealthReport          *HealthReport           `protobuf:"bytes,2,opt,name=health_report,json=healthReport,proto3" json:"health_report,omitempty"`
-	ReconciliationResults []*ReconciliationResult `protobuf:"bytes,3,rep,name=reconciliation_results,json=reconciliationResults,proto3" json:"reconciliation_results,omitempty"`
-	DesiredStateRevision  string                  `protobuf:"bytes,4,opt,name=desired_state_revision,json=desiredStateRevision,proto3" json:"desired_state_revision,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state                   protoimpl.MessageState    `protogen:"open.v1"`
+	ActualState             *ActualState              `protobuf:"bytes,1,opt,name=actual_state,json=actualState,proto3" json:"actual_state,omitempty"`
+	HealthReport            *HealthReport             `protobuf:"bytes,2,opt,name=health_report,json=healthReport,proto3" json:"health_report,omitempty"`
+	ReconciliationResults   []*ReconciliationResult   `protobuf:"bytes,3,rep,name=reconciliation_results,json=reconciliationResults,proto3" json:"reconciliation_results,omitempty"`
+	DesiredStateRevision    string                    `protobuf:"bytes,4,opt,name=desired_state_revision,json=desiredStateRevision,proto3" json:"desired_state_revision,omitempty"`
+	RestoreOperationReports []*RestoreOperationReport `protobuf:"bytes,5,rep,name=restore_operation_reports,json=restoreOperationReports,proto3" json:"restore_operation_reports,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *AgentReportMessage) Reset() {
@@ -189,6 +190,13 @@ func (x *AgentReportMessage) GetDesiredStateRevision() string {
 		return x.DesiredStateRevision
 	}
 	return ""
+}
+
+func (x *AgentReportMessage) GetRestoreOperationReports() []*RestoreOperationReport {
+	if x != nil {
+		return x.RestoreOperationReports
+	}
+	return nil
 }
 
 // ReconciliationResult describes the outcome of one agent action.
@@ -262,12 +270,13 @@ func (x *ReconciliationResult) GetError() string {
 
 // DesiredState is the desired set of clusters managed by the agent.
 type DesiredState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClusterId     string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	Clusters      []*ClusterSpec         `protobuf:"bytes,2,rep,name=clusters,proto3" json:"clusters,omitempty"`
-	Revision      string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId         string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	Clusters          []*ClusterSpec         `protobuf:"bytes,2,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	Revision          string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	RestoreOperations []*RestoreOperation    `protobuf:"bytes,4,rep,name=restore_operations,json=restoreOperations,proto3" json:"restore_operations,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *DesiredState) Reset() {
@@ -321,6 +330,279 @@ func (x *DesiredState) GetRevision() string {
 	return ""
 }
 
+func (x *DesiredState) GetRestoreOperations() []*RestoreOperation {
+	if x != nil {
+		return x.RestoreOperations
+	}
+	return nil
+}
+
+// RestoreOperation describes one durable host-level recovery intent.
+type RestoreOperation struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Mode               string                 `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	Intent             string                 `protobuf:"bytes,3,opt,name=intent,proto3" json:"intent,omitempty"`
+	SourceClusterId    string                 `protobuf:"bytes,4,opt,name=source_cluster_id,json=sourceClusterId,proto3" json:"source_cluster_id,omitempty"`
+	TargetCluster      *ClusterSpec           `protobuf:"bytes,5,opt,name=target_cluster,json=targetCluster,proto3,oneof" json:"target_cluster,omitempty"`
+	TargetTime         string                 `protobuf:"bytes,6,opt,name=target_time,json=targetTime,proto3" json:"target_time,omitempty"`
+	RequestFingerprint string                 `protobuf:"bytes,7,opt,name=request_fingerprint,json=requestFingerprint,proto3" json:"request_fingerprint,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RestoreOperation) Reset() {
+	*x = RestoreOperation{}
+	mi := &file_orca_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreOperation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreOperation) ProtoMessage() {}
+
+func (x *RestoreOperation) ProtoReflect() protoreflect.Message {
+	mi := &file_orca_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreOperation.ProtoReflect.Descriptor instead.
+func (*RestoreOperation) Descriptor() ([]byte, []int) {
+	return file_orca_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RestoreOperation) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RestoreOperation) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *RestoreOperation) GetIntent() string {
+	if x != nil {
+		return x.Intent
+	}
+	return ""
+}
+
+func (x *RestoreOperation) GetSourceClusterId() string {
+	if x != nil {
+		return x.SourceClusterId
+	}
+	return ""
+}
+
+func (x *RestoreOperation) GetTargetCluster() *ClusterSpec {
+	if x != nil {
+		return x.TargetCluster
+	}
+	return nil
+}
+
+func (x *RestoreOperation) GetTargetTime() string {
+	if x != nil {
+		return x.TargetTime
+	}
+	return ""
+}
+
+func (x *RestoreOperation) GetRequestFingerprint() string {
+	if x != nil {
+		return x.RequestFingerprint
+	}
+	return ""
+}
+
+// RestoreOperationReport describes the agent's durable recovery progress.
+type RestoreOperationReport struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OperationId        string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Sequence           uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Status             string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Phase              string                 `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
+	ErrorCode          string                 `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	Error              string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	DestructiveStarted bool                   `protobuf:"varint,7,opt,name=destructive_started,json=destructiveStarted,proto3" json:"destructive_started,omitempty"`
+	Cancellable        bool                   `protobuf:"varint,8,opt,name=cancellable,proto3" json:"cancellable,omitempty"`
+	RollbackAvailable  bool                   `protobuf:"varint,9,opt,name=rollback_available,json=rollbackAvailable,proto3" json:"rollback_available,omitempty"`
+	BackupLabel        string                 `protobuf:"bytes,10,opt,name=backup_label,json=backupLabel,proto3" json:"backup_label,omitempty"`
+	RecoveryEarliest   string                 `protobuf:"bytes,11,opt,name=recovery_earliest,json=recoveryEarliest,proto3" json:"recovery_earliest,omitempty"`
+	RecoveryLatest     string                 `protobuf:"bytes,12,opt,name=recovery_latest,json=recoveryLatest,proto3" json:"recovery_latest,omitempty"`
+	PostgresVersion    string                 `protobuf:"bytes,13,opt,name=postgres_version,json=postgresVersion,proto3" json:"postgres_version,omitempty"`
+	RequiredBytes      uint64                 `protobuf:"varint,14,opt,name=required_bytes,json=requiredBytes,proto3" json:"required_bytes,omitempty"`
+	AvailableBytes     uint64                 `protobuf:"varint,15,opt,name=available_bytes,json=availableBytes,proto3" json:"available_bytes,omitempty"`
+	StartedAt          string                 `protobuf:"bytes,16,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt        string                 `protobuf:"bytes,17,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RestoreOperationReport) Reset() {
+	*x = RestoreOperationReport{}
+	mi := &file_orca_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreOperationReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreOperationReport) ProtoMessage() {}
+
+func (x *RestoreOperationReport) ProtoReflect() protoreflect.Message {
+	mi := &file_orca_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreOperationReport.ProtoReflect.Descriptor instead.
+func (*RestoreOperationReport) Descriptor() ([]byte, []int) {
+	return file_orca_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RestoreOperationReport) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *RestoreOperationReport) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetDestructiveStarted() bool {
+	if x != nil {
+		return x.DestructiveStarted
+	}
+	return false
+}
+
+func (x *RestoreOperationReport) GetCancellable() bool {
+	if x != nil {
+		return x.Cancellable
+	}
+	return false
+}
+
+func (x *RestoreOperationReport) GetRollbackAvailable() bool {
+	if x != nil {
+		return x.RollbackAvailable
+	}
+	return false
+}
+
+func (x *RestoreOperationReport) GetBackupLabel() string {
+	if x != nil {
+		return x.BackupLabel
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetRecoveryEarliest() string {
+	if x != nil {
+		return x.RecoveryEarliest
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetRecoveryLatest() string {
+	if x != nil {
+		return x.RecoveryLatest
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetPostgresVersion() string {
+	if x != nil {
+		return x.PostgresVersion
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetRequiredBytes() uint64 {
+	if x != nil {
+		return x.RequiredBytes
+	}
+	return 0
+}
+
+func (x *RestoreOperationReport) GetAvailableBytes() uint64 {
+	if x != nil {
+		return x.AvailableBytes
+	}
+	return 0
+}
+
+func (x *RestoreOperationReport) GetStartedAt() string {
+	if x != nil {
+		return x.StartedAt
+	}
+	return ""
+}
+
+func (x *RestoreOperationReport) GetCompletedAt() string {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return ""
+}
+
 // ClusterSpec describes a desired Postgres cluster.
 type ClusterSpec struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
@@ -340,7 +622,7 @@ type ClusterSpec struct {
 
 func (x *ClusterSpec) Reset() {
 	*x = ClusterSpec{}
-	mi := &file_orca_proto_msgTypes[4]
+	mi := &file_orca_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +634,7 @@ func (x *ClusterSpec) String() string {
 func (*ClusterSpec) ProtoMessage() {}
 
 func (x *ClusterSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[4]
+	mi := &file_orca_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +647,7 @@ func (x *ClusterSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterSpec.ProtoReflect.Descriptor instead.
 func (*ClusterSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{4}
+	return file_orca_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ClusterSpec) GetId() string {
@@ -448,7 +730,7 @@ type PgHbaSpec struct {
 
 func (x *PgHbaSpec) Reset() {
 	*x = PgHbaSpec{}
-	mi := &file_orca_proto_msgTypes[5]
+	mi := &file_orca_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +742,7 @@ func (x *PgHbaSpec) String() string {
 func (*PgHbaSpec) ProtoMessage() {}
 
 func (x *PgHbaSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[5]
+	mi := &file_orca_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +755,7 @@ func (x *PgHbaSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgHbaSpec.ProtoReflect.Descriptor instead.
 func (*PgHbaSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{5}
+	return file_orca_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PgHbaSpec) GetRules() []*PgHbaRule {
@@ -497,7 +779,7 @@ type PgHbaRule struct {
 
 func (x *PgHbaRule) Reset() {
 	*x = PgHbaRule{}
-	mi := &file_orca_proto_msgTypes[6]
+	mi := &file_orca_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -509,7 +791,7 @@ func (x *PgHbaRule) String() string {
 func (*PgHbaRule) ProtoMessage() {}
 
 func (x *PgHbaRule) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[6]
+	mi := &file_orca_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -522,7 +804,7 @@ func (x *PgHbaRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgHbaRule.ProtoReflect.Descriptor instead.
 func (*PgHbaRule) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{6}
+	return file_orca_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PgHbaRule) GetType() string {
@@ -570,7 +852,7 @@ type ReplicaSpec struct {
 
 func (x *ReplicaSpec) Reset() {
 	*x = ReplicaSpec{}
-	mi := &file_orca_proto_msgTypes[7]
+	mi := &file_orca_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -582,7 +864,7 @@ func (x *ReplicaSpec) String() string {
 func (*ReplicaSpec) ProtoMessage() {}
 
 func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[7]
+	mi := &file_orca_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -595,7 +877,7 @@ func (x *ReplicaSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicaSpec.ProtoReflect.Descriptor instead.
 func (*ReplicaSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{7}
+	return file_orca_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ReplicaSpec) GetId() string {
@@ -615,7 +897,7 @@ type DatabaseSpec struct {
 
 func (x *DatabaseSpec) Reset() {
 	*x = DatabaseSpec{}
-	mi := &file_orca_proto_msgTypes[8]
+	mi := &file_orca_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -627,7 +909,7 @@ func (x *DatabaseSpec) String() string {
 func (*DatabaseSpec) ProtoMessage() {}
 
 func (x *DatabaseSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[8]
+	mi := &file_orca_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -640,7 +922,7 @@ func (x *DatabaseSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DatabaseSpec.ProtoReflect.Descriptor instead.
 func (*DatabaseSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{8}
+	return file_orca_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DatabaseSpec) GetName() string {
@@ -663,7 +945,7 @@ type PgBouncerSpec struct {
 
 func (x *PgBouncerSpec) Reset() {
 	*x = PgBouncerSpec{}
-	mi := &file_orca_proto_msgTypes[9]
+	mi := &file_orca_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +957,7 @@ func (x *PgBouncerSpec) String() string {
 func (*PgBouncerSpec) ProtoMessage() {}
 
 func (x *PgBouncerSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[9]
+	mi := &file_orca_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +970,7 @@ func (x *PgBouncerSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgBouncerSpec.ProtoReflect.Descriptor instead.
 func (*PgBouncerSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{9}
+	return file_orca_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PgBouncerSpec) GetPoolMode() string {
@@ -732,7 +1014,7 @@ type PgBackRestSpec struct {
 
 func (x *PgBackRestSpec) Reset() {
 	*x = PgBackRestSpec{}
-	mi := &file_orca_proto_msgTypes[10]
+	mi := &file_orca_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -744,7 +1026,7 @@ func (x *PgBackRestSpec) String() string {
 func (*PgBackRestSpec) ProtoMessage() {}
 
 func (x *PgBackRestSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[10]
+	mi := &file_orca_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -757,7 +1039,7 @@ func (x *PgBackRestSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgBackRestSpec.ProtoReflect.Descriptor instead.
 func (*PgBackRestSpec) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{10}
+	return file_orca_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PgBackRestSpec) GetRepoPath() string {
@@ -800,7 +1082,7 @@ type BackupSchedule struct {
 
 func (x *BackupSchedule) Reset() {
 	*x = BackupSchedule{}
-	mi := &file_orca_proto_msgTypes[11]
+	mi := &file_orca_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +1094,7 @@ func (x *BackupSchedule) String() string {
 func (*BackupSchedule) ProtoMessage() {}
 
 func (x *BackupSchedule) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[11]
+	mi := &file_orca_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +1107,7 @@ func (x *BackupSchedule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupSchedule.ProtoReflect.Descriptor instead.
 func (*BackupSchedule) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{11}
+	return file_orca_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BackupSchedule) GetFullIntervalSeconds() uint64 {
@@ -859,7 +1141,7 @@ type ActualState struct {
 
 func (x *ActualState) Reset() {
 	*x = ActualState{}
-	mi := &file_orca_proto_msgTypes[12]
+	mi := &file_orca_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +1153,7 @@ func (x *ActualState) String() string {
 func (*ActualState) ProtoMessage() {}
 
 func (x *ActualState) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[12]
+	mi := &file_orca_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +1166,7 @@ func (x *ActualState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualState.ProtoReflect.Descriptor instead.
 func (*ActualState) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{12}
+	return file_orca_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ActualState) GetClusters() []*ActualCluster {
@@ -924,7 +1206,7 @@ type ActualCluster struct {
 
 func (x *ActualCluster) Reset() {
 	*x = ActualCluster{}
-	mi := &file_orca_proto_msgTypes[13]
+	mi := &file_orca_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +1218,7 @@ func (x *ActualCluster) String() string {
 func (*ActualCluster) ProtoMessage() {}
 
 func (x *ActualCluster) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[13]
+	mi := &file_orca_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1231,7 @@ func (x *ActualCluster) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualCluster.ProtoReflect.Descriptor instead.
 func (*ActualCluster) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{13}
+	return file_orca_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ActualCluster) GetId() string {
@@ -1115,7 +1397,7 @@ type PostgresParameterState struct {
 
 func (x *PostgresParameterState) Reset() {
 	*x = PostgresParameterState{}
-	mi := &file_orca_proto_msgTypes[14]
+	mi := &file_orca_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1127,7 +1409,7 @@ func (x *PostgresParameterState) String() string {
 func (*PostgresParameterState) ProtoMessage() {}
 
 func (x *PostgresParameterState) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[14]
+	mi := &file_orca_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1140,7 +1422,7 @@ func (x *PostgresParameterState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostgresParameterState.ProtoReflect.Descriptor instead.
 func (*PostgresParameterState) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{14}
+	return file_orca_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *PostgresParameterState) GetSetting() string {
@@ -1214,7 +1496,7 @@ type ActualReplica struct {
 
 func (x *ActualReplica) Reset() {
 	*x = ActualReplica{}
-	mi := &file_orca_proto_msgTypes[15]
+	mi := &file_orca_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1226,7 +1508,7 @@ func (x *ActualReplica) String() string {
 func (*ActualReplica) ProtoMessage() {}
 
 func (x *ActualReplica) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[15]
+	mi := &file_orca_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1239,7 +1521,7 @@ func (x *ActualReplica) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualReplica.ProtoReflect.Descriptor instead.
 func (*ActualReplica) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{15}
+	return file_orca_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ActualReplica) GetId() string {
@@ -1348,7 +1630,7 @@ type ActualPgBouncer struct {
 
 func (x *ActualPgBouncer) Reset() {
 	*x = ActualPgBouncer{}
-	mi := &file_orca_proto_msgTypes[16]
+	mi := &file_orca_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1360,7 +1642,7 @@ func (x *ActualPgBouncer) String() string {
 func (*ActualPgBouncer) ProtoMessage() {}
 
 func (x *ActualPgBouncer) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[16]
+	mi := &file_orca_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1373,7 +1655,7 @@ func (x *ActualPgBouncer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualPgBouncer.ProtoReflect.Descriptor instead.
 func (*ActualPgBouncer) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{16}
+	return file_orca_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ActualPgBouncer) GetContainerId() string {
@@ -1431,7 +1713,7 @@ type ActualBackup struct {
 
 func (x *ActualBackup) Reset() {
 	*x = ActualBackup{}
-	mi := &file_orca_proto_msgTypes[17]
+	mi := &file_orca_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1443,7 +1725,7 @@ func (x *ActualBackup) String() string {
 func (*ActualBackup) ProtoMessage() {}
 
 func (x *ActualBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[17]
+	mi := &file_orca_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1456,7 +1738,7 @@ func (x *ActualBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActualBackup.ProtoReflect.Descriptor instead.
 func (*ActualBackup) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{17}
+	return file_orca_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ActualBackup) GetLastSuccessUnixSeconds() int64 {
@@ -1498,7 +1780,7 @@ type HealthReport struct {
 
 func (x *HealthReport) Reset() {
 	*x = HealthReport{}
-	mi := &file_orca_proto_msgTypes[18]
+	mi := &file_orca_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1510,7 +1792,7 @@ func (x *HealthReport) String() string {
 func (*HealthReport) ProtoMessage() {}
 
 func (x *HealthReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[18]
+	mi := &file_orca_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1523,7 +1805,7 @@ func (x *HealthReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthReport.ProtoReflect.Descriptor instead.
 func (*HealthReport) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{18}
+	return file_orca_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *HealthReport) GetHostMetrics() *HostMetrics {
@@ -1554,7 +1836,7 @@ type HostMetrics struct {
 
 func (x *HostMetrics) Reset() {
 	*x = HostMetrics{}
-	mi := &file_orca_proto_msgTypes[19]
+	mi := &file_orca_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1848,7 @@ func (x *HostMetrics) String() string {
 func (*HostMetrics) ProtoMessage() {}
 
 func (x *HostMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[19]
+	mi := &file_orca_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1861,7 @@ func (x *HostMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostMetrics.ProtoReflect.Descriptor instead.
 func (*HostMetrics) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{19}
+	return file_orca_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *HostMetrics) GetCpuUsagePercent() float64 {
@@ -1628,7 +1910,7 @@ type ClusterHealth struct {
 
 func (x *ClusterHealth) Reset() {
 	*x = ClusterHealth{}
-	mi := &file_orca_proto_msgTypes[20]
+	mi := &file_orca_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1640,7 +1922,7 @@ func (x *ClusterHealth) String() string {
 func (*ClusterHealth) ProtoMessage() {}
 
 func (x *ClusterHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_orca_proto_msgTypes[20]
+	mi := &file_orca_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1653,7 +1935,7 @@ func (x *ClusterHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterHealth.ProtoReflect.Descriptor instead.
 func (*ClusterHealth) Descriptor() ([]byte, []int) {
-	return file_orca_proto_rawDescGZIP(), []int{20}
+	return file_orca_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ClusterHealth) GetClusterId() string {
@@ -1677,23 +1959,56 @@ const file_orca_proto_rawDesc = "" +
 	"\n" +
 	"orca.proto\x12\aorca.v1\"Q\n" +
 	"\x13DesiredStateMessage\x12:\n" +
-	"\rdesired_state\x18\x01 \x01(\v2\x15.orca.v1.DesiredStateR\fdesiredState\"\x95\x02\n" +
+	"\rdesired_state\x18\x01 \x01(\v2\x15.orca.v1.DesiredStateR\fdesiredState\"\xf2\x02\n" +
 	"\x12AgentReportMessage\x127\n" +
 	"\factual_state\x18\x01 \x01(\v2\x14.orca.v1.ActualStateR\vactualState\x12:\n" +
 	"\rhealth_report\x18\x02 \x01(\v2\x15.orca.v1.HealthReportR\fhealthReport\x12T\n" +
 	"\x16reconciliation_results\x18\x03 \x03(\v2\x1d.orca.v1.ReconciliationResultR\x15reconciliationResults\x124\n" +
-	"\x16desired_state_revision\x18\x04 \x01(\tR\x14desiredStateRevision\"{\n" +
+	"\x16desired_state_revision\x18\x04 \x01(\tR\x14desiredStateRevision\x12[\n" +
+	"\x19restore_operation_reports\x18\x05 \x03(\v2\x1f.orca.v1.RestoreOperationReportR\x17restoreOperationReports\"{\n" +
 	"\x14ReconciliationResult\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x02 \x01(\tR\tclusterId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"{\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\xc5\x01\n" +
 	"\fDesiredState\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x120\n" +
 	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\x12\x1a\n" +
-	"\brevision\x18\x03 \x01(\tR\brevision\"\xc8\x04\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\x12H\n" +
+	"\x12restore_operations\x18\x04 \x03(\v2\x19.orca.v1.RestoreOperationR\x11restoreOperations\"\xa1\x02\n" +
+	"\x10RestoreOperation\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x16\n" +
+	"\x06intent\x18\x03 \x01(\tR\x06intent\x12*\n" +
+	"\x11source_cluster_id\x18\x04 \x01(\tR\x0fsourceClusterId\x12@\n" +
+	"\x0etarget_cluster\x18\x05 \x01(\v2\x14.orca.v1.ClusterSpecH\x00R\rtargetCluster\x88\x01\x01\x12\x1f\n" +
+	"\vtarget_time\x18\x06 \x01(\tR\n" +
+	"targetTime\x12/\n" +
+	"\x13request_fingerprint\x18\a \x01(\tR\x12requestFingerprintB\x11\n" +
+	"\x0f_target_cluster\"\xf2\x04\n" +
+	"\x16RestoreOperationReport\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x1a\n" +
+	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
+	"\x05phase\x18\x04 \x01(\tR\x05phase\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x05 \x01(\tR\terrorCode\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
+	"\x13destructive_started\x18\a \x01(\bR\x12destructiveStarted\x12 \n" +
+	"\vcancellable\x18\b \x01(\bR\vcancellable\x12-\n" +
+	"\x12rollback_available\x18\t \x01(\bR\x11rollbackAvailable\x12!\n" +
+	"\fbackup_label\x18\n" +
+	" \x01(\tR\vbackupLabel\x12+\n" +
+	"\x11recovery_earliest\x18\v \x01(\tR\x10recoveryEarliest\x12'\n" +
+	"\x0frecovery_latest\x18\f \x01(\tR\x0erecoveryLatest\x12)\n" +
+	"\x10postgres_version\x18\r \x01(\tR\x0fpostgresVersion\x12%\n" +
+	"\x0erequired_bytes\x18\x0e \x01(\x04R\rrequiredBytes\x12'\n" +
+	"\x0favailable_bytes\x18\x0f \x01(\x04R\x0eavailableBytes\x12\x1d\n" +
+	"\n" +
+	"started_at\x18\x10 \x01(\tR\tstartedAt\x12!\n" +
+	"\fcompleted_at\x18\x11 \x01(\tR\vcompletedAt\"\xc8\x04\n" +
 	"\vClusterSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x128\n" +
@@ -1862,71 +2177,76 @@ func file_orca_proto_rawDescGZIP() []byte {
 }
 
 var file_orca_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_orca_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_orca_proto_goTypes = []any{
 	(ClusterStatus)(0),             // 0: orca.v1.ClusterStatus
 	(*DesiredStateMessage)(nil),    // 1: orca.v1.DesiredStateMessage
 	(*AgentReportMessage)(nil),     // 2: orca.v1.AgentReportMessage
 	(*ReconciliationResult)(nil),   // 3: orca.v1.ReconciliationResult
 	(*DesiredState)(nil),           // 4: orca.v1.DesiredState
-	(*ClusterSpec)(nil),            // 5: orca.v1.ClusterSpec
-	(*PgHbaSpec)(nil),              // 6: orca.v1.PgHbaSpec
-	(*PgHbaRule)(nil),              // 7: orca.v1.PgHbaRule
-	(*ReplicaSpec)(nil),            // 8: orca.v1.ReplicaSpec
-	(*DatabaseSpec)(nil),           // 9: orca.v1.DatabaseSpec
-	(*PgBouncerSpec)(nil),          // 10: orca.v1.PgBouncerSpec
-	(*PgBackRestSpec)(nil),         // 11: orca.v1.PgBackRestSpec
-	(*BackupSchedule)(nil),         // 12: orca.v1.BackupSchedule
-	(*ActualState)(nil),            // 13: orca.v1.ActualState
-	(*ActualCluster)(nil),          // 14: orca.v1.ActualCluster
-	(*PostgresParameterState)(nil), // 15: orca.v1.PostgresParameterState
-	(*ActualReplica)(nil),          // 16: orca.v1.ActualReplica
-	(*ActualPgBouncer)(nil),        // 17: orca.v1.ActualPgBouncer
-	(*ActualBackup)(nil),           // 18: orca.v1.ActualBackup
-	(*HealthReport)(nil),           // 19: orca.v1.HealthReport
-	(*HostMetrics)(nil),            // 20: orca.v1.HostMetrics
-	(*ClusterHealth)(nil),          // 21: orca.v1.ClusterHealth
-	nil,                            // 22: orca.v1.ClusterSpec.ParamsEntry
-	nil,                            // 23: orca.v1.ActualCluster.AppliedParamsEntry
-	nil,                            // 24: orca.v1.ActualCluster.ExtensionVersionsEntry
-	nil,                            // 25: orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
-	nil,                            // 26: orca.v1.ActualCluster.ParameterStatesEntry
-	nil,                            // 27: orca.v1.ActualReplica.AppliedParamsEntry
+	(*RestoreOperation)(nil),       // 5: orca.v1.RestoreOperation
+	(*RestoreOperationReport)(nil), // 6: orca.v1.RestoreOperationReport
+	(*ClusterSpec)(nil),            // 7: orca.v1.ClusterSpec
+	(*PgHbaSpec)(nil),              // 8: orca.v1.PgHbaSpec
+	(*PgHbaRule)(nil),              // 9: orca.v1.PgHbaRule
+	(*ReplicaSpec)(nil),            // 10: orca.v1.ReplicaSpec
+	(*DatabaseSpec)(nil),           // 11: orca.v1.DatabaseSpec
+	(*PgBouncerSpec)(nil),          // 12: orca.v1.PgBouncerSpec
+	(*PgBackRestSpec)(nil),         // 13: orca.v1.PgBackRestSpec
+	(*BackupSchedule)(nil),         // 14: orca.v1.BackupSchedule
+	(*ActualState)(nil),            // 15: orca.v1.ActualState
+	(*ActualCluster)(nil),          // 16: orca.v1.ActualCluster
+	(*PostgresParameterState)(nil), // 17: orca.v1.PostgresParameterState
+	(*ActualReplica)(nil),          // 18: orca.v1.ActualReplica
+	(*ActualPgBouncer)(nil),        // 19: orca.v1.ActualPgBouncer
+	(*ActualBackup)(nil),           // 20: orca.v1.ActualBackup
+	(*HealthReport)(nil),           // 21: orca.v1.HealthReport
+	(*HostMetrics)(nil),            // 22: orca.v1.HostMetrics
+	(*ClusterHealth)(nil),          // 23: orca.v1.ClusterHealth
+	nil,                            // 24: orca.v1.ClusterSpec.ParamsEntry
+	nil,                            // 25: orca.v1.ActualCluster.AppliedParamsEntry
+	nil,                            // 26: orca.v1.ActualCluster.ExtensionVersionsEntry
+	nil,                            // 27: orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	nil,                            // 28: orca.v1.ActualCluster.ParameterStatesEntry
+	nil,                            // 29: orca.v1.ActualReplica.AppliedParamsEntry
 }
 var file_orca_proto_depIdxs = []int32{
 	4,  // 0: orca.v1.DesiredStateMessage.desired_state:type_name -> orca.v1.DesiredState
-	13, // 1: orca.v1.AgentReportMessage.actual_state:type_name -> orca.v1.ActualState
-	19, // 2: orca.v1.AgentReportMessage.health_report:type_name -> orca.v1.HealthReport
+	15, // 1: orca.v1.AgentReportMessage.actual_state:type_name -> orca.v1.ActualState
+	21, // 2: orca.v1.AgentReportMessage.health_report:type_name -> orca.v1.HealthReport
 	3,  // 3: orca.v1.AgentReportMessage.reconciliation_results:type_name -> orca.v1.ReconciliationResult
-	5,  // 4: orca.v1.DesiredState.clusters:type_name -> orca.v1.ClusterSpec
-	22, // 5: orca.v1.ClusterSpec.params:type_name -> orca.v1.ClusterSpec.ParamsEntry
-	8,  // 6: orca.v1.ClusterSpec.replicas:type_name -> orca.v1.ReplicaSpec
-	10, // 7: orca.v1.ClusterSpec.pg_bouncer:type_name -> orca.v1.PgBouncerSpec
-	9,  // 8: orca.v1.ClusterSpec.databases:type_name -> orca.v1.DatabaseSpec
-	11, // 9: orca.v1.ClusterSpec.pg_back_rest:type_name -> orca.v1.PgBackRestSpec
-	6,  // 10: orca.v1.ClusterSpec.pg_hba:type_name -> orca.v1.PgHbaSpec
-	7,  // 11: orca.v1.PgHbaSpec.rules:type_name -> orca.v1.PgHbaRule
-	12, // 12: orca.v1.PgBackRestSpec.schedule:type_name -> orca.v1.BackupSchedule
-	14, // 13: orca.v1.ActualState.clusters:type_name -> orca.v1.ActualCluster
-	16, // 14: orca.v1.ActualCluster.replicas:type_name -> orca.v1.ActualReplica
-	17, // 15: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
-	18, // 16: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
-	23, // 17: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
-	24, // 18: orca.v1.ActualCluster.extension_versions:type_name -> orca.v1.ActualCluster.ExtensionVersionsEntry
-	25, // 19: orca.v1.ActualCluster.extension_update_methods:type_name -> orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
-	7,  // 20: orca.v1.ActualCluster.pg_hba_rules:type_name -> orca.v1.PgHbaRule
-	26, // 21: orca.v1.ActualCluster.parameter_states:type_name -> orca.v1.ActualCluster.ParameterStatesEntry
-	7,  // 22: orca.v1.ActualReplica.pg_hba_rules:type_name -> orca.v1.PgHbaRule
-	27, // 23: orca.v1.ActualReplica.applied_params:type_name -> orca.v1.ActualReplica.AppliedParamsEntry
-	20, // 24: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
-	21, // 25: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
-	0,  // 26: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
-	15, // 27: orca.v1.ActualCluster.ParameterStatesEntry.value:type_name -> orca.v1.PostgresParameterState
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	6,  // 4: orca.v1.AgentReportMessage.restore_operation_reports:type_name -> orca.v1.RestoreOperationReport
+	7,  // 5: orca.v1.DesiredState.clusters:type_name -> orca.v1.ClusterSpec
+	5,  // 6: orca.v1.DesiredState.restore_operations:type_name -> orca.v1.RestoreOperation
+	7,  // 7: orca.v1.RestoreOperation.target_cluster:type_name -> orca.v1.ClusterSpec
+	24, // 8: orca.v1.ClusterSpec.params:type_name -> orca.v1.ClusterSpec.ParamsEntry
+	10, // 9: orca.v1.ClusterSpec.replicas:type_name -> orca.v1.ReplicaSpec
+	12, // 10: orca.v1.ClusterSpec.pg_bouncer:type_name -> orca.v1.PgBouncerSpec
+	11, // 11: orca.v1.ClusterSpec.databases:type_name -> orca.v1.DatabaseSpec
+	13, // 12: orca.v1.ClusterSpec.pg_back_rest:type_name -> orca.v1.PgBackRestSpec
+	8,  // 13: orca.v1.ClusterSpec.pg_hba:type_name -> orca.v1.PgHbaSpec
+	9,  // 14: orca.v1.PgHbaSpec.rules:type_name -> orca.v1.PgHbaRule
+	14, // 15: orca.v1.PgBackRestSpec.schedule:type_name -> orca.v1.BackupSchedule
+	16, // 16: orca.v1.ActualState.clusters:type_name -> orca.v1.ActualCluster
+	18, // 17: orca.v1.ActualCluster.replicas:type_name -> orca.v1.ActualReplica
+	19, // 18: orca.v1.ActualCluster.pg_bouncer:type_name -> orca.v1.ActualPgBouncer
+	20, // 19: orca.v1.ActualCluster.backup:type_name -> orca.v1.ActualBackup
+	25, // 20: orca.v1.ActualCluster.applied_params:type_name -> orca.v1.ActualCluster.AppliedParamsEntry
+	26, // 21: orca.v1.ActualCluster.extension_versions:type_name -> orca.v1.ActualCluster.ExtensionVersionsEntry
+	27, // 22: orca.v1.ActualCluster.extension_update_methods:type_name -> orca.v1.ActualCluster.ExtensionUpdateMethodsEntry
+	9,  // 23: orca.v1.ActualCluster.pg_hba_rules:type_name -> orca.v1.PgHbaRule
+	28, // 24: orca.v1.ActualCluster.parameter_states:type_name -> orca.v1.ActualCluster.ParameterStatesEntry
+	9,  // 25: orca.v1.ActualReplica.pg_hba_rules:type_name -> orca.v1.PgHbaRule
+	29, // 26: orca.v1.ActualReplica.applied_params:type_name -> orca.v1.ActualReplica.AppliedParamsEntry
+	22, // 27: orca.v1.HealthReport.host_metrics:type_name -> orca.v1.HostMetrics
+	23, // 28: orca.v1.HealthReport.clusters:type_name -> orca.v1.ClusterHealth
+	0,  // 29: orca.v1.ClusterHealth.status:type_name -> orca.v1.ClusterStatus
+	17, // 30: orca.v1.ActualCluster.ParameterStatesEntry.value:type_name -> orca.v1.PostgresParameterState
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_orca_proto_init() }
@@ -1935,17 +2255,18 @@ func file_orca_proto_init() {
 		return
 	}
 	file_orca_proto_msgTypes[4].OneofWrappers = []any{}
-	file_orca_proto_msgTypes[13].OneofWrappers = []any{}
+	file_orca_proto_msgTypes[6].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[15].OneofWrappers = []any{}
-	file_orca_proto_msgTypes[16].OneofWrappers = []any{}
 	file_orca_proto_msgTypes[17].OneofWrappers = []any{}
+	file_orca_proto_msgTypes[18].OneofWrappers = []any{}
+	file_orca_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orca_proto_rawDesc), len(file_orca_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   27,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -14,9 +14,9 @@ Implemented in the backend and agent:
 - Email/password authentication, optional GitHub and Google OAuth through Goth, 24-hour HS256 JWTs, JWT middleware, and JWT-authenticated project event WebSockets.
 - Agent tunnel authentication using the token issued during host registration.
 
-The web application is an authenticated, read-only viewer with email/password signup and login plus optional GitHub/Google OAuth. It lists existing projects, renders desired primaries, replicas, and PgBouncer resources at fixed positions, and combines them with the latest persisted agent observations. It receives full project-status snapshots over a separate browser WebSocket. It does not provide host management, resource mutation, backup or extension controls, PITR, alert management, or topology-position persistence.
+The web application provides authenticated project and host management, resource configuration, backup scheduling, extension controls, and live topology status. Project WebSockets deliver full current snapshots rather than event replay. Topology positions remain deterministic and alert management is still incomplete.
 
-Point-in-time recovery exists as `pgbackrest.RestoreToTime`, but nothing in the REST API, tunnel protocol, CLI, development RPC, or UI invokes it.
+Point-in-time recovery supports durable in-place restores and same-host clone restores. The control plane persists operation state and audit events, agents journal destructive phases locally, and the UI exposes preflight, typed confirmation, progress, rollback, and finalization. Cross-host clone restore is deferred until Orca supports remote or shared pgBackRest repositories.
 
 ## Architecture
 
@@ -145,7 +145,7 @@ The Docker SDK also honors its standard `DOCKER_*` environment variables through
 orca/
 ├── agent/    # Docker reconciliation, backup scheduling, and outbound tunnel
 ├── server/   # REST API, WebSockets, desired-state store, auth, and metrics
-├── web/      # read-only canvas and status UI
+├── web/      # topology, configuration, backup, and recovery UI
 ├── pkg/      # shared Go types
 ├── proto/    # agent/server tunnel message definitions
 ├── docs/     # implementation architecture

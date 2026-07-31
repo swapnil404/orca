@@ -32,7 +32,9 @@ function parseSnapshot(data: unknown): ProjectStateSnapshot | null {
     !('project_id' in value) ||
     typeof value.project_id !== 'string' ||
     !('clusters' in value) ||
-    !Array.isArray(value.clusters)
+    !Array.isArray(value.clusters) ||
+    !('restore_operations' in value) ||
+    !Array.isArray(value.restore_operations)
   ) {
     return null
   }

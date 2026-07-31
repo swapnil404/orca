@@ -165,6 +165,7 @@ export interface ProjectStateSnapshot {
   project_id: string
   desired_clusters: Cluster[]
   clusters: ProjectClusterState[]
+  restore_operations: RestoreOperation[]
 }
 
 export interface ProjectTopology {
@@ -184,3 +185,79 @@ export interface BackupJob {
   pitr_enabled: boolean
   status: BackupStatus
 }
+
+export type RestoreOperationMode = 'in_place' | 'clone'
+export type RestoreOperationIntent = 'preflight' | 'execute' | 'cancel' | 'rollback' | 'finalize'
+export type RestoreOperationStatus = 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'rolled_back' | 'finalized'
+
+export interface RestoreOperationReport {
+  operation_id: string
+  sequence: number
+  status: RestoreOperationStatus
+  phase: string
+  error_code?: string
+  error?: string
+  destructive_started?: boolean
+  cancellable?: boolean
+  rollback_available?: boolean
+  backup_label?: string
+  recovery_earliest?: string
+  recovery_latest?: string
+  postgres_version?: string
+  required_bytes?: number
+  available_bytes?: number
+  started_at?: string
+  completed_at?: string
+}
+
+export interface RestoreTargetCluster {
+  id: string
+  version: string
+  params?: Record<string, string>
+  replicas?: Array<{ id: string }>
+  pg_bouncer?: {
+    pool_mode?: string
+    max_connections?: number
+    reserve_pool_size?: number
+    reserve_pool_timeout_seconds?: number
+  }
+  databases?: Array<{ name: string }>
+  pg_back_rest?: {
+    repo_path?: string
+    retention_full?: number
+    retention_diff?: number
+    schedule?: {
+      full_interval_seconds?: number
+      diff_interval_seconds?: number
+      incr_interval_seconds?: number
+    }
+  }
+  enabled_extensions?: string[]
+  pg_hba?: { rules?: PgHbaRule[] }
+  restart_generation?: number
+}
+
+export interface RestoreOperation {
+  id: string
+  project_id: string
+  host_id: string
+  source_cluster_id: string
+  target_cluster_id?: string
+  target_cluster_name?: string
+  target_cluster?: RestoreTargetCluster
+  mode: RestoreOperationMode
+  intent: RestoreOperationIntent
+  status: RestoreOperationStatus
+  target_time: string
+  request_fingerprint: string
+  requested_by_user_id: string
+  report_sequence: number
+  report?: RestoreOperationReport
+  created_at: string
+  updated_at: string
+  finalized_at?: string
+}
+
+export type CreateRestoreOperationInput =
+  | { mode: 'in_place'; target_time: string }
+  | { mode: 'clone'; target_time: string; target_cluster_name: string }
