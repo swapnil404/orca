@@ -89,7 +89,14 @@ func NewClient() (*Client, error) {
 		return nil, err
 	}
 
-	return NewClientWithSDK(sdk), nil
+	dockerClient := NewClientWithSDK(sdk)
+	if configuredRoot := os.Getenv("ORCA_DATA_DIR"); configuredRoot != "" {
+		if !filepath.IsAbs(configuredRoot) {
+			return nil, errors.New("ORCA_DATA_DIR must be an absolute path")
+		}
+		dockerClient.dataRoot = filepath.Clean(configuredRoot)
+	}
+	return dockerClient, nil
 }
 
 // NewClientWithSDK creates a Client using the provided Docker SDK-compatible client.

@@ -168,7 +168,7 @@ func (h *HostRegistrationHandler) writeRegistration(w http.ResponseWriter, hostI
 	}{
 		HostID:           hostID,
 		Status:           status,
-		DockerRunCommand: fmt.Sprintf("export ORCA_TOKEN=%s\nexport ORCA_SERVER_URL=%s\nexport ORCA_STATE_PATH='/var/orca/state/desired.json'\ngo run ./agent/cmd/agent", shellQuote(token), shellQuote(h.serverURL)),
+		DockerRunCommand: fmt.Sprintf("export ORCA_TOKEN=%s\nexport ORCA_SERVER_URL=%s\nexport ORCA_DATA_DIR=\"${XDG_DATA_HOME:-$HOME/.local/share}/orca/data\"\nexport ORCA_STATE_PATH='/var/orca/state/desired.json'\ngo run ./agent/cmd/agent", shellQuote(token), shellQuote(h.serverURL)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
