@@ -34,6 +34,10 @@ const (
 	ActionDeletePgBouncer ActionType = "delete_pgbouncer"
 	// ActionUpdateExtensions reconciles extensions on a running Postgres primary.
 	ActionUpdateExtensions ActionType = "update_extensions"
+	// ActionUpdatePgHba reconciles client authentication on all PostgreSQL nodes.
+	ActionUpdatePgHba ActionType = "update_pg_hba"
+	// ActionObservePgHba reports a failure reading the active authentication configuration.
+	ActionObservePgHba ActionType = "observe_pg_hba"
 	// ActionCreatePgBackRest configures a new pgBackRest stanza and schedule.
 	ActionCreatePgBackRest ActionType = "create_pgbackrest"
 	// ActionUpdatePgBackRest updates an existing pgBackRest stanza and schedule.
@@ -74,6 +78,11 @@ type extensionUpdateSpec struct {
 	DiffErr error `json:"-"`
 }
 
+type pgHbaUpdateSpec struct {
+	Desired *ClusterSpec
+	Actual  *ActualCluster
+}
+
 // Diff computes the reconciliation actions required to make actual match desired.
 func Diff(desired *DesiredState, actual *ActualState) []Action {
 	actions := []Action{}
@@ -111,6 +120,7 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 			})
 		}
 
+		actions = append(actions, diffPgHba(desiredCluster, actualCluster)...)
 		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas, primaryReplacement)...)
 		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
 		actions = append(actions, pgBouncerActions...)
@@ -135,6 +145,9 @@ func createClusterActions(cluster *ClusterSpec) []Action {
 		ClusterID: cluster.Id,
 		Spec:      cluster,
 	}}
+	if cluster.PgHba != nil {
+		actions = append(actions, Action{Type: ActionUpdatePgHba, ClusterID: cluster.Id, Spec: &pgHbaUpdateSpec{Desired: cluster}})
+	}
 
 	for _, replica := range cluster.Replicas {
 		actions = append(actions, Action{
@@ -157,6 +170,28 @@ func createClusterActions(cluster *ClusterSpec) []Action {
 	}
 
 	return actions
+}
+
+func diffPgHba(desired *ClusterSpec, actual *ActualCluster) []Action {
+	if desired.PgHba == nil || actual == nil || actual.ContainerId == "" {
+		return nil
+	}
+	desiredRules := postgres.DesiredHBARules(desired)
+	expectedReplicationCIDRs := []string(nil)
+	if len(desired.Replicas) > 0 {
+		expectedReplicationCIDRs = actual.NetworkCidrs
+	}
+	needsUpdate := !actual.PgHbaObserved || !postgres.RulesEqual(desiredRules, actual.PgHbaRules) ||
+		!postgres.StringsEqual(expectedReplicationCIDRs, actual.PgHbaReplicationCidrs)
+	for _, replica := range actual.Replicas {
+		if replica != nil && replica.Status == "running" && (!replica.PgHbaObserved || !postgres.RulesEqual(desiredRules, replica.PgHbaRules)) {
+			needsUpdate = true
+		}
+	}
+	if !needsUpdate {
+		return nil
+	}
+	return []Action{{Type: ActionUpdatePgHba, ClusterID: desired.Id, Spec: &pgHbaUpdateSpec{Desired: desired, Actual: actual}}}
 }
 
 func deleteClusterActions(cluster *ActualCluster) []Action {

@@ -17,7 +17,7 @@ INSERT INTO clusters (
     pgbouncer_max_connections, pgbackrest_enabled, pgbackrest_repo_path,
     pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
-    pgbackrest_incr_interval_seconds
+    pgbackrest_incr_interval_seconds, pg_hba_rules
 )
 SELECT $1::text, p.id, h.id, $2::text,
        $3::text, $4::jsonb,
@@ -27,19 +27,19 @@ SELECT $1::text, p.id, h.id, $2::text,
        $11::boolean, $12::text,
        $13::integer, $14::integer,
        $15::bigint, $16::bigint,
-       $17::bigint
+       $17::bigint, $18::jsonb
 FROM projects p
-JOIN hosts h ON h.id = $18 AND h.user_id = $19
+JOIN hosts h ON h.id = $19 AND h.user_id = $20
 JOIN organization_memberships om
-  ON om.organization_id = p.organization_id AND om.user_id = $19
-WHERE p.id = $20 AND p.deleted_at IS NULL
+  ON om.organization_id = p.organization_id AND om.user_id = $20
+WHERE p.id = $21 AND p.deleted_at IS NULL
 RETURNING id, project_id, host_id, name, postgres_version, parameters,
            replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at,
           pgbackrest_enabled, pgbackrest_repo_path,
           pgbackrest_retention_full, pgbackrest_retention_diff,
           pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
            pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions,
-           pgbouncer_pool_mode, pgbouncer_max_connections
+            pgbouncer_pool_mode, pgbouncer_max_connections, pg_hba_rules
 `
 
 type CreateClusterParams struct {
@@ -60,6 +60,7 @@ type CreateClusterParams struct {
 	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
 	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
 	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
+	PgHbaRules                    json.RawMessage `json:"pg_hba_rules"`
 	HostID                        string          `json:"host_id"`
 	UserID                        string          `json:"user_id"`
 	ProjectID                     string          `json:"project_id"`
@@ -84,6 +85,7 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		arg.PgbackrestFullIntervalSeconds,
 		arg.PgbackrestDiffIntervalSeconds,
 		arg.PgbackrestIncrIntervalSeconds,
+		arg.PgHbaRules,
 		arg.HostID,
 		arg.UserID,
 		arg.ProjectID,
@@ -112,6 +114,7 @@ func (q *Queries) CreateCluster(ctx context.Context, arg CreateClusterParams) (C
 		&i.EnabledExtensions,
 		&i.PgbouncerPoolMode,
 		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
 	)
 	return i, err
 }
@@ -123,7 +126,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+        c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -162,6 +165,7 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 		&i.EnabledExtensions,
 		&i.PgbouncerPoolMode,
 		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
 	)
 	return i, err
 }
@@ -173,7 +177,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+        c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -219,6 +223,7 @@ func (q *Queries) ListActiveClustersForProject(ctx context.Context, arg ListActi
 			&i.EnabledExtensions,
 			&i.PgbouncerPoolMode,
 			&i.PgbouncerMaxConnections,
+			&i.PgHbaRules,
 		); err != nil {
 			return nil, err
 		}
@@ -240,7 +245,7 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-       c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+        c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -286,6 +291,7 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 			&i.EnabledExtensions,
 			&i.PgbouncerPoolMode,
 			&i.PgbouncerMaxConnections,
+			&i.PgHbaRules,
 		); err != nil {
 			return nil, err
 		}
@@ -365,6 +371,7 @@ SET name = $3,
     pgbackrest_full_interval_seconds = $16,
     pgbackrest_diff_interval_seconds = $17,
     pgbackrest_incr_interval_seconds = $18,
+    pg_hba_rules = $19,
     updated_at = NOW()
 FROM projects p, organization_memberships om
 WHERE c.id = $1 AND c.project_id = p.id
@@ -376,7 +383,7 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
            c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-           c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+            c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 `
 
 type UpdateClusterParams struct {
@@ -398,6 +405,7 @@ type UpdateClusterParams struct {
 	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
 	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
 	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
+	PgHbaRules                    json.RawMessage `json:"pg_hba_rules"`
 }
 
 func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (Cluster, error) {
@@ -420,6 +428,7 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		arg.PgbackrestFullIntervalSeconds,
 		arg.PgbackrestDiffIntervalSeconds,
 		arg.PgbackrestIncrIntervalSeconds,
+		arg.PgHbaRules,
 	)
 	var i Cluster
 	err := row.Scan(
@@ -445,6 +454,7 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 		&i.EnabledExtensions,
 		&i.PgbouncerPoolMode,
 		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
 	)
 	return i, err
 }
@@ -461,7 +471,7 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-          c.pgbouncer_pool_mode, c.pgbouncer_max_connections
+           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 `
 
 type UpdateClusterPgBouncerParams struct {
@@ -496,6 +506,57 @@ func (q *Queries) UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterP
 		&i.EnabledExtensions,
 		&i.PgbouncerPoolMode,
 		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
+	)
+	return i, err
+}
+
+const updateClusterPgHba = `-- name: UpdateClusterPgHba :one
+UPDATE clusters c
+SET pg_hba_rules = $1::jsonb,
+    updated_at = NOW()
+WHERE c.id = $2 AND c.deleted_at IS NULL
+RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
+`
+
+type UpdateClusterPgHbaParams struct {
+	PgHbaRules json.RawMessage `json:"pg_hba_rules"`
+	ClusterID  string          `json:"cluster_id"`
+}
+
+func (q *Queries) UpdateClusterPgHba(ctx context.Context, arg UpdateClusterPgHbaParams) (Cluster, error) {
+	row := q.db.QueryRowContext(ctx, updateClusterPgHba, arg.PgHbaRules, arg.ClusterID)
+	var i Cluster
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.HostID,
+		&i.Name,
+		&i.PostgresVersion,
+		&i.Parameters,
+		&i.ReplicaCount,
+		&i.PgbouncerEnabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
+		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
 	)
 	return i, err
 }

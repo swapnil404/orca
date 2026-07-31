@@ -110,6 +110,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		return Pass{}, err
 	}
 	actual := ActualStateFromDocker(containers, volumes)
+	r.populatePgHba(ctx, desired, actual, false)
 	r.populateInstalledExtensions(ctx, desired, actual)
 	actions := Diff(desired, actual)
 	results := apply(ctx, r.docker, r.backups, actions, desired)
@@ -122,11 +123,13 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		return Pass{}, err
 	}
 	actual = ActualStateFromDocker(containers, volumes)
+	r.populatePgHba(ctx, desired, actual, false)
 	r.ensureBackupSchedules(desired, actual)
 	r.populateInstalledExtensions(ctx, desired, actual)
 	extensionResults := apply(ctx, r.docker, r.backups, extensionOnlyActions(Diff(desired, actual)), desired)
 	results = append(results, extensionResults...)
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
+	results = append(results, r.populatePgHba(ctx, desired, actual, true)...)
 	backupResults, pendingBackupResults := r.backupResults()
 	results = append(results, backupResults...)
 	postgres.PopulateHealth(ctx, r.healthDatabase, actual)
@@ -139,6 +142,51 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
 	}
 	return pass, nil
+}
+
+func (r *Runner) populatePgHba(ctx context.Context, desired *DesiredState, actual *ActualState, reportErrors bool) []ApplyResult {
+	executor, ok := r.docker.(postgres.HBAExecutor)
+	if !ok {
+		return nil
+	}
+	desiredIDs := make(map[string]struct{}, len(desired.Clusters))
+	for _, cluster := range desired.Clusters {
+		if cluster != nil && cluster.PgHba != nil {
+			desiredIDs[cluster.Id] = struct{}{}
+		}
+	}
+	results := make([]ApplyResult, 0)
+	for _, cluster := range actual.Clusters {
+		if cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" {
+			continue
+		}
+		if _, managed := desiredIDs[cluster.Id]; !managed {
+			continue
+		}
+		cluster.NetworkCidrs, _ = executor.ContainerNetworkCIDRs(ctx, cluster.ContainerId)
+		sort.Strings(cluster.NetworkCidrs)
+		observation, err := postgres.ObserveHBA(ctx, executor, cluster.ContainerId)
+		if err == nil {
+			cluster.PgHbaRules = observation.Rules
+			cluster.PgHbaReplicationCidrs = observation.ReplicationCIDRs
+			cluster.PgHbaObserved = true
+		} else if reportErrors {
+			results = append(results, ApplyResult{Action: Action{Type: ActionObservePgHba, ClusterID: cluster.Id}, Status: ApplyStatusFailed, Err: err})
+		}
+		for _, replica := range cluster.Replicas {
+			if replica == nil || replica.ContainerId == "" || replica.Status != "running" {
+				continue
+			}
+			observation, err := postgres.ObserveHBA(ctx, executor, replica.ContainerId)
+			if err == nil {
+				replica.PgHbaRules = observation.Rules
+				replica.PgHbaObserved = true
+			} else if reportErrors {
+				results = append(results, ApplyResult{Action: Action{Type: ActionObservePgHba, ClusterID: cluster.Id, ReplicaID: replica.Id}, Status: ApplyStatusFailed, Err: err})
+			}
+		}
+	}
+	return results
 }
 
 func (r *Runner) listVolumes(ctx context.Context) ([]orcadocker.VolumeInfo, error) {
@@ -376,8 +424,22 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 		}
 	}
 	if desired != nil {
+		if desired.PgHba != nil {
+			expectedReplicationCIDRs := []string(nil)
+			if len(desired.Replicas) > 0 {
+				expectedReplicationCIDRs = cluster.NetworkCidrs
+			}
+			if !cluster.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), cluster.PgHbaRules) ||
+				!postgres.StringsEqual(expectedReplicationCIDRs, cluster.PgHbaReplicationCidrs) {
+				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+			}
+		}
 		for _, replica := range desired.Replicas {
-			if replica == nil || replicas[replica.Id] == nil {
+			if replica == nil {
+				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+			}
+			observed := replicas[replica.Id]
+			if observed == nil || desired.PgHba != nil && (!observed.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), observed.PgHbaRules)) {
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 		}

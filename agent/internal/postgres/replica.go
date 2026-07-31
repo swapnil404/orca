@@ -185,7 +185,7 @@ func replicaContainerSpec(spec ReplicaSpec, identity ReplicaIdentity, bootstrap 
 		ReplicaID: replicaID,
 		Image:     postgresImageForVersion(spec.PostgresVersion),
 		Env: []string{
-			"POSTGRES_HOST_AUTH_METHOD=trust",
+			"POSTGRES_HOST_AUTH_METHOD=reject",
 			"PGDATA=" + identity.DataPath,
 		},
 		Command:   command,

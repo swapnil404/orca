@@ -1,10 +1,11 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, ArrowLeft, KeyRound, Network, ServerCog, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, KeyRound, Network, ServerCog, ShieldCheck, Trash2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { ApiError, deleteProject, getProjectTopology, listProjectHosts, updatePgBouncer } from '../../../api'
+import { ApiError, deleteProject, getProjectTopology, listProjectHosts, updatePgBouncer, updatePgHba } from '../../../api'
+import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
-import type { ActualPgBouncer, Cluster, PgBouncerConfig, PgBouncerPoolMode, ProjectHost } from '../../../types/resources'
+import type { ActualCluster, ActualPgBouncer, Cluster, PgBouncerConfig, PgBouncerPoolMode, PgHbaRule, ProjectHost, ReconciliationResult } from '../../../types/resources'
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/settings')({
   ssr: false,
@@ -26,6 +27,10 @@ function ProjectSettingsPage() {
   const [hostStatusUnknown, setHostStatusUnknown] = useState(false)
   const snapshot = useTopologyStore((state) => state.snapshot)
   useProjectEvents(projectId)
+
+  useEffect(() => {
+    if (snapshot?.project_id === projectId) setClusters(snapshot.desired_clusters)
+  }, [projectId, snapshot?.desired_clusters, snapshot?.project_id])
 
   useEffect(() => {
     let active = true
@@ -52,6 +57,10 @@ function ProjectSettingsPage() {
         </header>
 
         <div className="space-y-6">
+          <SettingsSection icon={ShieldCheck} title="PostgreSQL access control" description="Rules are persisted in order, applied to the primary and replicas, and reloaded without restarting PostgreSQL.">
+            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <PgHbaEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={state?.actual_state ?? undefined} stale={state?.stale ?? true} results={state?.reconciliation_results ?? []} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>
+          </SettingsSection>
+
           <SettingsSection icon={Network} title="PgBouncer pools" description="Each save is persisted with the cluster's complete desired state, then reconciled by its agent.">
             {pools.length === 0 ? <EmptyText>No PgBouncer-enabled clusters are configured.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{pools.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <PoolEditor key={cluster.id} cluster={cluster} actual={state?.actual_state?.pg_bouncer} stale={state?.stale ?? true} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>}
           </SettingsSection>
@@ -85,6 +94,48 @@ function SettingsSection({ icon: Icon, title, description, children }: SettingsS
 
 function EmptyText({ children }: { children: string }) {
   return <p className="py-4 text-center text-sm text-[var(--text-3)]">{children}</p>
+}
+
+interface PgHbaEditorProps {
+  cluster: Cluster
+  actual?: ActualCluster
+  stale: boolean
+  results: ReconciliationResult[]
+  onUpdated: (cluster: Cluster) => void
+}
+
+function rulesEqual(desired: PgHbaRule[], applied?: PgHbaRule[]): boolean {
+  return applied !== undefined && JSON.stringify(desired) === JSON.stringify(applied)
+}
+
+function PgHbaEditor({ cluster, actual, stale, results, onUpdated }: PgHbaEditorProps) {
+  const [rules, setRules] = useState<PgHbaRule[]>(cluster.pg_hba_rules)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const primaryApplied = actual?.pg_hba_observed === true && rulesEqual(cluster.pg_hba_rules, actual.pg_hba_rules)
+  const actualReplicas = new Map((actual?.replicas ?? []).map((replica) => [replica.id, replica]))
+  const replicasApplied = cluster.replicas.every((desiredReplica) => { const replica = actualReplicas.get(desiredReplica.id); return replica?.pg_hba_observed === true && rulesEqual(cluster.pg_hba_rules, replica.pg_hba_rules) })
+  const expectedReplicationCIDRs = cluster.replicas.length > 0 ? actual?.network_cidrs ?? [] : []
+  const replicationApplied = JSON.stringify(expectedReplicationCIDRs) === JSON.stringify(actual?.pg_hba_replication_cidrs ?? [])
+  const applied = !stale && primaryApplied && replicasApplied && replicationApplied
+  const failure = [...results].reverse().find((result) => result.action === 'update_pg_hba' && result.status === 'failed')
+
+  async function save() {
+    setSaving(true)
+    setMessage('')
+    try {
+      const updated = await updatePgHba(cluster.id, rules)
+      onUpdated(updated)
+      setMessage('Desired rules saved. Waiting for the agent to report the applied file.')
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : 'Could not save access rules.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const appliedRules = actual?.pg_hba_observed ? actual.pg_hba_rules ?? [] : undefined
+  return <div className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${applied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : failure ? 'border-[var(--critical)]/30 text-[var(--critical)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}><span className={`h-1.5 w-1.5 rounded-full ${applied ? 'bg-[var(--healthy)]' : failure ? 'bg-[var(--critical)]' : 'bg-[var(--warning)]'}`} />{applied ? 'Applied' : failure ? 'Apply failed' : 'Desired differs'}</span></div><PgHbaRulesEditor rules={rules} disabled={saving} onChange={setRules} /><div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[var(--border-soft)] pt-4"><div className="max-w-2xl text-xs leading-5 text-[var(--text-3)]"><p role="status">{message || failure?.error || (applied ? `${cluster.pg_hba_rules.length} desired rules match every reported PostgreSQL node.` : stale ? 'Applied state is unavailable or stale.' : `Desired: ${cluster.pg_hba_rules.length} rules. Primary reported: ${appliedRules?.length ?? 'unavailable'}.`)}</p>{appliedRules && !rulesEqual(cluster.pg_hba_rules, appliedRules) && <details className="mt-2"><summary className="cursor-pointer text-[var(--text-2)]">Show primary applied rules</summary><pre className="mt-2 overflow-x-auto rounded-[var(--radius-sm)] bg-[var(--panel)] p-3 font-mono text-[11px]">{appliedRules.map((rule) => `${rule.type} ${rule.database} ${rule.user} ${rule.address} ${rule.method}`.replace('  ', ' ')).join('\n') || '(none)'}</pre></details>}</div><button type="button" disabled={saving} onClick={save} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save access rules'}</button></div></div>
 }
 
 interface PoolEditorProps {

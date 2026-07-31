@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type resourceStore interface {
 	GetCluster(context.Context, string, string) (store.Cluster, error)
 	UpdateCluster(context.Context, store.UpdateClusterParams) (store.Cluster, error)
 	UpdatePgBouncer(context.Context, store.UpdatePgBouncerParams) (store.Cluster, error)
+	UpdatePgHba(context.Context, store.UpdatePgHbaParams) (store.Cluster, error)
 	DeleteCluster(context.Context, string, string) error
 	GetHost(context.Context, string) (store.Host, error)
 }
@@ -98,6 +100,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /clusters/{clusterID}", h.getCluster)
 	mux.HandleFunc("PUT /clusters/{clusterID}", h.updateCluster)
 	mux.HandleFunc("PUT /clusters/{clusterID}/pgbouncer", h.updatePgBouncer)
+	mux.HandleFunc("PUT /clusters/{clusterID}/pg-hba", h.updatePgHba)
 	mux.HandleFunc("DELETE /clusters/{clusterID}", h.deleteCluster)
 }
 
@@ -221,6 +224,7 @@ type clusterRequest struct {
 	PgBouncerEnabled  bool                    `json:"pgbouncer_enabled"`
 	PgBouncer         store.PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *store.PgBackRestConfig `json:"pg_back_rest"`
+	PgHbaRules        *[]store.PgHbaRule      `json:"pg_hba_rules"`
 }
 
 func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +255,7 @@ func (h *ResourceHandler) createCluster(w http.ResponseWriter, r *http.Request) 
 		PgBouncerEnabled:  request.PgBouncerEnabled,
 		PgBouncer:         request.PgBouncer,
 		PgBackRest:        request.PgBackRest,
+		PgHbaRules:        requestedPgHbaRules(request.PgHbaRules, nil),
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -319,6 +324,7 @@ func (h *ResourceHandler) updateCluster(w http.ResponseWriter, r *http.Request) 
 		PgBouncerEnabled:  request.PgBouncerEnabled,
 		PgBouncer:         request.PgBouncer,
 		PgBackRest:        request.PgBackRest,
+		PgHbaRules:        requestedPgHbaRules(request.PgHbaRules, current.PgHbaRules),
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -396,6 +402,32 @@ func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request
 		ID: current.ID, PoolMode: request.PoolMode,
 		MaxConnections: request.MaxConnections,
 	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
+	writeJSON(w, http.StatusOK, cluster)
+}
+
+func (h *ResourceHandler) updatePgHba(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		Rules []store.PgHbaRule `json:"rules"`
+	}
+	if !decodeJSON(w, r, &request) || !validatePgHbaRules(w, request.Rules) {
+		return
+	}
+	current, err := h.store.GetCluster(r.Context(), userID, r.PathValue("clusterID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	cluster, err := h.store.UpdatePgHba(r.Context(), store.UpdatePgHbaParams{ID: current.ID, Rules: normalizePgHbaRules(request.Rules)})
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -504,6 +536,13 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 		writeError(w, http.StatusBadRequest, "postgres_version is required")
 		return false
 	}
+	if _, exists := request.Parameters["hba_file"]; exists {
+		writeError(w, http.StatusBadRequest, "parameters.hba_file is managed by Orca")
+		return false
+	}
+	if request.PgHbaRules != nil && !validatePgHbaRules(w, *request.PgHbaRules) {
+		return false
+	}
 	if request.ReplicaCount < 0 {
 		writeError(w, http.StatusBadRequest, "replica_count cannot be negative")
 		return false
@@ -540,6 +579,86 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 		if request.PgBackRest.FullIntervalSeconds > maxBackupIntervalSeconds || request.PgBackRest.DiffIntervalSeconds > maxBackupIntervalSeconds || request.PgBackRest.IncrIntervalSeconds > maxBackupIntervalSeconds {
 			writeError(w, http.StatusBadRequest, "pgBackRest backup interval is too large")
 			return false
+		}
+	}
+	return true
+}
+
+func requestedPgHbaRules(requested *[]store.PgHbaRule, current []store.PgHbaRule) []store.PgHbaRule {
+	if requested != nil {
+		return normalizePgHbaRules(*requested)
+	}
+	if current != nil {
+		return current
+	}
+	return store.DefaultPgHbaRules()
+}
+
+func normalizePgHbaRules(rules []store.PgHbaRule) []store.PgHbaRule {
+	normalized := make([]store.PgHbaRule, len(rules))
+	for index, rule := range rules {
+		normalized[index] = store.PgHbaRule{
+			Type: strings.TrimSpace(rule.Type), Database: strings.TrimSpace(rule.Database),
+			User: strings.TrimSpace(rule.User), Address: strings.TrimSpace(rule.Address), Method: strings.TrimSpace(rule.Method),
+		}
+	}
+	return normalized
+}
+
+func validatePgHbaRules(w http.ResponseWriter, rules []store.PgHbaRule) bool {
+	if len(rules) > 100 {
+		writeError(w, http.StatusBadRequest, "pg_hba_rules cannot exceed 100 rules")
+		return false
+	}
+	for _, rule := range rules {
+		if rule.Type != "host" && rule.Type != "hostssl" && rule.Type != "local" {
+			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid type")
+			return false
+		}
+		if !validPgHbaList(rule.Database) || !validPgHbaList(rule.User) {
+			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid database or user")
+			return false
+		}
+		if rule.Type == "local" {
+			if strings.TrimSpace(rule.Address) != "" {
+				writeError(w, http.StatusBadRequest, "local pg_hba_rules must not include an address")
+				return false
+			}
+		} else if !validPgHbaAddress(rule.Address) {
+			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid IP address or CIDR")
+			return false
+		}
+		switch rule.Method {
+		case "trust", "md5", "scram-sha-256", "reject":
+		default:
+			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid authentication method")
+			return false
+		}
+	}
+	return true
+}
+
+func validPgHbaAddress(value string) bool {
+	value = strings.TrimSpace(value)
+	if _, err := netip.ParsePrefix(value); err == nil {
+		return true
+	}
+	_, err := netip.ParseAddr(value)
+	return err == nil
+}
+
+func validPgHbaList(value string) bool {
+	if value == "" || len(value) > 256 || strings.ContainsAny(value, "\x00\r\n\t ") {
+		return false
+	}
+	for _, item := range strings.Split(value, ",") {
+		if item == "" {
+			return false
+		}
+		for _, char := range item {
+			if char != '_' && char != '-' && char != '.' && (char < '0' || char > '9') && (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') {
+				return false
+			}
 		}
 	}
 	return true

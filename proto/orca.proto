@@ -42,6 +42,21 @@ message ClusterSpec {
   repeated DatabaseSpec databases = 6;
   optional PgBackRestSpec pg_back_rest = 7;
   repeated string enabled_extensions = 8;
+  optional PgHbaSpec pg_hba = 9;
+}
+
+// PgHbaSpec contains an ordered PostgreSQL client authentication policy.
+message PgHbaSpec {
+  repeated PgHbaRule rules = 1;
+}
+
+// PgHbaRule describes one ordered PostgreSQL client authentication rule.
+message PgHbaRule {
+  string type = 1;
+  string database = 2;
+  string user = 3;
+  string address = 4;
+  string method = 5;
 }
 
 // ReplicaSpec describes a desired Postgres replica.
@@ -98,6 +113,10 @@ message ActualCluster {
   optional bool postgres_ready = 12;
   map<string, string> extension_versions = 13;
   map<string, string> extension_update_methods = 14;
+  repeated PgHbaRule pg_hba_rules = 15;
+  bool pg_hba_observed = 16;
+  repeated string network_cidrs = 17;
+  repeated string pg_hba_replication_cidrs = 18;
 }
 
 // ActualReplica describes an observed Postgres replica.
@@ -111,6 +130,8 @@ message ActualReplica {
   string last_wal_received_lsn = 7;
   string last_wal_replayed_lsn = 8;
   string replication_lag_status = 9;
+  repeated PgHbaRule pg_hba_rules = 10;
+  bool pg_hba_observed = 11;
 }
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.

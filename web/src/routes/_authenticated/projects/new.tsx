@@ -1,12 +1,13 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Database, Info, Minus, Network, Plus, Server, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Database, Info, Minus, Network, Plus, Server, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
 import { ApiError, createCluster, createProject, deleteProject, deleteUnusedHost, enablePgBouncer, listOrganizations, registerHost, rotateHostToken } from '../../../api'
-import type { PgBouncerPoolMode } from '../../../types/resources'
+import { defaultPgHbaRules, PgHbaRulesEditor, pgHbaRulesValid } from '../../../components/PgHbaRulesEditor'
+import type { PgBouncerPoolMode, PgHbaRule } from '../../../types/resources'
 
 const projectNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const maxReplicaCount = 10
-const steps = ['Instance Config', 'Topology'] as const
+const steps = ['Instance Config', 'Topology', 'Access Control'] as const
 const creationPhaseLabels = {
   project: 'Creating project',
   host: 'Registering host slot',
@@ -53,6 +54,7 @@ function NewProjectPage() {
   const [poolingEnabled, setPoolingEnabled] = useState(false)
   const [poolMode, setPoolMode] = useState<PgBouncerPoolMode>('transaction')
   const [maxConnections, setMaxConnections] = useState(100)
+  const [pgHbaRules, setPgHbaRules] = useState<PgHbaRule[]>(() => defaultPgHbaRules.map((rule) => ({ ...rule })))
   const [submitting, setSubmitting] = useState(false)
   const [creationPhase, setCreationPhase] = useState<CreationPhase | null>(null)
   const [error, setError] = useState('')
@@ -60,6 +62,7 @@ function NewProjectPage() {
   const instanceConfigIsValid = nameIsValid && organizationID.length > 0
   const effectiveReplicaCount = topology === 'replicas' ? replicaCount : 0
   const poolingIsValid = !poolingEnabled || (Number.isInteger(maxConnections) && maxConnections > 0)
+  const accessControlIsValid = pgHbaRulesValid(pgHbaRules)
   const selectedOrganization = organizations.find((organization) => organization.id === organizationID)
 
   function toggleExtension(extension: ExtensionID) {
@@ -72,7 +75,7 @@ function NewProjectPage() {
   }
 
   async function handleCreate() {
-    if (!instanceConfigIsValid || submitting) return
+    if (!instanceConfigIsValid || !poolingIsValid || !accessControlIsValid || submitting) return
     setSubmitting(true)
     setError('')
     let failedPhase: CreationPhase = 'project'
@@ -106,6 +109,7 @@ function NewProjectPage() {
         parameters: {},
         replica_count: effectiveReplicaCount,
         enabled_extensions: selectedExtensions,
+        pg_hba_rules: pgHbaRules,
         pgbouncer_enabled: false,
       })
       if (poolingEnabled) await enablePgBouncer(cluster, { pool_mode: poolMode, max_connections: maxConnections })
@@ -156,15 +160,16 @@ function NewProjectPage() {
 
             {step === 0 && <InstanceConfig organizationID={organizationID} organizations={organizations} name={name} nameIsValid={nameIsValid} postgresVersion={postgresVersion} selectedExtensions={selectedExtensions} onOrganizationChange={setOrganizationID} onNameChange={setName} onVersionChange={setPostgresVersion} onToggleExtension={toggleExtension} />}
             {step === 1 && <><TopologyStep topology={topology} replicaCount={replicaCount} onTopologyChange={setTopology} onReplicaCountChange={setReplicaCount} /><PoolingSettings enabled={poolingEnabled} poolMode={poolMode} maxConnections={maxConnections} onEnabledChange={setPoolingEnabled} onPoolModeChange={setPoolMode} onMaxConnectionsChange={setMaxConnections} /></>}
+            {step === 2 && <AccessControlStep rules={pgHbaRules} onChange={setPgHbaRules} />}
             {step === steps.length - 1 && error && <div role="alert" className="mt-6 rounded-[var(--radius-sm)] border border-[var(--critical)]/40 bg-[var(--critical)]/5 px-4 py-3 text-sm text-[var(--critical)]">{error}</div>}
 
             <div className="mt-8 flex items-center justify-between border-t border-[var(--border)] pt-5">
               <button type="button" disabled={step === 0 || submitting} onClick={() => setStep((current) => Math.max(0, current - 1))} className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-4 py-2.5 text-sm font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-35"><ChevronLeft className="h-4 w-4" />Back</button>
-              {step < steps.length - 1 ? <button type="button" disabled={(step === 0 && !instanceConfigIsValid) || (step === 1 && !poolingIsValid) || submitting} onClick={goNext} className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45">Next: {steps[step + 1]}<ChevronRight className="h-4 w-4" /></button> : <button type="button" disabled={!instanceConfigIsValid || !poolingIsValid || submitting} onClick={handleCreate} className="inline-flex min-w-48 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--bg)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45">{creationPhase ? `${creationPhaseLabels[creationPhase]}...` : 'Create project'}</button>}
+              {step < steps.length - 1 ? <button type="button" disabled={(step === 0 && !instanceConfigIsValid) || (step === 1 && !poolingIsValid) || submitting} onClick={goNext} className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45">Next: {steps[step + 1]}<ChevronRight className="h-4 w-4" /></button> : <button type="button" disabled={!instanceConfigIsValid || !poolingIsValid || !accessControlIsValid || submitting} onClick={handleCreate} className="inline-flex min-w-48 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--bg)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45">{creationPhase ? `${creationPhaseLabels[creationPhase]}...` : 'Create project'}</button>}
             </div>
           </section>
 
-          <ProjectSummary organization={selectedOrganization?.name} name={name} postgresVersion={postgresVersion} replicaCount={effectiveReplicaCount} selectedExtensions={selectedExtensions} poolingEnabled={poolingEnabled} poolMode={poolMode} maxConnections={maxConnections} />
+          <ProjectSummary organization={selectedOrganization?.name} name={name} postgresVersion={postgresVersion} replicaCount={effectiveReplicaCount} selectedExtensions={selectedExtensions} poolingEnabled={poolingEnabled} poolMode={poolMode} maxConnections={maxConnections} pgHbaRuleCount={pgHbaRules.length} />
         </div>
       </div>
     </main>
@@ -208,8 +213,17 @@ function PoolingSettings({ enabled, poolMode, maxConnections, onEnabledChange, o
   return <div className="mt-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-4"><label className="flex items-start gap-3"><input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" /><span><span className="block text-sm font-medium">Enable connection pooling</span><span className="mt-1 block text-xs leading-5 text-[var(--text-3)]">Add PgBouncer to desired state. It remains pending until the host connects.</span></span></label>{enabled && <div className="mt-4 grid gap-4 border-t border-[var(--border-soft)] pt-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select value={poolMode} onChange={(event) => onPoolModeChange(event.target.value as PgBouncerPoolMode)} className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"><option value="session">session</option><option value="transaction">transaction</option><option value="statement">statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Max connections<input type="number" min="1" step="1" required value={maxConnections} onChange={(event) => onMaxConnectionsChange(event.target.valueAsNumber)} className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]" /></label></div>}</div>
 }
 
-function ProjectSummary({ organization, name, postgresVersion, replicaCount, selectedExtensions, poolingEnabled, poolMode, maxConnections }: { organization?: string; name: string; postgresVersion: string; replicaCount: number; selectedExtensions: ExtensionID[]; poolingEnabled: boolean; poolMode: PgBouncerPoolMode; maxConnections: number }) {
-  return <aside className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-5 lg:sticky lg:top-8"><h2 className="text-sm font-semibold">Your project includes</h2><div className="mt-4 divide-y divide-[var(--border-soft)] border-y border-[var(--border-soft)]"><SummaryRow icon={Server} label={name || 'Unnamed project'} detail={organization ?? 'No organization selected'} /><SummaryRow icon={Database} label={replicaCount === 0 ? '1 primary' : `1 primary + ${replicaCount} ${replicaCount === 1 ? 'replica' : 'replicas'}`} detail={`PostgreSQL ${postgresVersion}`} /><SummaryRow icon={Plus} label={`${selectedExtensions.length} ${selectedExtensions.length === 1 ? 'extension' : 'extensions'}`} detail={selectedExtensions.length > 0 ? selectedExtensions.join(', ') : 'None selected'} /><SummaryRow icon={Network} label={poolingEnabled ? 'Connection pooling enabled' : 'Connection pooling disabled'} detail={poolingEnabled ? `${poolMode}, ${maxConnections} max connections` : 'No PgBouncer desired state'} /></div><div className="mt-5 flex gap-3 rounded-[var(--radius-md)] bg-[var(--panel)] p-4 text-xs leading-5 text-[var(--text-2)]"><Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" /><p>Storage and compute are provided by the host you'll connect after creating this project.</p></div></aside>
+interface AccessControlStepProps {
+  rules: PgHbaRule[]
+  onChange: (rules: PgHbaRule[]) => void
+}
+
+function AccessControlStep({ rules, onChange }: AccessControlStepProps) {
+  return <div><div className="mb-5 flex gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-4"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" /><div><p className="text-sm font-medium">Ordered PostgreSQL authentication rules</p><p className="mt-1 text-xs leading-5 text-[var(--text-3)]">Rules use first-match semantics. Orca keeps local administration and streaming replication available, then evaluates these rows in order. Unmatched connections are rejected.</p></div></div><PgHbaRulesEditor rules={rules} onChange={onChange} /></div>
+}
+
+function ProjectSummary({ organization, name, postgresVersion, replicaCount, selectedExtensions, poolingEnabled, poolMode, maxConnections, pgHbaRuleCount }: { organization?: string; name: string; postgresVersion: string; replicaCount: number; selectedExtensions: ExtensionID[]; poolingEnabled: boolean; poolMode: PgBouncerPoolMode; maxConnections: number; pgHbaRuleCount: number }) {
+  return <aside className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-5 lg:sticky lg:top-8"><h2 className="text-sm font-semibold">Your project includes</h2><div className="mt-4 divide-y divide-[var(--border-soft)] border-y border-[var(--border-soft)]"><SummaryRow icon={Server} label={name || 'Unnamed project'} detail={organization ?? 'No organization selected'} /><SummaryRow icon={Database} label={replicaCount === 0 ? '1 primary' : `1 primary + ${replicaCount} ${replicaCount === 1 ? 'replica' : 'replicas'}`} detail={`PostgreSQL ${postgresVersion}`} /><SummaryRow icon={Plus} label={`${selectedExtensions.length} ${selectedExtensions.length === 1 ? 'extension' : 'extensions'}`} detail={selectedExtensions.length > 0 ? selectedExtensions.join(', ') : 'None selected'} /><SummaryRow icon={Network} label={poolingEnabled ? 'Connection pooling enabled' : 'Connection pooling disabled'} detail={poolingEnabled ? `${poolMode}, ${maxConnections} max connections` : 'No PgBouncer desired state'} /><SummaryRow icon={ShieldCheck} label={`${pgHbaRuleCount} access ${pgHbaRuleCount === 1 ? 'rule' : 'rules'}`} detail="Unmatched connections rejected" /></div><div className="mt-5 flex gap-3 rounded-[var(--radius-md)] bg-[var(--panel)] p-4 text-xs leading-5 text-[var(--text-2)]"><Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" /><p>Storage and compute are provided by the host you'll connect after creating this project.</p></div></aside>
 }
 
 function SummaryRow({ icon: Icon, label, detail }: { icon: typeof Server; label: string; detail: string }) {

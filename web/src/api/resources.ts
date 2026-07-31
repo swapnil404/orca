@@ -1,4 +1,4 @@
-import type { BackupJob, Cluster, ClusterInput, HostRegistration, PgBouncerConfig, Project, ProjectHost, ProjectTopology } from '../types/resources'
+import type { BackupJob, Cluster, ClusterInput, HostRegistration, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ProjectTopology } from '../types/resources'
 import { apiRequest } from './client'
 
 const encode = encodeURIComponent
@@ -71,6 +71,7 @@ function clusterInput(cluster: Cluster, changes: Partial<ClusterInput>): Cluster
     parameters: cluster.parameters,
     replica_count: cluster.replica_count,
     enabled_extensions: cluster.enabled_extensions,
+    pg_hba_rules: cluster.pg_hba_rules,
     pgbouncer_enabled: cluster.pgbouncer_enabled,
     pg_bouncer: cluster.pg_bouncer,
     pg_back_rest: cluster.pg_back_rest,
@@ -101,6 +102,13 @@ export function updatePgBouncer(clusterID: string, config: PgBouncerConfig): Pro
   return apiRequest(`/clusters/${encode(clusterID)}/pgbouncer`, {
     method: 'PUT',
     body: JSON.stringify(config),
+  })
+}
+
+export function updatePgHba(clusterID: string, rules: PgHbaRule[]): Promise<Cluster> {
+  return apiRequest(`/clusters/${encode(clusterID)}/pg-hba`, {
+    method: 'PUT',
+    body: JSON.stringify({ rules }),
   })
 }
 

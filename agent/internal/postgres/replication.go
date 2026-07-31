@@ -13,7 +13,6 @@ import (
 
 const (
 	postgresUser         = "postgres"
-	hbaChanged           = "changed"
 	primaryReadyTimeout  = 30 * time.Second
 	primaryReadyInterval = 250 * time.Millisecond
 )
@@ -61,24 +60,6 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		}
 	}
 
-	cidrs, err := docker.ContainerNetworkCIDRs(ctx, primary)
-	if err != nil {
-		return fmt.Errorf("inspect primary network: %w", err)
-	}
-	if len(cidrs) == 0 {
-		return errors.New("primary container has no network CIDR")
-	}
-
-	hbaWasChanged := false
-	for _, cidr := range cidrs {
-		line := fmt.Sprintf("host replication all %s trust", cidr)
-		output, err := docker.ExecContainer(ctx, primary, ensureHBALineCommand(line))
-		if err != nil {
-			return fmt.Errorf("allow replication from network %q: %w", cidr, err)
-		}
-		hbaWasChanged = hbaWasChanged || strings.TrimSpace(output) == hbaChanged
-	}
-
 	for _, replica := range desired.Replicas {
 		identity, err := DeriveReplicaIdentity(desired.Id, replica.Id)
 		if err != nil {
@@ -88,12 +69,6 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		query := fmt.Sprintf("SELECT pg_create_physical_replication_slot('%s') WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", slot, slot)
 		if _, err := docker.ExecContainer(ctx, primary, psqlCommand(query)); err != nil {
 			return fmt.Errorf("ensure replication slot %q: %w", slot, err)
-		}
-	}
-
-	if hbaWasChanged {
-		if _, err := docker.ExecContainer(ctx, primary, psqlCommand("SELECT pg_reload_conf()")); err != nil {
-			return fmt.Errorf("reload PostgreSQL config: %w", err)
 		}
 	}
 
@@ -157,12 +132,4 @@ func waitForPrimary(ctx context.Context, docker DockerClient, primary string) er
 
 func psqlCommand(query string) []string {
 	return []string{"psql", "-U", postgresUser, "-Atqc", query}
-}
-
-func ensureHBALineCommand(line string) []string {
-	return []string{
-		"sh", "-c",
-		`hba_file="$(psql -U postgres -Atqc 'SHOW hba_file')"; if grep -Fqx -- "$1" "$hba_file"; then printf unchanged; else printf '%s\n' "$1" >> "$hba_file"; printf changed; fi`,
-		"sh", line,
-	}
 }
