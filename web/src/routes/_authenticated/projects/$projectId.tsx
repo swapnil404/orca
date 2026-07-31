@@ -1,10 +1,11 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Copy, Eye, EyeOff, RefreshCw, Settings2, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { getProjectTopology, listProjectHosts, rotateHostToken } from '../../../api'
+import { getProjectTopology, listProjectHosts, restartProject, rotateHostToken } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
 import { isReportStale } from '../../../canvas/status'
 import { ConnectHostEmptyState } from '../../../components/ConnectHostEmptyState'
+import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
 
@@ -51,6 +52,10 @@ function ProjectCanvasPage() {
   const hosts = hostState.projectID === projectId ? hostState.hosts : initialTopology.hosts
   const awaitingHost = hosts.find((host) => host.status === 'never_connected')
   const [commandState, setCommandState] = useState<CommandState | null>(null)
+  const [restarting, setRestarting] = useState(false)
+  const [restartMessage, setRestartMessage] = useState('')
+  const [restartFailed, setRestartFailed] = useState(false)
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false)
   useEffect(() => setHostState({ projectID: projectId, hosts: initialTopology.hosts }), [initialTopology.hosts, projectId])
   useEffect(() => {
     if (projectSnapshot?.desired_clusters) setClusters(projectSnapshot.desired_clusters)
@@ -93,6 +98,22 @@ function ProjectCanvasPage() {
     setCommandState({ hostID: awaitingHost.id, command })
   }
 
+  async function requestRestart() {
+    setRestarting(true)
+    setRestartMessage('')
+    setRestartFailed(false)
+    try {
+      await restartProject(projectId)
+      setRestartDialogOpen(false)
+      setRestartMessage('Restart request queued. Completion is not yet confirmed.')
+    } catch (cause) {
+      setRestartFailed(true)
+      setRestartMessage(cause instanceof Error ? cause.message : 'Could not request the project restart.')
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   return (
     <main className="flex min-h-[calc(100vh-56px)] flex-col p-3 text-[var(--text)] sm:p-5">
       <header className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1">
@@ -105,6 +126,7 @@ function ProjectCanvasPage() {
           <h1 className="mt-1.5 text-xl font-semibold">Project topology</h1>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" disabled={restarting || clusters.length === 0} onClick={() => setRestartDialogOpen(true)} className="inline-flex items-center gap-2 rounded-full border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3.5 py-2 text-[11px] font-medium text-[var(--warning)] hover:bg-[var(--warning)]/15 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${restarting ? 'animate-spin' : ''}`} />{restarting ? 'Requesting...' : 'Restart'}</button>
           <Link to="/projects/$projectId/settings" params={{ projectId }} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><Settings2 className="h-3.5 w-3.5" />Settings</Link>
           <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] shadow-[inset_0_1px_rgba(255,255,255,0.03)]">
             <span className={`h-1.5 w-1.5 rounded-full ${fresh ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
@@ -112,6 +134,8 @@ function ProjectCanvasPage() {
           </div>
         </div>
       </header>
+      {restartMessage && <p role={restartFailed ? 'alert' : 'status'} className={`mb-3 rounded-[var(--radius-md)] border px-3 py-2 text-xs ${restartFailed ? 'border-[var(--critical)]/30 bg-[var(--critical)]/5 text-[var(--critical)]' : 'border-[var(--warning)]/30 bg-[var(--warning)]/5 text-[var(--warning)]'}`}>{restartMessage}</p>}
+      <RestartProjectDialog open={restartDialogOpen} clusterCount={clusters.length} restarting={restarting} onCancel={() => setRestartDialogOpen(false)} onConfirm={requestRestart} />
       {awaitingHost && <HostConnection hostID={awaitingHost.id} commandState={commandState?.hostID === awaitingHost.id ? commandState : null} onCommand={storeCommand} />}
       {clusters.length === 0 ? (
         <ConnectHostEmptyState className="flex-1" title="Connect a host to get started" description="Register an Orca agent on the infrastructure that will run PostgreSQL. Once the host connects, you can configure this project's topology." />

@@ -44,6 +44,7 @@ type resourceStore interface {
 	UpdatePgBouncer(context.Context, store.UpdatePgBouncerParams) (store.Cluster, error)
 	UpdatePgHba(context.Context, store.UpdatePgHbaParams) (store.Cluster, error)
 	UpdateParameters(context.Context, store.UpdateParametersParams) (store.Cluster, error)
+	RestartProject(context.Context, store.RestartProjectParams) ([]store.Cluster, error)
 	DeleteCluster(context.Context, string, string) error
 	GetHost(context.Context, string) (store.Host, error)
 }
@@ -96,6 +97,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects/{projectID}", h.getProject)
 	mux.HandleFunc("PUT /projects/{projectID}", h.updateProject)
 	mux.HandleFunc("DELETE /projects/{projectID}", h.deleteProject)
+	mux.HandleFunc("POST /projects/{projectID}/restart", h.restartProject)
 	mux.HandleFunc("GET /projects/{projectID}/clusters", h.listClusters)
 	mux.HandleFunc("GET /projects/{projectID}/hosts", h.listProjectHosts)
 	mux.HandleFunc("POST /projects/{projectID}/clusters", h.createCluster)
@@ -214,6 +216,22 @@ func (h *ResourceHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.pushHosts(r.Context(), clusterHostIDs(clusters)...)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ResourceHandler) restartProject(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	projectID := r.PathValue("projectID")
+	clusters, err := h.store.RestartProject(r.Context(), store.RestartProjectParams{ProjectID: projectID, UserID: userID})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), clusterHostIDs(clusters)...)
+	h.notifyProject(r.Context(), projectID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -61,6 +61,7 @@ type Querier interface {
 	UpdateClusterParameters(ctx context.Context, arg UpdateClusterParametersParams) (Cluster, error)
 	UpdateClusterPgBouncer(ctx context.Context, arg UpdateClusterPgBouncerParams) (Cluster, error)
 	UpdateClusterPgHba(ctx context.Context, arg UpdateClusterPgHbaParams) (Cluster, error)
+	UpdateClusterRestart(ctx context.Context, arg UpdateClusterRestartParams) (Cluster, error)
 	UpdateHostStatus(ctx context.Context, arg UpdateHostStatusParams) error
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)

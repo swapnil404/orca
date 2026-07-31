@@ -43,6 +43,7 @@ message ClusterSpec {
   optional PgBackRestSpec pg_back_rest = 7;
   repeated string enabled_extensions = 8;
   optional PgHbaSpec pg_hba = 9;
+  uint64 restart_generation = 10;
 }
 
 // PgHbaSpec contains an ordered PostgreSQL client authentication policy.
@@ -119,6 +120,7 @@ message ActualCluster {
   repeated string pg_hba_replication_cidrs = 18;
   map<string, PostgresParameterState> parameter_states = 19;
   bool parameters_observed = 20;
+  uint64 applied_restart_generation = 21;
 }
 
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.

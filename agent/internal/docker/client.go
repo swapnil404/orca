@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -42,6 +43,8 @@ const (
 	PostgresConfigContainerPath = "/etc/orca/postgresql.conf"
 	// PostgresAppliedConfigRelativePath records the last successfully applied parameters.
 	PostgresAppliedConfigRelativePath = "postgres/applied.conf"
+	// RestartAppliedRelativePath records the last successfully applied cluster restart.
+	RestartAppliedRelativePath = "restart/applied"
 	// PgBackRestAppliedConfigRelativePath records the last successfully applied backup configuration.
 	PgBackRestAppliedConfigRelativePath = "pgbackrest/applied.conf"
 )
@@ -492,6 +495,16 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 					return nil, fmt.Errorf("read pgBackRest config for cluster %q: %w", info.ClusterID, err)
 				}
 				info.BackupConfig = backupConfig
+				restartGeneration, err := readConfig(c.dataRoot, info.ClusterID, RestartAppliedRelativePath)
+				if err != nil {
+					return nil, fmt.Errorf("read restart generation for cluster %q: %w", info.ClusterID, err)
+				}
+				if strings.TrimSpace(restartGeneration) != "" {
+					info.RestartGeneration, err = strconv.ParseUint(strings.TrimSpace(restartGeneration), 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("parse restart generation for cluster %q: %w", info.ClusterID, err)
+					}
+				}
 			}
 			infos = append(infos, info)
 		}
@@ -617,8 +630,25 @@ func writeConfig(root, clusterID string, config *ConfigMount) error {
 	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
-	if err := os.WriteFile(hostPath, []byte(config.Content), 0o644); err != nil {
+	temporary, err := os.CreateTemp(filepath.Dir(hostPath), ".orca-config-*")
+	if err != nil {
+		return fmt.Errorf("create temporary config: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o644); err != nil {
+		temporary.Close()
+		return fmt.Errorf("set config permissions: %w", err)
+	}
+	if _, err := temporary.WriteString(config.Content); err != nil {
+		temporary.Close()
 		return fmt.Errorf("write config: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close config: %w", err)
+	}
+	if err := os.Rename(temporaryPath, hostPath); err != nil {
+		return fmt.Errorf("install config: %w", err)
 	}
 	return nil
 }

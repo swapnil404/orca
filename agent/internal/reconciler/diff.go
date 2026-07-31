@@ -48,6 +48,8 @@ const (
 	ActionDeletePgBackRest ActionType = "delete_pgbackrest"
 	// ActionRunPgBackRestBackup reports an asynchronous scheduled backup attempt.
 	ActionRunPgBackRestBackup ActionType = "run_pgbackrest_backup"
+	// ActionRestartCluster restarts every managed container in a cluster.
+	ActionRestartCluster ActionType = "restart_cluster"
 )
 
 // Action describes a single reconciliation operation.
@@ -129,6 +131,9 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 		extensionActions := diffExtensions(desiredCluster, actualCluster)
 		actions = append(actions, extensionActions...)
 		actions = append(actions, diffPgBackRest(desiredCluster, actualCluster.Backup, primaryWillChange)...)
+		if desiredCluster.RestartGeneration > actualCluster.AppliedRestartGeneration {
+			actions = append(actions, Action{Type: ActionRestartCluster, ClusterID: desiredCluster.Id, Spec: desiredCluster})
+		}
 		delete(actualClusters, desiredCluster.Id)
 	}
 
