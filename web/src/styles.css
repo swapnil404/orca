@@ -58,6 +58,24 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+header kbd {
+  min-width: 0;
+  color: transparent;
+  font-size: 0;
+}
+
+header kbd::after {
+  color: var(--text-3);
+  content: 'CMD + K';
+  font-size: 8px;
+}
+
+header button:has(> span:first-child svg.lucide-search) > span:first-child {
+  order: 1;
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
 @keyframes orca-lag-flow {
   to { stroke-dashoffset: -26; }
 }

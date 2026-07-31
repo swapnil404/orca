@@ -1,6 +1,6 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { ArrowUpRight, Building2, FolderKanban, Plus, Users, X } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { ApiError, createOrganization, listOrganizationMembers, listOrganizationProjects, listOrganizations } from '../../api'
 import type { Organization, OrganizationMember } from '../../types/organizations'
 import type { Project } from '../../types/resources'
@@ -9,6 +9,10 @@ interface OrganizationSummary {
   organization: Organization
   members: OrganizationMember[]
   projects: Project[]
+}
+
+interface OrganizationsSearch {
+  create?: boolean
 }
 
 async function loadOrganizations(): Promise<OrganizationSummary[]> {
@@ -22,19 +26,42 @@ async function loadOrganizations(): Promise<OrganizationSummary[]> {
 
 export const Route = createFileRoute('/_authenticated/organizations')({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): OrganizationsSearch => ({
+    create: search.create === true || search.create === 'true' ? true : undefined,
+  }),
   loader: loadOrganizations,
   component: OrganizationsPage,
 })
 
 function OrganizationsPage() {
   const organizations = Route.useLoaderData()
+  const search = Route.useSearch()
   const navigate = useNavigate()
   const router = useRouter()
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(search.create)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const memberCount = organizations.reduce((total, item) => total + item.members.length, 0)
   const projectCount = organizations.reduce((total, item) => total + item.projects.length, 0)
+
+  useEffect(() => {
+    if (search.create) setCreating(true)
+  }, [search.create])
+
+  function openOrganization(organizationID: string) {
+    void navigate({ to: '/', search: { organizationId: organizationID } })
+  }
+
+  function handleOrganizationClick(event: MouseEvent<HTMLElement>, organizationID: string) {
+    if (event.target instanceof Element && event.target.closest('a, button')) return
+    openOrganization(organizationID)
+  }
+
+  function handleOrganizationKeyDown(event: KeyboardEvent<HTMLElement>, organizationID: string) {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+    event.preventDefault()
+    openOrganization(organizationID)
+  }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -72,8 +99,8 @@ function OrganizationsPage() {
         {organizations.length > 0 ? (
           <section aria-label="Organizations" className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {organizations.map(({ organization, members, projects }, index) => (
-              <article key={organization.id} className="group relative flex min-h-72 flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--text-3)] hover:shadow-[0_18px_45px_rgba(0,0,0,0.24)]">
-                <span className="absolute right-4 top-2 font-mono text-5xl font-semibold tracking-[-0.08em] text-[var(--accent)] opacity-10">{String(index + 1).padStart(2, '0')}</span>
+              <article key={organization.id} role="link" tabIndex={0} aria-label={`Switch to ${organization.name}`} onClick={(event) => handleOrganizationClick(event, organization.id)} onKeyDown={(event) => handleOrganizationKeyDown(event, organization.id)} className="group relative flex min-h-72 cursor-pointer flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-5 outline-none transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)]/45 hover:shadow-[0_18px_45px_rgba(0,0,0,0.24)] focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]">
+                <span className="absolute right-4 top-1 font-mono text-6xl font-semibold leading-none tracking-[-0.09em] text-[var(--accent)] opacity-10">{String(index + 1).padStart(2, '0')}</span>
                 <div className="flex items-start justify-between gap-4">
                   <span className="grid h-10 w-10 place-items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] font-mono text-[10px] font-semibold uppercase text-[var(--accent)]">
                     {organization.name.slice(0, 2)}
