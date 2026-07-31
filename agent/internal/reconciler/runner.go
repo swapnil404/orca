@@ -367,24 +367,24 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		actualByID[cluster.Id] = cluster
 	}
 
-	health := make([]*types.ClusterHealth, 0, len(desired.Clusters)+len(actual.Clusters))
-	seen := make(map[string]struct{}, len(desired.Clusters))
+	reportedActual := &ActualState{Clusters: make([]*ActualCluster, 0, len(desired.Clusters))}
+	health := make([]*types.ClusterHealth, 0, len(desired.Clusters))
 	for _, cluster := range desired.Clusters {
+		if cluster == nil {
+			continue
+		}
+		observed := actualByID[cluster.Id]
+		if observed != nil {
+			reportedActual.Clusters = append(reportedActual.Clusters, observed)
+		}
 		var backupObservationFailed bool
 		if len(backupObservationErrors) > 0 {
 			backupObservationFailed = backupObservationErrors[0][cluster.Id] != nil
 		}
 		health = append(health, &types.ClusterHealth{
 			ClusterId: cluster.Id,
-			Status:    clusterStatus(cluster, actualByID[cluster.Id], backupObservationFailed),
+			Status:    clusterStatus(cluster, observed, backupObservationFailed),
 		})
-		seen[cluster.Id] = struct{}{}
-	}
-	for _, cluster := range actual.Clusters {
-		if _, exists := seen[cluster.Id]; exists {
-			continue
-		}
-		health = append(health, &types.ClusterHealth{ClusterId: cluster.Id, Status: clusterStatus(nil, cluster)})
 	}
 
 	reconciliationResults := make([]*types.ReconciliationResult, 0, len(results))
@@ -399,7 +399,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		})
 	}
 	return &types.AgentReportMessage{
-		ActualState:           actual,
+		ActualState:           reportedActual,
 		ReconciliationResults: reconciliationResults,
 		DesiredStateRevision:  desired.GetRevision(),
 		HealthReport: &types.HealthReport{

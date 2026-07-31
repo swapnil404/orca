@@ -190,6 +190,9 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		if err != nil {
 			return err
 		}
+		if !desiredContainsCluster(desired, action.ClusterID) {
+			return stopAndRemove(ctx, docker, containerID)
+		}
 		replicaDocker, ok := docker.(postgres.ReplicaDockerClient)
 		if !ok {
 			return errors.New("docker client does not support replica cleanup")
@@ -204,6 +207,18 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 	default:
 		return fmt.Errorf("unknown action type %q", action.Type)
 	}
+}
+
+func desiredContainsCluster(desired *DesiredState, clusterID string) bool {
+	if desired == nil {
+		return false
+	}
+	for _, cluster := range desired.Clusters {
+		if cluster != nil && cluster.Id == clusterID {
+			return true
+		}
+	}
+	return false
 }
 
 type replicaDockerClient interface {
@@ -700,7 +715,8 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	return orcadocker.ContainerSpec{
 		ClusterID: action.ClusterID,
 		Kind:      orcadocker.ContainerKindPgBouncer,
-		Image:     "pgbouncer:latest",
+		Image:     "edoburu/pgbouncer:v1.25.2-p0",
+		Env:       []string{"AUTH_FILE=/tmp/userlist.txt"},
 		Config: &orcadocker.ConfigMount{
 			RelativePath:  orcadocker.PgBouncerConfigRelativePath,
 			ContainerPath: orcadocker.PgBouncerConfigContainerPath,
