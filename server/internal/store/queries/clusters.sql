@@ -124,6 +124,22 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules;
+
+-- name: UpdateClusterParameters :one
+UPDATE clusters c
+SET parameters = sqlc.arg(parameters)::jsonb,
+    updated_at = NOW()
+FROM projects p, organization_memberships om
+WHERE c.id = sqlc.arg(cluster_id) AND c.project_id = p.id
+  AND om.organization_id = p.organization_id AND om.user_id = sqlc.arg(user_id)
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules;
 
 -- name: ListActiveClustersForProject :many

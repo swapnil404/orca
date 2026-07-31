@@ -459,6 +459,60 @@ func (q *Queries) UpdateCluster(ctx context.Context, arg UpdateClusterParams) (C
 	return i, err
 }
 
+const updateClusterParameters = `-- name: UpdateClusterParameters :one
+UPDATE clusters c
+SET parameters = $1::jsonb,
+    updated_at = NOW()
+FROM projects p, organization_memberships om
+WHERE c.id = $2 AND c.project_id = p.id
+  AND om.organization_id = p.organization_id AND om.user_id = $3
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
+          c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
+          c.pgbackrest_enabled, c.pgbackrest_repo_path,
+          c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
+          c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
+          c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
+`
+
+type UpdateClusterParametersParams struct {
+	Parameters json.RawMessage `json:"parameters"`
+	ClusterID  string          `json:"cluster_id"`
+	UserID     string          `json:"user_id"`
+}
+
+func (q *Queries) UpdateClusterParameters(ctx context.Context, arg UpdateClusterParametersParams) (Cluster, error) {
+	row := q.db.QueryRowContext(ctx, updateClusterParameters, arg.Parameters, arg.ClusterID, arg.UserID)
+	var i Cluster
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.HostID,
+		&i.Name,
+		&i.PostgresVersion,
+		&i.Parameters,
+		&i.ReplicaCount,
+		&i.PgbouncerEnabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.PgbackrestEnabled,
+		&i.PgbackrestRepoPath,
+		&i.PgbackrestRetentionFull,
+		&i.PgbackrestRetentionDiff,
+		&i.PgbackrestFullIntervalSeconds,
+		&i.PgbackrestDiffIntervalSeconds,
+		&i.PgbackrestIncrIntervalSeconds,
+		&i.ReplicaIds,
+		&i.EnabledExtensions,
+		&i.PgbouncerPoolMode,
+		&i.PgbouncerMaxConnections,
+		&i.PgHbaRules,
+	)
+	return i, err
+}
+
 const updateClusterPgBouncer = `-- name: UpdateClusterPgBouncer :one
 UPDATE clusters c
 SET pgbouncer_pool_mode = $1::text,
@@ -522,7 +576,7 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
+           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules
 `
 
 type UpdateClusterPgHbaParams struct {

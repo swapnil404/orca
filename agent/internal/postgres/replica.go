@@ -32,6 +32,7 @@ type ReplicaSpec struct {
 	ReplicaID       string
 	Primary         PrimaryConnectionInfo
 	PostgresVersion string
+	Params          map[string]string
 }
 
 // ReplicaIdentity contains every resource name derived from a stable replica ID.
@@ -190,6 +191,18 @@ func replicaContainerSpec(spec ReplicaSpec, identity ReplicaIdentity, bootstrap 
 		},
 		Command:   command,
 		UseVolume: true,
+	}
+	if !bootstrap {
+		config, err := RenderNodeConfig(spec.ClusterID, identity.DataPath, spec.Params)
+		if err != nil {
+			return orcadocker.ContainerSpec{}, err
+		}
+		containerSpec.Command = []string{"postgres", "-c", "config_file=" + orcadocker.PostgresConfigContainerPath}
+		containerSpec.Config = &orcadocker.ConfigMount{
+			RelativePath:  orcadocker.PostgresReplicaConfigRelativePath(spec.ReplicaID),
+			ContainerPath: orcadocker.PostgresConfigContainerPath,
+			Content:       config,
+		}
 	}
 	name, err := orcadocker.ContainerName(containerSpec)
 	if err != nil {

@@ -112,6 +112,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	actual := ActualStateFromDocker(containers, volumes)
 	r.populatePgHba(ctx, desired, actual, false)
 	r.populateInstalledExtensions(ctx, desired, actual)
+	r.populateParameterStates(ctx, desired, actual, false)
 	actions := Diff(desired, actual)
 	results := apply(ctx, r.docker, r.backups, actions, desired)
 	containers, err = r.docker.ListOrcaContainers(ctx)
@@ -130,6 +131,7 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 	results = append(results, extensionResults...)
 	results = append(results, r.populateInstalledExtensions(ctx, desired, actual)...)
 	results = append(results, r.populatePgHba(ctx, desired, actual, true)...)
+	results = append(results, r.populateParameterStates(ctx, desired, actual, true)...)
 	backupResults, pendingBackupResults := r.backupResults()
 	results = append(results, backupResults...)
 	postgres.PopulateHealth(ctx, r.healthDatabase, actual)
@@ -142,6 +144,96 @@ func (r *Runner) reconcileDesired(ctx context.Context, desired *DesiredState) (P
 		pass.acknowledge = func() { once.Do(func() { r.backups.AcknowledgeResults(pendingBackupResults) }) }
 	}
 	return pass, nil
+}
+
+func (r *Runner) populateParameterStates(ctx context.Context, desired *DesiredState, actual *ActualState, reportErrors bool) []ApplyResult {
+	if r.healthDatabase == nil {
+		return nil
+	}
+	desiredByID := make(map[string]*ClusterSpec, len(desired.Clusters))
+	for _, cluster := range desired.Clusters {
+		if cluster != nil {
+			desiredByID[cluster.Id] = cluster
+		}
+	}
+	results := make([]ApplyResult, 0)
+	for _, cluster := range actual.Clusters {
+		desiredCluster := desiredByID[cluster.Id]
+		if desiredCluster == nil || cluster.ContainerId == "" || cluster.Status != "running" {
+			continue
+		}
+		names := make([]string, 0, len(desiredCluster.Params)+len(cluster.AppliedParams))
+		for name := range desiredCluster.Params {
+			names = append(names, name)
+		}
+		for name := range cluster.AppliedParams {
+			names = append(names, name)
+		}
+		metadata, err := postgres.InspectParameters(ctx, r.healthDatabase, cluster.ContainerId, names)
+		cluster.ParametersObserved = err == nil
+		cluster.ParameterStates = make(map[string]*types.PostgresParameterState, len(names))
+		for name := range desiredCluster.Params {
+			name = strings.ToLower(strings.TrimSpace(name))
+			observed, exists := metadata[name]
+			if !exists {
+				message := "unknown parameter"
+				if metadata == nil && err != nil {
+					message = err.Error()
+				}
+				cluster.ParameterStates[name] = &types.PostgresParameterState{Error: message}
+				continue
+			}
+			method := string(postgres.ConfigUpdateReload)
+			if observed.Context == "postmaster" {
+				method = string(postgres.ConfigUpdateRestart)
+			}
+			state := &types.PostgresParameterState{
+				Setting: observed.Setting, Unit: observed.Unit, Context: observed.Context,
+				UpdateMethod: method, PendingRestart: observed.PendingRestart, Applied: observed.Applied,
+			}
+			if observed.Context == "internal" {
+				state.Error = "parameter is internal and cannot be configured"
+			}
+			cluster.ParameterStates[name] = state
+		}
+		if err == nil {
+			cluster.AppliedParams = liveAppliedParams(metadata)
+		}
+		for _, replica := range cluster.Replicas {
+			if replica == nil || replica.ContainerId == "" || replica.Status != "running" {
+				continue
+			}
+			replicaNames := make([]string, 0, len(desiredCluster.Params)+len(replica.AppliedParams))
+			for name := range desiredCluster.Params {
+				replicaNames = append(replicaNames, name)
+			}
+			for name := range replica.AppliedParams {
+				replicaNames = append(replicaNames, name)
+			}
+			replicaMetadata, replicaErr := postgres.InspectParameters(ctx, r.healthDatabase, replica.ContainerId, replicaNames)
+			replica.ParametersObserved = replicaErr == nil
+			if replicaErr == nil {
+				replica.AppliedParams = liveAppliedParams(replicaMetadata)
+			}
+			if replicaErr != nil && reportErrors {
+				results = append(results, ApplyResult{Action: Action{Type: ActionObserveParameters, ClusterID: cluster.Id, ReplicaID: replica.Id}, Status: ApplyStatusFailed, Err: replicaErr})
+			}
+		}
+		if err != nil && reportErrors {
+			results = append(results, ApplyResult{Action: Action{Type: ActionObserveParameters, ClusterID: cluster.Id}, Status: ApplyStatusFailed, Err: err})
+		}
+	}
+	return results
+}
+
+func liveAppliedParams(metadata map[string]postgres.ParameterMetadata) map[string]string {
+	applied := make(map[string]string, len(metadata))
+	for name, observed := range metadata {
+		if observed.Applied && !observed.PendingRestart {
+			applied[name] = observed.FileSetting
+		}
+	}
+	return applied
 }
 
 func (r *Runner) populatePgHba(ctx context.Context, desired *DesiredState, actual *ActualState, reportErrors bool) []ApplyResult {
@@ -339,6 +431,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 		case orcadocker.ContainerKindReplica:
 			cluster.Replicas = append(cluster.Replicas, &ActualReplica{
 				Id: container.ReplicaID, ContainerId: container.ID, Status: container.Status,
+				AppliedParams: func() map[string]string { params, _ := postgres.ParseConfig(container.Config); return params }(),
 			})
 		case orcadocker.ContainerKindPgBouncer:
 			cluster.PgBouncer = &ActualPgBouncer{ContainerId: container.ID, Status: container.Status, Config: container.Config}

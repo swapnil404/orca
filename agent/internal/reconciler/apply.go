@@ -126,7 +126,7 @@ func isPrimaryMutation(actionType ActionType) bool {
 }
 
 func isPrimaryDependentAction(actionType ActionType) bool {
-	return actionType == ActionCreateReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
+	return actionType == ActionCreateReplica || actionType == ActionDeleteReplica || actionType == ActionCreatePgBouncer || actionType == ActionUpdatePgBouncer ||
 		actionType == ActionUpdateExtensions || actionType == ActionUpdatePgHba || actionType == ActionCreatePgBackRest || actionType == ActionUpdatePgBackRest
 }
 
@@ -325,6 +325,14 @@ type primaryConfigDockerClient interface {
 	ExecContainer(context.Context, string, []string) (string, error)
 }
 
+type postgresNodeUpdate struct {
+	containerID string
+	dataPath    string
+	configPath  string
+	appliedPath string
+	applied     map[string]string
+}
+
 func createReplica(ctx context.Context, docker DockerClient, action Action, desired *DesiredState) error {
 	replicaDocker, ok := docker.(replicaDockerClient)
 	if !ok {
@@ -355,6 +363,7 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 		ClusterID:       cluster.Id,
 		ReplicaID:       action.ReplicaID,
 		PostgresVersion: cluster.Version,
+		Params:          cluster.Params,
 		Primary: postgres.PrimaryConnectionInfo{
 			Host: addresses[0],
 		},
@@ -367,7 +376,7 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 			return fmt.Errorf("apply replica pg_hba.conf: %w", err)
 		}
 	}
-	return nil
+	return markReplicaParamsApplied(ctx, replicaDocker, replicaID, cluster, action.ReplicaID)
 }
 
 func desiredReplica(desired *DesiredState, clusterID, replicaID string) (*ClusterSpec, error) {
@@ -404,6 +413,11 @@ func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.Con
 		return fmt.Errorf("generate initial PostgreSQL password: %w", err)
 	}
 	spec.Env = append(spec.Env, "POSTGRES_PASSWORD="+base64.RawURLEncoding.EncodeToString(password))
+	baseline, err := postgres.RenderConfig(spec.ClusterID, nil)
+	if err != nil {
+		return err
+	}
+	spec.Config.Content = baseline
 	containerID, err := docker.CreateContainer(ctx, spec)
 	if err != nil {
 		return err
@@ -411,7 +425,14 @@ func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.Con
 	if err := docker.StartContainer(ctx, containerID); err != nil {
 		return err
 	}
-	return markPrimaryParamsApplied(ctx, docker, containerID, spec.ClusterID, params)
+	configDocker, ok := docker.(primaryConfigDockerClient)
+	if !ok {
+		return errors.New("docker client does not support PostgreSQL configuration updates")
+	}
+	if err := applyPostgresConfig(ctx, configDocker, docker, containerID, spec.ClusterID, orcadocker.VolumeMountPath(spec.ClusterID)+"/primary", orcadocker.PostgresConfigRelativePath, nil, params); err != nil {
+		return err
+	}
+	return writeAppliedParams(ctx, configDocker, spec.ClusterID, orcadocker.PostgresAppliedConfigRelativePath, orcadocker.VolumeMountPath(spec.ClusterID)+"/primary", params)
 }
 
 func stopAndRemove(ctx context.Context, docker DockerClient, containerID string) error {
@@ -446,100 +467,162 @@ func updatePrimary(ctx context.Context, docker DockerClient, action Action) erro
 	if !ok {
 		return errors.New("docker client does not support PostgreSQL configuration updates")
 	}
-	if err := configDocker.WriteConfig(ctx, action.ClusterID, spec.Config); err != nil {
-		return fmt.Errorf("write PostgreSQL config: %w", err)
-	}
 	if update.Actual.Status != "running" {
 		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
-			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
-		}
-		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
-			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
-		}
-		return nil
-	}
-	changed := postgres.ChangedParameters(update.Desired.Params, update.Actual.AppliedParams)
-	rollback := func() error {
-		config, renderErr := postgres.RenderConfig(action.ClusterID, update.Actual.AppliedParams)
-		if renderErr != nil {
-			return renderErr
-		}
-		return configDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
-			RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
-		})
-	}
-
-	switch postgres.ClassifyConfigUpdate(changed) {
-	case postgres.ConfigUpdateReload:
-		slog.Info("reloading PostgreSQL configuration", "cluster_id", action.ClusterID)
-		if _, err := configDocker.ExecContainer(ctx, update.Actual.ContainerId, []string{
-			"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_reload_conf();",
-		}); err != nil {
-			return errors.Join(fmt.Errorf("reload PostgreSQL config: %w", err), rollback())
-		}
-		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
-			rollbackErr := rollback()
-			_, reloadErr := configDocker.ExecContainer(ctx, update.Actual.ContainerId, []string{
-				"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_reload_conf();",
-			})
-			return errors.Join(err, rollbackErr, reloadErr)
-		}
-		return nil
-	case postgres.ConfigUpdateRestart:
-		slog.Info("restarting PostgreSQL for configuration change", "cluster_id", action.ClusterID)
-		if err := docker.StopContainer(ctx, update.Actual.ContainerId); err != nil {
-			return errors.Join(err, rollback())
-		}
-		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
-			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
-		}
-		if err := markPrimaryParamsApplied(ctx, docker, update.Actual.ContainerId, action.ClusterID, update.Desired.Params); err != nil {
-			return errors.Join(err, rollbackPrimaryConfig(ctx, configDocker, docker, update))
-		}
-		return nil
-	default:
-		return errors.New("unknown PostgreSQL config update method")
-	}
-}
-
-func rollbackPrimaryConfig(ctx context.Context, configDocker primaryConfigDockerClient, docker DockerClient, update *primaryUpdateSpec) error {
-	config, err := postgres.RenderConfig(update.Desired.Id, update.Actual.AppliedParams)
-	if err != nil {
-		return err
-	}
-	writeErr := configDocker.WriteConfig(ctx, update.Desired.Id, &orcadocker.ConfigMount{
-		RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
-	})
-	if writeErr != nil {
-		return writeErr
-	}
-	stopErr := docker.StopContainer(ctx, update.Actual.ContainerId)
-	startErr := docker.StartContainer(ctx, update.Actual.ContainerId)
-	return errors.Join(stopErr, startErr)
-}
-
-func markPrimaryParamsApplied(ctx context.Context, docker DockerClient, containerID, clusterID string, params map[string]string) error {
-	configDocker, ok := docker.(interface {
-		WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
-	})
-	if !ok {
-		return nil
-	}
-	if executor, ok := docker.(interface {
-		ExecContainer(context.Context, string, []string) (string, error)
-	}); ok {
-		if err := postgres.WaitForConfigApplied(ctx, executor, containerID, len(params)); err != nil {
 			return err
 		}
 	}
-	config, err := postgres.RenderConfig(clusterID, params)
+	nodes := []postgresNodeUpdate{{
+		containerID: update.Actual.ContainerId,
+		dataPath:    orcadocker.VolumeMountPath(action.ClusterID) + "/primary",
+		configPath:  orcadocker.PostgresConfigRelativePath,
+		appliedPath: orcadocker.PostgresAppliedConfigRelativePath,
+		applied:     update.Actual.AppliedParams,
+	}}
+	for _, replica := range update.Actual.Replicas {
+		if replica == nil || replica.ContainerId == "" {
+			continue
+		}
+		if replica.AppliedParams == nil && len(update.Desired.Params) > 0 {
+			continue
+		}
+		identity, err := postgres.DeriveReplicaIdentity(action.ClusterID, replica.Id)
+		if err != nil {
+			return err
+		}
+		nodes = append(nodes, postgresNodeUpdate{
+			containerID: replica.ContainerId, dataPath: identity.DataPath,
+			configPath:  orcadocker.PostgresReplicaConfigRelativePath(replica.Id),
+			appliedPath: orcadocker.PostgresReplicaAppliedConfigRelativePath(replica.Id),
+			applied:     replica.AppliedParams,
+		})
+	}
+	for _, node := range nodes {
+		if err := preflightPostgresConfig(ctx, configDocker, node.containerID, node.dataPath, node.applied, update.Desired.Params); err != nil {
+			return err
+		}
+	}
+	for index, node := range nodes {
+		if err := applyPostgresConfig(ctx, configDocker, docker, node.containerID, action.ClusterID, node.dataPath, node.configPath, node.applied, update.Desired.Params); err != nil {
+			rollbackErr := rollbackPostgresNodes(context.WithoutCancel(ctx), configDocker, docker, action.ClusterID, nodes[:index+1])
+			return errors.Join(err, rollbackErr)
+		}
+	}
+	for _, node := range nodes {
+		if err := writeAppliedParams(ctx, configDocker, action.ClusterID, node.appliedPath, node.dataPath, update.Desired.Params); err != nil {
+			rollbackErr := rollbackPostgresNodes(context.WithoutCancel(ctx), configDocker, docker, action.ClusterID, nodes)
+			return errors.Join(err, rollbackErr)
+		}
+	}
+	return nil
+}
+
+func preflightPostgresConfig(ctx context.Context, configDocker primaryConfigDockerClient, containerID, dataPath string, applied, desired map[string]string) error {
+	changed := postgres.ChangedParameters(desired, applied)
+	metadata, err := postgres.InspectParameters(ctx, configDocker, containerID, changed)
 	if err != nil {
 		return err
 	}
-	return configDocker.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{
-		RelativePath: orcadocker.PostgresAppliedConfigRelativePath,
-		Content:      config,
+	if _, err := postgres.ClassifyConfigUpdate(changed, metadata); err != nil {
+		return err
+	}
+	return postgres.ValidateParameterValues(ctx, configDocker, containerID, dataPath, desired)
+}
+
+func rollbackPostgresNodes(ctx context.Context, configDocker primaryConfigDockerClient, docker DockerClient, clusterID string, nodes []postgresNodeUpdate) error {
+	var rollbackErr error
+	for index := len(nodes) - 1; index >= 0; index-- {
+		node := nodes[index]
+		rollbackErr = errors.Join(rollbackErr, rollbackPostgresNode(ctx, configDocker, docker, node.containerID, clusterID, node.dataPath, node.configPath, node.applied))
+		rollbackErr = errors.Join(rollbackErr, writeAppliedParams(ctx, configDocker, clusterID, node.appliedPath, node.dataPath, node.applied))
+	}
+	return rollbackErr
+}
+
+func rollbackPostgresNode(ctx context.Context, configDocker primaryConfigDockerClient, docker DockerClient, containerID, clusterID, dataPath, relativePath string, applied map[string]string) error {
+	config, err := postgres.RenderNodeConfig(clusterID, dataPath, applied)
+	if err != nil {
+		return err
+	}
+	writeErr := configDocker.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{RelativePath: relativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config})
+	if writeErr != nil {
+		return writeErr
+	}
+	stopErr := docker.StopContainer(ctx, containerID)
+	startErr := docker.StartContainer(ctx, containerID)
+	if stopErr != nil || startErr != nil {
+		return errors.Join(stopErr, startErr)
+	}
+	return postgres.WaitForConfigApplied(ctx, configDocker, containerID, len(applied))
+}
+
+func applyPostgresConfig(ctx context.Context, configDocker primaryConfigDockerClient, docker DockerClient, containerID, clusterID, dataPath, relativePath string, applied, desired map[string]string) error {
+	changed := postgres.ChangedParameters(desired, applied)
+	metadata, err := postgres.InspectParameters(ctx, configDocker, containerID, changed)
+	if err != nil {
+		return err
+	}
+	method, err := postgres.ClassifyConfigUpdate(changed, metadata)
+	if err != nil {
+		return err
+	}
+	if err := postgres.ValidateParameterValues(ctx, configDocker, containerID, dataPath, desired); err != nil {
+		return err
+	}
+	config, err := postgres.RenderNodeConfig(clusterID, dataPath, desired)
+	if err != nil {
+		return err
+	}
+	if err := configDocker.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{RelativePath: relativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config}); err != nil {
+		return fmt.Errorf("write PostgreSQL config: %w", err)
+	}
+	if len(changed) > 0 {
+		switch method {
+		case postgres.ConfigUpdateReload:
+			slog.Info("reloading PostgreSQL configuration", "cluster_id", clusterID, "container_id", containerID)
+			if _, err := configDocker.ExecContainer(ctx, containerID, []string{"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_reload_conf();"}); err != nil {
+				return fmt.Errorf("reload PostgreSQL config: %w", err)
+			}
+		case postgres.ConfigUpdateRestart:
+			slog.Info("restarting PostgreSQL for configuration change", "cluster_id", clusterID, "container_id", containerID)
+			if err := docker.StopContainer(ctx, containerID); err != nil {
+				return err
+			}
+			if err := docker.StartContainer(ctx, containerID); err != nil {
+				return err
+			}
+		default:
+			return errors.New("unknown PostgreSQL config update method")
+		}
+	}
+	return postgres.WaitForConfigApplied(ctx, configDocker, containerID, len(desired))
+}
+
+func markReplicaParamsApplied(ctx context.Context, docker replicaDockerClient, containerID string, cluster *ClusterSpec, replicaID string) error {
+	if err := postgres.WaitForConfigApplied(ctx, docker, containerID, len(cluster.Params)); err != nil {
+		return err
+	}
+	identity, err := postgres.DeriveReplicaIdentity(cluster.Id, replicaID)
+	if err != nil {
+		return err
+	}
+	configDocker, ok := any(docker).(interface {
+		WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
 	})
+	if !ok {
+		return errors.New("docker client does not support replica parameter state")
+	}
+	return writeAppliedParams(ctx, configDocker, cluster.Id, orcadocker.PostgresReplicaAppliedConfigRelativePath(replicaID), identity.DataPath, cluster.Params)
+}
+
+func writeAppliedParams(ctx context.Context, configDocker interface {
+	WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+}, clusterID, relativePath, dataPath string, params map[string]string) error {
+	config, err := postgres.RenderNodeConfig(clusterID, dataPath, params)
+	if err != nil {
+		return err
+	}
+	return configDocker.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{RelativePath: relativePath, Content: config})
 }
 
 func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) error {

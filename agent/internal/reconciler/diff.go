@@ -38,6 +38,8 @@ const (
 	ActionUpdatePgHba ActionType = "update_pg_hba"
 	// ActionObservePgHba reports a failure reading the active authentication configuration.
 	ActionObservePgHba ActionType = "observe_pg_hba"
+	// ActionObserveParameters reports a failure reading live PostgreSQL parameter state.
+	ActionObserveParameters ActionType = "observe_parameters"
 	// ActionCreatePgBackRest configures a new pgBackRest stanza and schedule.
 	ActionCreatePgBackRest ActionType = "create_pgbackrest"
 	// ActionUpdatePgBackRest updates an existing pgBackRest stanza and schedule.
@@ -121,7 +123,7 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 		}
 
 		actions = append(actions, diffPgHba(desiredCluster, actualCluster)...)
-		actions = append(actions, diffReplicas(desiredCluster.Id, desiredCluster.Replicas, actualCluster.Replicas, primaryReplacement)...)
+		actions = append(actions, diffReplicas(desiredCluster, actualCluster.Replicas, primaryReplacement)...)
 		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
 		actions = append(actions, pgBouncerActions...)
 		extensionActions := diffExtensions(desiredCluster, actualCluster)
@@ -229,17 +231,25 @@ func deleteClusterActions(cluster *ActualCluster) []Action {
 }
 
 func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
-	return primaryRequiresReplacement(desired, actual) || len(postgres.ChangedParameters(desired.Params, actual.AppliedParams)) > 0
+	if primaryRequiresReplacement(desired, actual) || len(postgres.ChangedParameters(desired.Params, actual.AppliedParams)) > 0 {
+		return true
+	}
+	for _, replica := range actual.Replicas {
+		if replica != nil && len(postgres.ChangedParameters(desired.Params, replica.AppliedParams)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func primaryRequiresReplacement(desired *ClusterSpec, actual *ActualCluster) bool {
 	imageMissingPgBackRest := desired.PgBackRest != nil && !strings.HasPrefix(strings.TrimPrefix(actual.Image, "docker.io/library/"), "orca-postgres:")
-	legacyConfig := actual.AppliedParams == nil && len(desired.Params) > 0
-	return desired.Version != actual.Version || imageMissingPgBackRest || legacyConfig
+	return desired.Version != actual.Version || imageMissingPgBackRest
 }
 
-func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
+func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
 	actions := []Action{}
+	desired := cluster.Replicas
 	actualReplicas := make(map[string]*ActualReplica, len(actual))
 	for _, replica := range actual {
 		actualReplicas[replica.Id] = replica
@@ -250,16 +260,17 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 		if !exists {
 			actions = append(actions, Action{
 				Type:      ActionCreateReplica,
-				ClusterID: clusterID,
+				ClusterID: cluster.Id,
 				ReplicaID: desiredReplica.Id,
 				Spec:      desiredReplica,
 			})
 			continue
 		}
-		if actualReplica.Status != "running" || primaryVersionChanged {
+		legacyParameterConfig := actualReplica.AppliedParams == nil && len(cluster.Params) > 0
+		if actualReplica.Status != "running" || primaryVersionChanged || legacyParameterConfig {
 			actions = append(actions,
-				Action{Type: ActionDeleteReplica, ClusterID: clusterID, ReplicaID: actualReplica.Id, Spec: actualReplica},
-				Action{Type: ActionCreateReplica, ClusterID: clusterID, ReplicaID: desiredReplica.Id, Spec: desiredReplica},
+				Action{Type: ActionDeleteReplica, ClusterID: cluster.Id, ReplicaID: actualReplica.Id, Spec: actualReplica},
+				Action{Type: ActionCreateReplica, ClusterID: cluster.Id, ReplicaID: desiredReplica.Id, Spec: desiredReplica},
 			)
 		}
 
@@ -270,7 +281,7 @@ func diffReplicas(clusterID string, desired []*ReplicaSpec, actual []*ActualRepl
 		if _, exists := actualReplicas[actualReplica.Id]; exists {
 			actions = append(actions, Action{
 				Type:      ActionDeleteReplica,
-				ClusterID: clusterID,
+				ClusterID: cluster.Id,
 				ReplicaID: actualReplica.Id,
 				Spec:      actualReplica,
 			})

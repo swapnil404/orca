@@ -89,6 +89,8 @@ export interface ActualReplica {
   replication_lag_status?: string
   pg_hba_rules?: PgHbaRule[]
   pg_hba_observed?: boolean
+  applied_params?: Record<string, string>
+  parameters_observed?: boolean
 }
 
 export interface ActualPgBouncer {
@@ -123,6 +125,19 @@ export interface ActualCluster {
   pg_hba_observed?: boolean
   network_cidrs?: string[]
   pg_hba_replication_cidrs?: string[]
+  applied_params?: Record<string, string>
+  parameter_states?: Record<string, PostgresParameterState>
+  parameters_observed?: boolean
+}
+
+export interface PostgresParameterState {
+  setting: string
+  unit: string
+  context: string
+  update_method: 'reload' | 'restart' | ''
+  pending_restart: boolean
+  error: string
+  applied: boolean
 }
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'pending' | 'unknown'

@@ -46,6 +46,16 @@ const (
 	PgBackRestAppliedConfigRelativePath = "pgbackrest/applied.conf"
 )
 
+// PostgresReplicaConfigRelativePath returns one replica's generated PostgreSQL config path.
+func PostgresReplicaConfigRelativePath(replicaID string) string {
+	return filepath.Join("postgres", "replicas", replicaID, "postgresql.conf")
+}
+
+// PostgresReplicaAppliedConfigRelativePath returns one replica's last applied parameter record.
+func PostgresReplicaAppliedConfigRelativePath(replicaID string) string {
+	return filepath.Join("postgres", "replicas", replicaID, "applied.conf")
+}
+
 type sdkClient interface {
 	ContainerCreate(ctx context.Context, config *containertypes.Config, hostConfig *containertypes.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (containertypes.CreateResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options containertypes.StartOptions) error
@@ -466,6 +476,8 @@ func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error
 				configPath = PostgresAppliedConfigRelativePath
 			case ContainerKindPgBouncer:
 				configPath = PgBouncerConfigRelativePath
+			case ContainerKindReplica:
+				configPath = PostgresReplicaAppliedConfigRelativePath(info.ReplicaID)
 			}
 			if configPath != "" {
 				config, err := readConfig(c.dataRoot, info.ClusterID, configPath)
