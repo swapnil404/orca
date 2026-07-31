@@ -11,6 +11,10 @@ import (
 )
 
 type infoStanza struct {
+	Name   string `json:"name"`
+	Status struct {
+		Code int `json:"code"`
+	} `json:"status"`
 	Backup []struct {
 		Error bool `json:"error"`
 		Info  struct {
@@ -53,8 +57,16 @@ func InitializeStanza(ctx context.Context, executor Executor, desired *ClusterDe
 		return err
 	}
 
-	if _, err := executor.ExecContainer(ctx, primary, pgBackRestCommand(desired.Id, "info")); err == nil {
-		return nil
+	command := []string{"gosu", postgresUser, "pgbackrest", "--config=" + clusterConfigPath(desired.Id), "--stanza=" + desired.Id, "--output=json", "info"}
+	if output, err := executor.ExecContainer(ctx, primary, command); err == nil {
+		var stanzas []infoStanza
+		if json.Unmarshal([]byte(output), &stanzas) == nil {
+			for _, stanza := range stanzas {
+				if stanza.Name == desired.Id && stanza.Status.Code == 0 {
+					return nil
+				}
+			}
+		}
 	}
 	if _, err := executor.ExecContainer(ctx, primary, pgBackRestCommand(desired.Id, "stanza-create")); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {

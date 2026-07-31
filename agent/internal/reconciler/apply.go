@@ -71,6 +71,7 @@ func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredSt
 func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, actions []Action, desired *DesiredState) []ApplyResult {
 	results := make([]ApplyResult, 0, len(actions))
 	failedReplicaDeletes := make(map[string]error)
+	failedReplicaCreates := make(map[string]struct{})
 	failedPrimaryActions := make(map[string]struct{})
 	failedDependentDeletes := make(map[string]struct{})
 	failedBackupDeletes := make(map[string]struct{})
@@ -84,6 +85,12 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 		}
 		if action.Type == ActionCreateReplica {
 			if _, blocked := failedReplicaDeletes[key]; blocked {
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
+				continue
+			}
+		}
+		if action.Type == ActionCreatePgBouncer || action.Type == ActionUpdatePgBouncer {
+			if _, blocked := failedReplicaCreates[action.ClusterID]; blocked {
 				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
 				continue
 			}
@@ -102,6 +109,9 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 		results = append(results, ApplyResult{Action: action, Status: applyStatus(err), Err: err})
 		if action.Type == ActionDeleteReplica && err != nil {
 			failedReplicaDeletes[key] = err
+		}
+		if action.Type == ActionCreateReplica && err != nil {
+			failedReplicaCreates[action.ClusterID] = struct{}{}
 		}
 		if isPrimaryDependentDelete(action.Type) && err != nil {
 			failedDependentDeletes[action.ClusterID] = struct{}{}

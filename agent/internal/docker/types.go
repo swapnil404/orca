@@ -37,7 +37,15 @@ type ContainerSpec struct {
 	Labels    map[string]string
 	Command   []string
 	UseVolume bool
+	Volumes   []VolumeMount
 	Config    *ConfigMount
+}
+
+// VolumeMount describes an explicit named-volume mount.
+type VolumeMount struct {
+	Name     string
+	Path     string
+	ReadOnly bool
 }
 
 // ConfigMount describes generated configuration persisted on the host and

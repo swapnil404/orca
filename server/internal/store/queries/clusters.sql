@@ -58,6 +58,25 @@ JOIN organization_memberships om ON om.organization_id = p.organization_id
 WHERE c.id = $1 AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL;
 
+-- name: GetClusterMutationResource :one
+SELECT c.id
+FROM clusters c
+JOIN projects p ON p.id = c.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.id = sqlc.arg(cluster_id) AND om.user_id = sqlc.arg(user_id)
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+FOR UPDATE OF c;
+
+-- name: ListProjectClusterMutationResources :many
+SELECT c.id
+FROM clusters c
+JOIN projects p ON p.id = c.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.project_id = sqlc.arg(project_id) AND om.user_id = sqlc.arg(user_id)
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY c.id
+FOR UPDATE OF c;
+
 -- name: UpdateCluster :one
 UPDATE clusters c
 SET name = $3,

@@ -34,6 +34,7 @@ type desiredStatePusher interface {
 
 type agentReportStore interface {
 	StoreAgentReport(context.Context, string, *types.AgentReportMessage, time.Time) error
+	ApplyRestoreOperationReports(context.Context, string, []*types.RestoreOperationReport) ([]string, error)
 }
 
 type agentReportNotifier interface {
@@ -170,6 +171,15 @@ func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload
 		h.logger.Error("failed to store agent report", "host_id", hostID, "error", err)
 		return
 	}
+	if _, err := h.reports.ApplyRestoreOperationReports(ctx, hostID, report.GetRestoreOperationReports()); err != nil {
+		h.logger.Error("failed to store restore operation reports", "host_id", hostID, "error", err)
+		return
+	}
+	if len(report.GetRestoreOperationReports()) > 0 && h.pusher != nil {
+		if err := h.pusher.PushDesiredState(ctx, hostID); err != nil {
+			h.logger.Error("failed to push restore operation snapshot", "host_id", hostID, "error", err)
+		}
+	}
 	failedActions := 0
 	for _, result := range report.GetReconciliationResults() {
 		if result.GetStatus() == "failed" {
@@ -213,6 +223,25 @@ func validateAgentReport(report *types.AgentReportMessage) error {
 			return fmt.Errorf("duplicate health cluster ID %q", health.GetClusterId())
 		}
 		healthIDs[health.GetClusterId()] = struct{}{}
+	}
+	restoreIDs := make(map[string]struct{}, len(report.GetRestoreOperationReports()))
+	for _, restore := range report.GetRestoreOperationReports() {
+		if restore == nil || restore.GetOperationId() == "" {
+			return fmt.Errorf("restore operation ID is required")
+		}
+		if _, exists := restoreIDs[restore.GetOperationId()]; exists {
+			return fmt.Errorf("duplicate restore operation ID %q", restore.GetOperationId())
+		}
+		restoreIDs[restore.GetOperationId()] = struct{}{}
+		if restore.GetSequence() == 0 {
+			return fmt.Errorf("restore operation %q sequence is required", restore.GetOperationId())
+		}
+		if restore.GetStatus() == "" {
+			return fmt.Errorf("restore operation %q status is required", restore.GetOperationId())
+		}
+		if restore.GetPhase() == "" {
+			return fmt.Errorf("restore operation %q phase is required", restore.GetOperationId())
+		}
 	}
 	return nil
 }

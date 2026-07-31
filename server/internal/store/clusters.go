@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,6 +15,9 @@ const (
 	defaultPgBouncerPoolMode       = "transaction"
 	defaultPgBouncerMaxConnections = 100
 )
+
+// ErrRestoreOperationInProgress indicates that a cluster mutation conflicts with an unfinished restore.
+var ErrRestoreOperationInProgress = errors.New("cluster has a restore operation in progress")
 
 // Cluster is a desired Postgres cluster assigned to a host.
 type Cluster struct {
@@ -128,14 +132,16 @@ type UpdateClusterParams struct {
 // UpdatePgBouncerParams contains one cluster's pool settings.
 type UpdatePgBouncerParams struct {
 	ID             string
+	UserID         string
 	PoolMode       string
 	MaxConnections int32
 }
 
 // UpdatePgHbaParams contains one cluster's ordered authentication rules.
 type UpdatePgHbaParams struct {
-	ID    string
-	Rules []PgHbaRule
+	ID     string
+	UserID string
+	Rules  []PgHbaRule
 }
 
 // UpdateParametersParams contains one cluster's PostgreSQL parameters.
@@ -271,6 +277,9 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 	}
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, params.UserID, params.ID); err != nil {
+		return Cluster{}, err
+	}
 	row, err := queries.UpdateCluster(ctx, sqlcdb.UpdateClusterParams{
 		ID: params.ID, UserID: params.UserID, Name: params.Name,
 		PostgresVersion: params.PostgresVersion, Parameters: parameters,
@@ -314,6 +323,9 @@ func (s *Postgres) UpdatePgBouncer(ctx context.Context, params UpdatePgBouncerPa
 	}
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, params.UserID, params.ID); err != nil {
+		return Cluster{}, err
+	}
 	row, err := queries.UpdateClusterPgBouncer(ctx, sqlcdb.UpdateClusterPgBouncerParams{
 		ClusterID: params.ID, PgbouncerPoolMode: params.PoolMode,
 		PgbouncerMaxConnections: params.MaxConnections,
@@ -348,6 +360,9 @@ func (s *Postgres) UpdatePgHba(ctx context.Context, params UpdatePgHbaParams) (C
 	}
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, params.UserID, params.ID); err != nil {
+		return Cluster{}, err
+	}
 	row, err := queries.UpdateClusterPgHba(ctx, sqlcdb.UpdateClusterPgHbaParams{ClusterID: params.ID, PgHbaRules: rules})
 	if err != nil {
 		return Cluster{}, err
@@ -379,6 +394,9 @@ func (s *Postgres) UpdateParameters(ctx context.Context, params UpdateParameters
 	}
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, params.UserID, params.ID); err != nil {
+		return Cluster{}, err
+	}
 	row, err := queries.UpdateClusterParameters(ctx, sqlcdb.UpdateClusterParametersParams{ClusterID: params.ID, Parameters: parameters, UserID: params.UserID})
 	if err != nil {
 		return Cluster{}, err
@@ -407,6 +425,9 @@ func (s *Postgres) RestartProject(ctx context.Context, params RestartProjectPara
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
 	if _, err := queries.GetProject(ctx, sqlcdb.GetProjectParams{ID: params.ProjectID, UserID: params.UserID}); err != nil {
+		return nil, err
+	}
+	if err := lockProjectClusterMutations(ctx, queries, params.UserID, params.ProjectID); err != nil {
 		return nil, err
 	}
 	rows, err := queries.ListActiveClustersForProject(ctx, sqlcdb.ListActiveClustersForProjectParams{ProjectID: params.ProjectID, UserID: params.UserID})
@@ -444,6 +465,9 @@ func (s *Postgres) DeleteCluster(ctx context.Context, userID, clusterID string) 
 	}
 	defer tx.Rollback()
 	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, userID, clusterID); err != nil {
+		return err
+	}
 	cluster, err := queries.SoftDeleteCluster(ctx, sqlcdb.SoftDeleteClusterParams{ID: clusterID, UserID: userID})
 	if err != nil {
 		return err
@@ -452,6 +476,50 @@ func (s *Postgres) DeleteCluster(ctx context.Context, userID, clusterID string) 
 		return err
 	}
 	return tx.Commit()
+}
+
+func lockClusterMutation(ctx context.Context, queries *sqlcdb.Queries, userID, clusterID string) error {
+	resourceID, err := queries.GetClusterMutationResource(ctx, sqlcdb.GetClusterMutationResourceParams{
+		ClusterID: clusterID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := queries.LockRestoreResource(ctx, resourceID); err != nil {
+		return err
+	}
+	conflict, err := queries.HasClusterRestoreMutationConflict(ctx, resourceID)
+	if err != nil {
+		return err
+	}
+	if conflict {
+		return ErrRestoreOperationInProgress
+	}
+	return nil
+}
+
+func lockProjectClusterMutations(ctx context.Context, queries *sqlcdb.Queries, userID, projectID string) error {
+	resourceIDs, err := queries.ListProjectClusterMutationResources(ctx, sqlcdb.ListProjectClusterMutationResourcesParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+	for _, resourceID := range resourceIDs {
+		if err := queries.LockRestoreResource(ctx, resourceID); err != nil {
+			return err
+		}
+	}
+	conflict, err := queries.HasProjectRestoreMutationConflict(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if conflict {
+		return ErrRestoreOperationInProgress
+	}
+	return nil
 }
 
 // ListDesiredStateHistory returns all desired versions for an owned cluster.

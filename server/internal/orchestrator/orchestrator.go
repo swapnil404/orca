@@ -16,6 +16,8 @@ import (
 type desiredStateStore interface {
 	ListCurrentDesiredStatesForHost(context.Context, string) ([]store.DesiredState, error)
 	GetDesiredStateRevisionForHost(context.Context, string) (int64, error)
+	ListActionableRestoreOperationsForHost(context.Context, string) ([]*types.RestoreOperation, error)
+	GetRestoreRevisionForHost(context.Context, string) (int64, error)
 }
 
 type sessionHub interface {
@@ -58,6 +60,14 @@ func (o *Orchestrator) PushDesiredState(ctx context.Context, hostID string) erro
 	if err != nil {
 		return fmt.Errorf("load desired state for host %s: %w", hostID, err)
 	}
+	restoreRevision, err := o.store.GetRestoreRevisionForHost(ctx, hostID)
+	if err != nil {
+		return fmt.Errorf("load restore revision for host %s: %w", hostID, err)
+	}
+	restoreOperations, err := o.store.ListActionableRestoreOperationsForHost(ctx, hostID)
+	if err != nil {
+		return fmt.Errorf("load restore operations for host %s: %w", hostID, err)
+	}
 
 	clusters := make([]*types.ClusterSpec, 0, len(states))
 	for _, state := range states {
@@ -67,9 +77,12 @@ func (o *Orchestrator) PushDesiredState(ctx context.Context, hostID string) erro
 		}
 		clusters = append(clusters, &cluster)
 	}
-
+	revisionValue := strconv.FormatInt(revision, 10)
+	if restoreRevision > 0 {
+		revisionValue = fmt.Sprintf("%d:%d", revision, restoreRevision)
+	}
 	message := &types.DesiredStateMessage{
-		DesiredState: &types.DesiredState{Clusters: clusters, Revision: strconv.FormatInt(revision, 10)},
+		DesiredState: &types.DesiredState{Clusters: clusters, Revision: revisionValue, RestoreOperations: restoreOperations},
 	}
 	if err := session.SendDesiredState(message); err != nil {
 		return fmt.Errorf("send desired state to host %s: %w", hostID, err)

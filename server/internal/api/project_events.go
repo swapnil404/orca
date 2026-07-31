@@ -28,14 +28,16 @@ type projectEventStore interface {
 	ListClusters(context.Context, string, string) ([]store.Cluster, error)
 	ListClusterReportsForHost(context.Context, string, time.Time) ([]store.ClusterReport, error)
 	ListProjectIDsForHost(context.Context, string) ([]string, error)
+	ListRestoreOperations(context.Context, string, string) ([]store.RestoreOperation, error)
 }
 
 // ProjectStateSnapshot is the current actual state and health for a project.
 type ProjectStateSnapshot struct {
-	Type            string                `json:"type"`
-	ProjectID       string                `json:"project_id"`
-	DesiredClusters []store.Cluster       `json:"desired_clusters"`
-	Clusters        []ProjectClusterState `json:"clusters"`
+	Type              string                   `json:"type"`
+	ProjectID         string                   `json:"project_id"`
+	DesiredClusters   []store.Cluster          `json:"desired_clusters"`
+	Clusters          []ProjectClusterState    `json:"clusters"`
+	RestoreOperations []store.RestoreOperation `json:"restore_operations"`
 }
 
 // ProjectClusterState is the latest reported state for one desired cluster.
@@ -230,6 +232,10 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 	if err != nil {
 		return ProjectStateSnapshot{}, err
 	}
+	restoreOperations, err := h.store.ListRestoreOperations(ctx, userID, projectID)
+	if err != nil {
+		return ProjectStateSnapshot{}, err
+	}
 	reportsByCluster := make(map[string]store.ClusterReport)
 	hosts := make(map[string]struct{})
 	for _, cluster := range clusters {
@@ -247,7 +253,7 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 
 	snapshot := ProjectStateSnapshot{
 		Type: "project_state", ProjectID: projectID, DesiredClusters: clusters,
-		Clusters: make([]ProjectClusterState, 0, len(clusters)),
+		Clusters: make([]ProjectClusterState, 0, len(clusters)), RestoreOperations: restoreOperations,
 	}
 	for _, cluster := range clusters {
 		state := ProjectClusterState{ClusterID: cluster.ID, HostID: cluster.HostID, Health: "unknown"}

@@ -15,6 +15,7 @@ message AgentReportMessage {
   HealthReport health_report = 2;
   repeated ReconciliationResult reconciliation_results = 3;
   string desired_state_revision = 4;
+  repeated RestoreOperationReport restore_operation_reports = 5;
 }
 
 // ReconciliationResult describes the outcome of one agent action.
@@ -30,6 +31,39 @@ message DesiredState {
   string cluster_id = 1;
   repeated ClusterSpec clusters = 2;
   string revision = 3;
+  repeated RestoreOperation restore_operations = 4;
+}
+
+// RestoreOperation describes one durable host-level recovery intent.
+message RestoreOperation {
+  string id = 1;
+  string mode = 2;
+  string intent = 3;
+  string source_cluster_id = 4;
+  optional ClusterSpec target_cluster = 5;
+  string target_time = 6;
+  string request_fingerprint = 7;
+}
+
+// RestoreOperationReport describes the agent's durable recovery progress.
+message RestoreOperationReport {
+  string operation_id = 1;
+  uint64 sequence = 2;
+  string status = 3;
+  string phase = 4;
+  string error_code = 5;
+  string error = 6;
+  bool destructive_started = 7;
+  bool cancellable = 8;
+  bool rollback_available = 9;
+  string backup_label = 10;
+  string recovery_earliest = 11;
+  string recovery_latest = 12;
+  string postgres_version = 13;
+  uint64 required_bytes = 14;
+  uint64 available_bytes = 15;
+  string started_at = 16;
+  string completed_at = 17;
 }
 
 // ClusterSpec describes a desired Postgres cluster.

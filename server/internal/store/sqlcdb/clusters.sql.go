@@ -172,6 +172,28 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 	return i, err
 }
 
+const getClusterMutationResource = `-- name: GetClusterMutationResource :one
+SELECT c.id
+FROM clusters c
+JOIN projects p ON p.id = c.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.id = $1 AND om.user_id = $2
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+FOR UPDATE OF c
+`
+
+type GetClusterMutationResourceParams struct {
+	ClusterID string `json:"cluster_id"`
+	UserID    string `json:"user_id"`
+}
+
+func (q *Queries) GetClusterMutationResource(ctx context.Context, arg GetClusterMutationResourceParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getClusterMutationResource, arg.ClusterID, arg.UserID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listActiveClustersForProject = `-- name: ListActiveClustersForProject :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.replica_count, c.pgbouncer_enabled, c.created_at, c.updated_at, c.deleted_at,
@@ -300,6 +322,45 @@ func (q *Queries) ListClusters(ctx context.Context, arg ListClustersParams) ([]C
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectClusterMutationResources = `-- name: ListProjectClusterMutationResources :many
+SELECT c.id
+FROM clusters c
+JOIN projects p ON p.id = c.project_id
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE c.project_id = $1 AND om.user_id = $2
+  AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY c.id
+FOR UPDATE OF c
+`
+
+type ListProjectClusterMutationResourcesParams struct {
+	ProjectID string `json:"project_id"`
+	UserID    string `json:"user_id"`
+}
+
+func (q *Queries) ListProjectClusterMutationResources(ctx context.Context, arg ListProjectClusterMutationResourcesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectClusterMutationResources, arg.ProjectID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

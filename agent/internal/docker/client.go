@@ -154,6 +154,17 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 			Target: VolumeMountPath(spec.ClusterID),
 		})
 	}
+	for _, volume := range spec.Volumes {
+		if volume.Name == "" || volume.Path == "" || !filepath.IsAbs(volume.Path) {
+			return "", errors.New("explicit volume mount requires a name and absolute path")
+		}
+		if err := c.EnsureVolume(ctx, volume.Name); err != nil {
+			return "", err
+		}
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
+			Type: mount.TypeVolume, Source: volume.Name, Target: filepath.Clean(volume.Path), ReadOnly: volume.ReadOnly,
+		})
+	}
 	if spec.Config != nil {
 		configMount, err := writeConfigMount(c.dataRoot, spec.ClusterID, spec.Config)
 		if err != nil {
