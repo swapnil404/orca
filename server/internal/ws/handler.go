@@ -76,10 +76,13 @@ func NewAgentHandler(hub *Hub, hosts agentHostStore, pushers ...desiredStatePush
 
 // ServeHTTP upgrades an agent connection and registers its authenticated session.
 func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("incoming agent WebSocket upgrade request", "remote_address", r.RemoteAddr, "path", r.URL.Path)
 	connection, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		h.logger.Warn("agent WebSocket upgrade failed", "remote_address", r.RemoteAddr, "error", err)
 		return
 	}
+	h.logger.Info("agent WebSocket upgrade succeeded", "remote_address", r.RemoteAddr)
 
 	connection.SetReadLimit(maxAgentMessageBytes)
 	_ = connection.SetReadDeadline(h.now().Add(h.authTimeout))
@@ -87,34 +90,54 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var message struct {
 		Token string `json:"token"`
 	}
-	if err := connection.ReadJSON(&message); err != nil || message.Token == "" {
+	if err := connection.ReadJSON(&message); err != nil {
+		h.logger.Warn("agent authentication frame read failed", "remote_address", r.RemoteAddr, "error", err)
+		closeConnection(connection, websocket.ClosePolicyViolation, "authentication required")
+		return
+	}
+	if message.Token == "" {
+		h.logger.Warn("agent token validation failed", "remote_address", r.RemoteAddr, "reason", "token missing")
 		closeConnection(connection, websocket.ClosePolicyViolation, "authentication required")
 		return
 	}
 
 	host, err := h.hosts.HostByTokenHash(r.Context(), auth.HashAgentToken(message.Token))
-	if err != nil || !h.now().Before(host.TokenExpiresAt) {
+	if err != nil {
+		h.logger.Warn("agent token validation failed", "remote_address", r.RemoteAddr, "reason", "token not found", "error", err)
 		closeConnection(connection, websocket.ClosePolicyViolation, "invalid or expired token")
 		return
 	}
+	if !h.now().Before(host.TokenExpiresAt) {
+		h.logger.Warn("agent token validation failed", "host_id", host.ID, "reason", "token expired", "expired_at", host.TokenExpiresAt)
+		closeConnection(connection, websocket.ClosePolicyViolation, "invalid or expired token")
+		return
+	}
+	h.logger.Info("agent token validation succeeded", "host_id", host.ID)
 	if err := h.hosts.UpdateHostStatus(r.Context(), host.ID, store.HostStatusOnline); err != nil {
+		h.logger.Error("agent host activation failed", "host_id", host.ID, "error", err)
 		closeConnection(connection, websocket.CloseInternalServerErr, "failed to activate host")
 		return
 	}
+	h.logger.Info("agent host activation succeeded", "host_id", host.ID)
 
 	_ = connection.SetReadDeadline(time.Time{})
 	session := NewSession(connection)
 	h.hub.Register(host.ID, session)
+	h.logger.Info("agent host session registered", "host_id", host.ID)
 	defer h.disconnect(host.ID, session)
 	if h.pusher != nil {
+		h.logger.Info("setting up initial desired-state snapshot", "host_id", host.ID)
 		if err := h.pusher.PushDesiredState(r.Context(), host.ID); err != nil {
+			h.logger.Error("initial desired-state snapshot setup failed", "host_id", host.ID, "error", err)
 			return
 		}
+		h.logger.Info("initial desired-state snapshot sent", "host_id", host.ID)
 	}
 
 	for {
 		messageType, payload, err := connection.ReadMessage()
 		if err != nil {
+			h.logger.Info("agent WebSocket read stopped", "host_id", host.ID, "error", err)
 			return
 		}
 		h.handleReportFrame(host.ID, messageType, payload)
@@ -147,6 +170,13 @@ func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload
 		h.logger.Error("failed to store agent report", "host_id", hostID, "error", err)
 		return
 	}
+	failedActions := 0
+	for _, result := range report.GetReconciliationResults() {
+		if result.GetStatus() == "failed" {
+			failedActions++
+		}
+	}
+	h.logger.Info("agent report stored", "host_id", hostID, "desired_state_revision", report.GetDesiredStateRevision(), "reconciliation_results", len(report.GetReconciliationResults()), "failed_actions", failedActions)
 	if h.notifier != nil {
 		if err := h.notifier.NotifyHostReport(ctx, hostID); err != nil {
 			h.logger.Error("failed to notify frontend clients of agent report", "host_id", hostID, "error", err)
@@ -196,7 +226,11 @@ func (h *AgentHandler) disconnect(hostID string, session *Session) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
 	defer cancel()
-	_ = h.hosts.UpdateHostStatus(ctx, hostID, store.HostStatusOffline)
+	if err := h.hosts.UpdateHostStatus(ctx, hostID, store.HostStatusOffline); err != nil {
+		h.logger.Error("agent host deactivation failed", "host_id", hostID, "error", err)
+		return
+	}
+	h.logger.Info("agent host session unregistered", "host_id", hostID)
 }
 
 func closeConnection(connection *websocket.Conn, code int, reason string) {

@@ -93,11 +93,12 @@ curl -sS http://localhost:8080/hosts \
 ```sh
 export ORCA_TOKEN='<generated-token>'
 export ORCA_SERVER_URL='<configured-server-websocket-url>'
+export ORCA_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/orca/data"
 export ORCA_STATE_PATH='/var/orca/state/desired.json'
 go run ./agent/cmd/agent
 ```
 
-Ensure the parent directory of `ORCA_STATE_PATH` is writable and persistent if desired state must survive agent process or host restarts. If `ORCA_SERVER_URL` is unset, the agent instead starts its standalone development endpoint at `ORCA_DEV_ADDRESS` (default `127.0.0.1:8080`); choose another port if the server is also using 8080.
+Ensure `ORCA_DATA_DIR` and the parent directory of `ORCA_STATE_PATH` are writable and persistent. The generated source-run command uses the current user's XDG data directory for generated container configuration. If `ORCA_SERVER_URL` is unset, the agent instead starts its standalone development endpoint at `ORCA_DEV_ADDRESS` (default `127.0.0.1:8080`); choose another port if the server is also using 8080.
 
 ### OAuth Apps
 
@@ -132,7 +133,7 @@ The checked-in Caddy development proxy routes `/auth/*`, JSON API requests, agen
 | `ORCA_GOOGLE_CLIENT_ID` / `ORCA_GOOGLE_CLIENT_SECRET` | server | Optional Google OAuth pair |
 | `ORCA_API_URL` | web server | Go API origin used by TanStack Start server functions; defaults to `http://127.0.0.1:8080` |
 | `ORCA_TOKEN` | agent | Required in tunnel mode |
-| `ORCA_DATA_DIR` | agent | Disk-metrics path; defaults to `/var/orca/data` and does not relocate Docker/config storage |
+| `ORCA_DATA_DIR` | agent | Generated container configuration and disk-metrics path; defaults to `/var/orca/data` |
 | `ORCA_STATE_PATH` | agent | Desired-state cache path; defaults to `/var/orca/state/desired.json` |
 | `ORCA_DEV_ADDRESS` | agent | Standalone development endpoint address when `ORCA_SERVER_URL` is unset; defaults to `127.0.0.1:8080` |
 

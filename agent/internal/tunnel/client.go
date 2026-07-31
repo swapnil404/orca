@@ -88,9 +88,9 @@ func (c *Client) Run(ctx context.Context) error {
 		if reconciled {
 			backoff = c.config.MinBackoff
 		}
-		c.logger.Debug("agent tunnel disconnected", "error", err, "retry_in", backoff)
+		c.logger.Warn("agent tunnel disconnected", "error", err, "retry_in", backoff)
 		if _, err := c.runner.ReconcileCached(ctx); err != nil {
-			c.logger.Debug("offline reconciliation failed", "error", err)
+			c.logger.Warn("offline reconciliation failed", "error", err)
 		}
 		if err := wait(ctx, backoff); err != nil {
 			return err
@@ -105,10 +105,17 @@ func (c *Client) Run(ctx context.Context) error {
 }
 
 func (c *Client) runSession(ctx context.Context) (bool, error) {
-	connection, _, err := c.dialer.DialContext(ctx, c.config.ServerURL, nil)
+	c.logger.Info("dialing agent tunnel", "url", c.config.ServerURL)
+	connection, response, err := c.dialer.DialContext(ctx, c.config.ServerURL, nil)
 	if err != nil {
+		if response != nil {
+			c.logger.Warn("agent tunnel dial failed", "url", c.config.ServerURL, "http_status", response.StatusCode, "error", err)
+		} else {
+			c.logger.Warn("agent tunnel dial failed", "url", c.config.ServerURL, "error", err)
+		}
 		return false, fmt.Errorf("connect agent tunnel: %w", err)
 	}
+	c.logger.Info("agent tunnel WebSocket handshake succeeded", "url", c.config.ServerURL)
 	defer connection.Close()
 	connection.SetReadLimit(maxServerMessage)
 	if err := connection.SetWriteDeadline(time.Now().Add(connectionDeadline)); err != nil {
@@ -117,8 +124,10 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 	if err := connection.WriteJSON(struct {
 		Token string `json:"token"`
 	}{Token: c.config.Token}); err != nil {
+		c.logger.Warn("agent tunnel authentication request failed", "error", err)
 		return false, fmt.Errorf("authenticate agent tunnel: %w", err)
 	}
+	c.logger.Info("agent tunnel authentication request sent")
 	if err := connection.SetWriteDeadline(time.Time{}); err != nil {
 		return false, err
 	}
@@ -162,16 +171,24 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 	}()
 
 	reconciled := false
+	authenticated := false
 	for {
 		select {
 		case <-ctx.Done():
 			return reconciled, ctx.Err()
 		case incoming := <-frames:
 			if incoming.err != nil {
+				if !authenticated {
+					c.logger.Warn("agent tunnel authentication failed before confirmation", "error", incoming.err)
+				}
 				return reconciled, fmt.Errorf("read desired state: %w", incoming.err)
 			}
 			if incoming.messageType != websocket.BinaryMessage {
 				return reconciled, fmt.Errorf("unexpected desired-state message type %d", incoming.messageType)
+			}
+			if !authenticated {
+				authenticated = true
+				c.logger.Info("agent tunnel authentication succeeded")
 			}
 			message := &types.DesiredStateMessage{}
 			if err := proto.Unmarshal(incoming.payload, message); err != nil {
@@ -180,12 +197,25 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 			if message.GetDesiredState() == nil {
 				return reconciled, errors.New("desired state is required")
 			}
+			c.logger.Info("desired-state snapshot received", "revision", message.GetDesiredState().GetRevision(), "clusters", len(message.GetDesiredState().GetClusters()))
 			pass, err := c.runner.Reconcile(ctx, message.GetDesiredState())
 			if err != nil {
 				return reconciled, fmt.Errorf("reconcile desired state: %w", err)
 			}
+			failedActions := 0
+			for _, result := range pass.Results {
+				if result.Err == nil {
+					continue
+				}
+				failedActions++
+				c.logger.Warn("reconciliation action failed", "action", result.Action.Type, "cluster_id", result.Action.ClusterID, "error", result.Err)
+			}
+			c.logger.Info("desired-state reconciliation completed", "revision", message.GetDesiredState().GetRevision(), "actions", len(pass.Results), "failed_actions", failedActions)
 			if err := writeReport(connection, pass); err != nil {
 				return reconciled, err
+			}
+			if !reconciled {
+				c.logger.Info("agent tunnel post-auth ready", "revision", message.GetDesiredState().GetRevision())
 			}
 			reconciled = true
 			timer.Reset(c.config.ReconcileInterval)

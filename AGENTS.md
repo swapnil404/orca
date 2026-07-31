@@ -126,7 +126,7 @@ Use `ORCA_` prefixed names consistently across agent, server, and documentation.
 |---|---|---|
 | `ORCA_TOKEN` | agent | Auth token for the agent-server tunnel |
 | `ORCA_SERVER_URL` | agent, server | Agent-facing WebSocket URL; enables agent tunnel mode, appears in registration commands, and supplies the server OAuth callback origin |
-| `ORCA_DATA_DIR` | agent | Path used for disk metrics; it does not currently relocate Docker/config storage |
+| `ORCA_DATA_DIR` | agent | Generated container configuration and disk-metrics path; defaults to `/var/orca/data` |
 | `ORCA_STATE_PATH` | agent | Desired-state cache file; defaults to `/var/orca/state/desired.json` |
 | `ORCA_DEV_ADDRESS` | agent | Standalone dev endpoint when `ORCA_SERVER_URL` is unset; defaults to `127.0.0.1:8080` |
 | `ORCA_JWT_SECRET` | server | Secret for signing tokens |
