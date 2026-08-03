@@ -6,33 +6,24 @@ import { ApiError, getProjectTopology, updateCluster } from '../../../api'
 import { areReportsFresh, isReportStale } from '../../../canvas/status'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
-import type { Cluster, ClusterInput, ProjectClusterState } from '../../../types/resources'
+import type { Cluster, ProjectClusterState, ProjectTopology } from '../../../types/resources'
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/extensions')({
   ssr: false,
   loader: ({ params }) => getProjectTopology(params.projectId),
-  component: ProjectExtensionsPage,
+  component: ProjectExtensionsRoute,
 })
 
 const actionClass = 'inline-flex min-w-20 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50'
 
-function clusterInput(cluster: Cluster, extensions: string[]): ClusterInput {
-  return {
-    name: cluster.name,
-    postgres_version: cluster.postgres_version,
-    parameters: cluster.parameters,
-    replica_count: cluster.replica_count,
-    enabled_extensions: extensions,
-    pg_hba_rules: cluster.pg_hba_rules,
-    pgbouncer_enabled: cluster.pgbouncer_enabled,
-    pg_bouncer: cluster.pg_bouncer,
-    pg_back_rest: cluster.pg_back_rest,
-  }
-}
-
-function ProjectExtensionsPage() {
+function ProjectExtensionsRoute() {
   const initialTopology = Route.useLoaderData()
   const { projectId } = Route.useParams()
+  if (initialTopology.project.id !== projectId) return null
+  return <ProjectExtensionsPage key={projectId} projectId={projectId} initialTopology={initialTopology} />
+}
+
+function ProjectExtensionsPage({ projectId, initialTopology }: { projectId: string; initialTopology: ProjectTopology }) {
   const [clusters, setClusters] = useState(initialTopology.clusters)
   const [pending, setPending] = useState('')
   const [message, setMessage] = useState('')
@@ -53,13 +44,14 @@ function ProjectExtensionsPage() {
 
   async function changeDesired(cluster: Cluster, extension: string, enabled: boolean) {
     const operation = `${cluster.id}:${extension}`
-    const next = enabled
-      ? [...new Set([...cluster.enabled_extensions, extension])].sort()
-      : cluster.enabled_extensions.filter((item) => item !== extension)
     setPending(operation)
     setMessage('')
     try {
-      const updated = await updateCluster(cluster.id, clusterInput(cluster, next))
+      const updated = await updateCluster(cluster.id, (current) => ({
+        enabled_extensions: enabled
+          ? [...new Set([...current.enabled_extensions, extension])].sort()
+          : current.enabled_extensions.filter((item) => item !== extension),
+      }))
       setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))
       setMessage(`${extension} ${enabled ? 'installation' : 'removal'} saved to desired state for ${cluster.name}.`)
     } catch (cause) {
@@ -74,7 +66,7 @@ function ProjectExtensionsPage() {
     setPending(operation)
     setMessage('')
     try {
-      const updated = await updateCluster(cluster.id, clusterInput(cluster, cluster.enabled_extensions))
+      const updated = await updateCluster(cluster.id, {})
       setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))
       setMessage(`Desired state re-sent to the agent for ${cluster.name}.`)
     } catch (cause) {

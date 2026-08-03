@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { listGlobalAlerts, type AlertSeverity, type AlertStatus, type GlobalAlertIncident } from '../../api/global-alerts'
 
 export const Route = createFileRoute('/_authenticated/alerts')({
@@ -18,7 +18,9 @@ const comparisonLabels: Record<GlobalAlertIncident['comparison'], string> = {
 }
 
 function AlertsPage() {
-  const alerts = Route.useLoaderData()
+  const initialAlerts = Route.useLoaderData()
+  const [alerts, setAlerts] = useState(initialAlerts)
+  const [refreshFailed, setRefreshFailed] = useState(false)
   const [projectID, setProjectID] = useState('all')
   const [severity, setSeverity] = useState<AlertSeverity | 'all'>('all')
   const [status, setStatus] = useState<AlertStatus>('firing')
@@ -30,13 +32,27 @@ function AlertsPage() {
       && alertStatus === status
   })
 
+  useEffect(() => {
+    let active = true
+    const refresh = () => void listGlobalAlerts().then((nextAlerts) => {
+      if (!active) return
+      setAlerts(nextAlerts)
+      setRefreshFailed(false)
+    }).catch(() => {
+      if (active) setRefreshFailed(true)
+    })
+    const timer = window.setInterval(refresh, 10_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
   return (
     <main className="min-h-[calc(100vh-56px)] px-4 py-6 text-[var(--text)] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <header>
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--text-3)]">Incident overview</p>
           <h1 className="mt-1.5 text-xl font-semibold">Alerts</h1>
-          <p className="mt-1 text-sm text-[var(--text-2)]">Alert activity across every project you can access.</p>
+          <p className="mt-1 text-sm text-[var(--text-2)]">Alert activity across every project you can access. State refreshes every ten seconds.</p>
+          {refreshFailed && <p role="status" className="mt-2 text-xs text-[var(--warning)]">Alert refresh failed. Displayed state may be stale.</p>}
         </header>
         <div className="my-5 flex flex-wrap gap-3">
           <Filter label="Project" value={projectID} onChange={setProjectID}>

@@ -3,6 +3,7 @@ import { BellRing, CircleCheck, Siren } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectAlerts, getProjectTopology } from '../../../api'
 import type { AlertComparison, AlertIncident, AlertSeverity, ProjectAlerts } from '../../../types/alerts'
+import type { ProjectTopology } from '../../../types/resources'
 
 type HistoryStatus = 'all' | 'firing' | 'resolved'
 type SeverityFilter = 'all' | AlertSeverity
@@ -25,7 +26,7 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/alert
     ])
     return { ...topology, ...alerts }
   },
-  component: ProjectAlertsPage,
+  component: ProjectAlertsRoute,
 })
 
 function ruleLabel(alert: Pick<AlertIncident, 'metric_name' | 'comparison' | 'threshold'>): string {
@@ -42,9 +43,14 @@ function severityClass(severity: AlertSeverity): string {
   return 'border-sky-400/30 bg-sky-400/10 text-sky-200'
 }
 
-function ProjectAlertsPage() {
+function ProjectAlertsRoute() {
   const initial = Route.useLoaderData()
   const { projectId } = Route.useParams()
+  if (initial.project.id !== projectId) return null
+  return <ProjectAlertsPage key={projectId} projectId={projectId} initial={initial} />
+}
+
+function ProjectAlertsPage({ projectId, initial }: { projectId: string; initial: ProjectTopology & ProjectAlerts }) {
   const { project, clusters } = initial
   const [alerts, setAlerts] = useState<ProjectAlerts>({ rules: initial.rules, incidents: initial.incidents })
   const [refreshFailed, setRefreshFailed] = useState(false)

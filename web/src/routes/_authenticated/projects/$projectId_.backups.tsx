@@ -6,7 +6,7 @@ import { BackupTable } from '../../../components/backups/BackupTable'
 import { RestoreWorkflow } from '../../../components/backups/RestoreWorkflow'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
-import type { BackupJob, Cluster, PgBackRestConfig, RestoreOperation } from '../../../types/resources'
+import type { BackupJob, Cluster, PgBackRestConfig, Project, RestoreOperation } from '../../../types/resources'
 
 interface ProjectBackupsSearch {
   restore?: string
@@ -25,15 +25,27 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/backu
     ])
     return { ...topology, backupJobs, restoreOperations }
   },
-  component: ProjectBackupsPage,
+  component: ProjectBackupsRoute,
 })
 
 const fieldClass = 'mt-2 w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none hover:border-[var(--text-3)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-50'
 const buttonClass = 'inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--card)] disabled:cursor-not-allowed disabled:opacity-50'
 
-function ProjectBackupsPage() {
+interface ProjectBackupsData {
+  project: Project
+  clusters: Cluster[]
+  backupJobs: BackupJob[]
+  restoreOperations: RestoreOperation[]
+}
+
+function ProjectBackupsRoute() {
   const initialTopology = Route.useLoaderData()
   const { projectId } = Route.useParams()
+  if (initialTopology.project.id !== projectId) return null
+  return <ProjectBackupsPage key={projectId} projectId={projectId} initialTopology={initialTopology} />
+}
+
+function ProjectBackupsPage({ projectId, initialTopology }: { projectId: string; initialTopology: ProjectBackupsData }) {
   const search = Route.useSearch()
   const [clusters, setClusters] = useState(initialTopology.clusters)
   const [backupJobs, setBackupJobs] = useState(initialTopology.backupJobs)
@@ -129,17 +141,7 @@ function ScheduleEditor({ cluster, disabled, onUpdated }: { cluster: Cluster | u
     setSaving(true)
     setMessage('')
     try {
-      const updated = await updateCluster(cluster.id, {
-        name: cluster.name,
-        postgres_version: cluster.postgres_version,
-        parameters: cluster.parameters,
-        replica_count: cluster.replica_count,
-        enabled_extensions: cluster.enabled_extensions,
-        pg_hba_rules: cluster.pg_hba_rules,
-        pgbouncer_enabled: cluster.pgbouncer_enabled,
-        pg_bouncer: cluster.pg_bouncer,
-        pg_back_rest: pgBackRest,
-      })
+      const updated = await updateCluster(cluster.id, { pg_back_rest: pgBackRest })
       onUpdated(updated)
       setMessage('Schedule saved and desired state queued for the agent.')
     } catch (cause) {
