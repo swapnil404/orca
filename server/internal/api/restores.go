@@ -229,7 +229,7 @@ func (h *RestoreHandler) publish(ctx context.Context, operation store.RestoreOpe
 
 func writeRestoreError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrRestoreMutationForbidden):
+	case errors.Is(err, store.ErrMutationForbidden):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, store.ErrRestoreInvalidConfirmation):
 		writeError(w, http.StatusBadRequest, err.Error())

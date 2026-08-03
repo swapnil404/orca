@@ -11,11 +11,20 @@ import (
 )
 
 var (
+	// ErrMutationForbidden indicates that the user is not an organization owner or admin.
+	ErrMutationForbidden = errors.New("mutation requires organization owner or admin role")
 	// ErrOrganizationOwnerRequired indicates that an organization mutation requires its owner.
 	ErrOrganizationOwnerRequired = errors.New("organization owner role required")
 	// ErrOrganizationHasProjects indicates that project history prevents organization deletion.
 	ErrOrganizationHasProjects = errors.New("organization has projects")
 )
+
+func requireMutationRole(role sqlcdb.OrganizationRole) error {
+	if role != sqlcdb.OrganizationRoleOwner && role != sqlcdb.OrganizationRoleAdmin {
+		return ErrMutationForbidden
+	}
+	return nil
+}
 
 // OrganizationRole is a member's authorization role in an organization.
 type OrganizationRole string

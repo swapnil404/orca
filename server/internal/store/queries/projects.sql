@@ -27,6 +27,14 @@ FROM projects p
 JOIN organization_memberships om ON om.organization_id = p.organization_id
 WHERE p.id = $1 AND om.user_id = $2 AND p.deleted_at IS NULL;
 
+-- name: GetProjectMutationResource :one
+SELECT p.id, om.role
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE p.id = sqlc.arg(project_id) AND om.user_id = sqlc.arg(user_id)
+  AND p.deleted_at IS NULL
+FOR UPDATE OF p;
+
 -- name: UpdateProject :one
 UPDATE projects p
 SET name = $3, updated_at = NOW()

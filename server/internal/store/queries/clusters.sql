@@ -64,7 +64,7 @@ WHERE c.id = $1 AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL;
 
 -- name: GetClusterMutationResource :one
-SELECT c.id
+SELECT c.id, om.role
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id

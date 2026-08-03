@@ -185,7 +185,7 @@ func (q *Queries) GetCluster(ctx context.Context, arg GetClusterParams) (Cluster
 }
 
 const getClusterMutationResource = `-- name: GetClusterMutationResource :one
-SELECT c.id
+SELECT c.id, om.role
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -199,11 +199,16 @@ type GetClusterMutationResourceParams struct {
 	UserID    string `json:"user_id"`
 }
 
-func (q *Queries) GetClusterMutationResource(ctx context.Context, arg GetClusterMutationResourceParams) (string, error) {
+type GetClusterMutationResourceRow struct {
+	ID   string           `json:"id"`
+	Role OrganizationRole `json:"role"`
+}
+
+func (q *Queries) GetClusterMutationResource(ctx context.Context, arg GetClusterMutationResourceParams) (GetClusterMutationResourceRow, error) {
 	row := q.db.QueryRowContext(ctx, getClusterMutationResource, arg.ClusterID, arg.UserID)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+	var i GetClusterMutationResourceRow
+	err := row.Scan(&i.ID, &i.Role)
+	return i, err
 }
 
 const listActiveClustersForProject = `-- name: ListActiveClustersForProject :many
