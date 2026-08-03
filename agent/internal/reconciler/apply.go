@@ -870,7 +870,7 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 	if err != nil {
 		return orcadocker.ContainerSpec{}, err
 	}
-	return orcadocker.ContainerSpec{
+	spec := orcadocker.ContainerSpec{
 		ClusterID: cluster.Id,
 		Kind:      orcadocker.ContainerKindPrimary,
 		Image:     primaryImage(cluster),
@@ -883,7 +883,11 @@ func primaryContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		Config: &orcadocker.ConfigMount{
 			RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config,
 		},
-	}, nil
+	}
+	if cluster.PgBackRest != nil {
+		spec.Binds = []orcadocker.BindMount{{Source: cluster.PgBackRest.RepoPath, Path: cluster.PgBackRest.RepoPath, Create: true}}
+	}
+	return spec, nil
 }
 
 func pgBouncerDesiredCluster(spec any) (*ClusterSpec, bool) {

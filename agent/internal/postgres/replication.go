@@ -30,6 +30,22 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 	if docker == nil {
 		return errors.New("docker client is nil")
 	}
+	identities := make([]ReplicaIdentity, 0, len(desired.Replicas))
+	slots := make(map[string]string, len(desired.Replicas))
+	for _, replica := range desired.Replicas {
+		if replica == nil {
+			return errors.New("replica specification is nil")
+		}
+		identity, err := DeriveReplicaIdentity(desired.Id, replica.Id)
+		if err != nil {
+			return err
+		}
+		if existing, ok := slots[identity.SlotName]; ok {
+			return fmt.Errorf("replicas %q and %q derive the same replication slot %q", existing, replica.Id, identity.SlotName)
+		}
+		slots[identity.SlotName] = replica.Id
+		identities = append(identities, identity)
+	}
 
 	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{
 		ClusterID: desired.Id,
@@ -58,11 +74,7 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		}
 	}
 
-	for _, replica := range desired.Replicas {
-		identity, err := DeriveReplicaIdentity(desired.Id, replica.Id)
-		if err != nil {
-			return err
-		}
+	for _, identity := range identities {
 		slot := identity.SlotName
 		query := fmt.Sprintf("SELECT pg_create_physical_replication_slot('%s') WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", slot, slot)
 		if _, err := docker.ExecContainer(ctx, primary, psqlCommand(query)); err != nil {

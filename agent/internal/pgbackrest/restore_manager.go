@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,7 +22,6 @@ import (
 
 const (
 	restoreJournalName = "restore-operations.json"
-	restoreSourcePath  = "/var/orca/restore-source"
 )
 
 // RestoreDocker provides the host mutations used by durable restore operations.
@@ -294,6 +294,14 @@ func (m *RestoreManager) preflight(ctx context.Context, desired *orcatypes.Desir
 	} else if record.Mode != "in_place" {
 		return m.fail(ctx, record, "invalid_mode", fmt.Errorf("unsupported restore mode %q", operation.Mode))
 	}
+	if _, err := postgres.RenderConfig(source.Id, source.Params); err != nil {
+		return m.fail(ctx, record, "postgres_config_invalid", fmt.Errorf("render source PostgreSQL configuration: %w", err))
+	}
+	if operation.TargetCluster != nil {
+		if _, err := postgres.RenderConfig(operation.TargetCluster.Id, operation.TargetCluster.Params); err != nil {
+			return m.fail(ctx, record, "postgres_config_invalid", fmt.Errorf("render target PostgreSQL configuration: %w", err))
+		}
+	}
 
 	primary, _ := primaryContainerName(source.Id)
 	output, err := m.docker.ExecContainer(ctx, primary, []string{
@@ -328,7 +336,14 @@ func (m *RestoreManager) preflight(ctx context.Context, desired *orcatypes.Desir
 	if operation.TargetCluster != nil && operation.TargetCluster.Version != "" && version != "" && majorVersion(operation.TargetCluster.Version) != majorVersion(version) {
 		return m.fail(ctx, record, "postgres_version_mismatch", fmt.Errorf("repository PostgreSQL version %q does not match target version %q", version, operation.TargetCluster.Version))
 	}
-	available, err := availableBytes(ctx, m.docker, primary, source.PgBackRest.RepoPath)
+	restoredBytes := backup.Info.Size
+	if restoredBytes == 0 {
+		restoredBytes = backup.Info.Repository.Size
+	}
+	if restoredBytes == 0 {
+		return m.fail(ctx, record, "capacity_unknown", errors.New("pgBackRest did not report a nonzero restored size"))
+	}
+	var available, required uint64
 	if record.Mode == "clone" {
 		target := operation.TargetCluster
 		if volumeErr := m.docker.EnsureVolume(ctx, orcadocker.VolumeName(target.Id)); volumeErr != nil {
@@ -341,13 +356,36 @@ func (m *RestoreManager) preflight(ctx context.Context, desired *orcatypes.Desir
 			return m.fail(ctx, record, "capacity_unknown", volumeErr)
 		}
 		available, err = parseAvailableBytes(output)
+		required = restoredBytes
+	} else {
+		volumePath := orcadocker.VolumeMountPath(source.Id)
+		output, capacityErr := m.runMaintenanceOutput(ctx, source, nil, []string{"df", "-Pk", "--", volumePath})
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
+		freeBytes, capacityErr := parseAvailableBytes(output)
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
+		output, capacityErr = m.runMaintenanceOutput(ctx, source, nil, []string{"du", "-sk", "--", volumePath + "/primary"})
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
+		originalBytes, capacityErr := parseDirectorySizeBytes(output)
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
+		available, capacityErr = addBytes(freeBytes, originalBytes)
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
+		required, capacityErr = restoreCapacityRequired(originalBytes, restoredBytes)
+		if capacityErr != nil {
+			return m.fail(ctx, record, "capacity_unknown", capacityErr)
+		}
 	}
 	if err != nil {
 		return m.fail(ctx, record, "capacity_unknown", err)
-	}
-	required := backup.Info.Size
-	if required == 0 {
-		required = backup.Info.Repository.Size
 	}
 	if available < required {
 		return m.fail(ctx, record, "insufficient_space", fmt.Errorf("restore requires %d bytes but only %d are available", required, available))
@@ -510,7 +548,16 @@ func (m *RestoreManager) startAndVerify(ctx context.Context, target *orcatypes.C
 		if err := m.removeContainerByName(ctx, target.Id, orcadocker.ContainerKindPrimary); err != nil {
 			return m.fail(ctx, record, "replace_primary_failed", err)
 		}
-		containerID, err := m.docker.CreateContainer(ctx, restoredPrimarySpec(target))
+		recoveryConfig, err := recoveryConfig(record.SourceSpec, target)
+		if err != nil {
+			return m.fail(ctx, record, "create_primary_failed", err)
+		}
+		repoPath := record.SourceSpec.GetPgBackRest().GetRepoPath()
+		spec, err := restoredPrimarySpec(target, recoveryConfig, repoPath, clone)
+		if err != nil {
+			return m.fail(ctx, record, "postgres_config_invalid", err)
+		}
+		containerID, err := m.docker.CreateContainer(ctx, spec)
 		if err != nil {
 			return m.fail(ctx, record, "create_primary_failed", err)
 		}
@@ -522,7 +569,7 @@ func (m *RestoreManager) startAndVerify(ctx context.Context, target *orcatypes.C
 			return err
 		}
 	}
-	if record.Step < 50 {
+	if record.Step < 45 {
 		if err := m.checkpoint(ctx, record, 6, "verifying_recovery_target", true, false); err != nil {
 			return err
 		}
@@ -538,14 +585,50 @@ func (m *RestoreManager) startAndVerify(ctx context.Context, target *orcatypes.C
 				return m.fail(ctx, record, "read_write_verification_failed", err)
 			}
 		}
+		for _, query := range []string{"ALTER SYSTEM RESET restore_command", "ALTER SYSTEM RESET recovery_target_time", "SELECT pg_reload_conf()"} {
+			if _, err := m.docker.ExecContainer(ctx, primary, psqlCommand(query)); err != nil {
+				return m.fail(ctx, record, "recovery_cleanup_failed", fmt.Errorf("clear completed recovery settings: %w", err))
+			}
+		}
 		if clone {
 			mode, err := m.docker.ExecContainer(ctx, primary, psqlCommand("SHOW archive_mode"))
 			if err != nil || strings.TrimSpace(mode) != "off" {
 				return m.fail(ctx, record, "clone_archive_enabled", errors.Join(err, fmt.Errorf("clone archive_mode is %q", strings.TrimSpace(mode))))
 			}
 		}
+		record.Step = 45
+		record.Report.Phase = "verification_complete"
+		if err := m.bumpAndSave(ctx, record); err != nil {
+			return err
+		}
+	}
+	if clone && record.Step < 50 {
+		if err := m.checkpoint(ctx, record, 7, "detaching_source_repository", true, false); err != nil {
+			return err
+		}
+		if err := m.removeContainerByName(ctx, target.Id, orcadocker.ContainerKindPrimary); err != nil {
+			return m.fail(ctx, record, "detach_source_repository_failed", err)
+		}
+		spec, err := restoredPrimarySpec(target, "", "", false)
+		if err != nil {
+			return m.fail(ctx, record, "postgres_config_invalid", err)
+		}
+		containerID, err := m.docker.CreateContainer(ctx, spec)
+		if err != nil {
+			return m.fail(ctx, record, "detach_source_repository_failed", err)
+		}
+		if err := m.docker.StartContainer(ctx, containerID); err != nil {
+			return m.fail(ctx, record, "detach_source_repository_failed", err)
+		}
+		if err := waitForReadWrite(ctx, m.docker, containerID); err != nil {
+			return m.fail(ctx, record, "detach_source_repository_failed", err)
+		}
 		record.Step = 50
 		record.Report.Phase = "verification_complete"
+		return m.bumpAndSave(ctx, record)
+	}
+	if record.Step < 50 {
+		record.Step = 50
 		return m.bumpAndSave(ctx, record)
 	}
 	record.Report.Status = "succeeded"
@@ -596,7 +679,11 @@ func (m *RestoreManager) rollback(ctx context.Context, desired *orcatypes.Desire
 		if err := m.runMaintenance(ctx, source, nil, []string{"sh", "-c", command, "sh", orcadocker.VolumeMountPath(source.Id), original}); err != nil {
 			return m.fail(ctx, record, "rollback_failed", err)
 		}
-		id, err := m.docker.CreateContainer(ctx, restoredPrimarySpec(source))
+		spec, err := restoredPrimarySpec(source, "", source.GetPgBackRest().GetRepoPath(), false)
+		if err != nil {
+			return m.fail(ctx, record, "postgres_config_invalid", err)
+		}
+		id, err := m.docker.CreateContainer(ctx, spec)
 		if err != nil {
 			return m.fail(ctx, record, "rollback_failed", err)
 		}
@@ -663,13 +750,13 @@ func (m *RestoreManager) finalize(ctx context.Context, operation *orcatypes.Rest
 }
 
 func (m *RestoreManager) restoreVolume(ctx context.Context, source, target *orcatypes.ClusterSpec, record *restoreRecord, clone bool) error {
-	config, mounts, err := restoreConfigAndMounts(source, target, clone)
+	config, mounts, binds, err := restoreConfigAndMounts(source, target)
 	if err != nil {
 		return err
 	}
 	spec := orcadocker.ContainerSpec{
 		ClusterID: target.Id, Kind: orcadocker.ContainerKindPgBackRest, Image: restoreImage(target.Version),
-		Command: []string{"sleep", "infinity"}, Volumes: mounts,
+		Command: []string{"sleep", "infinity"}, Volumes: mounts, Binds: binds,
 		Config: &orcadocker.ConfigMount{RelativePath: configRelativePath, ContainerPath: recoveryConfigPath, Content: config},
 	}
 	_ = m.removeContainerByName(ctx, target.Id, orcadocker.ContainerKindPgBackRest)
@@ -681,7 +768,10 @@ func (m *RestoreManager) restoreVolume(ctx context.Context, source, target *orca
 		return fmt.Errorf("start recovery container: %w", err)
 	}
 	marker := orcadocker.VolumeMountPath(target.Id) + "/.orca-restore-" + record.Report.OperationId + "-complete"
-	command := restoreSetCommand(source.Id, target.Id, record.BackupLabel, record.TargetTime, marker, clone)
+	command, err := restoreSetCommand(source.Id, target.Id, record.BackupLabel, record.TargetTime, marker, clone)
+	if err != nil {
+		return errors.Join(err, m.removeContainer(ctx, id))
+	}
 	_, restoreErr := m.docker.ExecContainer(ctx, id, command)
 	cleanupErr := m.removeContainer(ctx, id)
 	return errors.Join(restoreErr, cleanupErr)
@@ -929,14 +1019,6 @@ func selectBackup(stanza *restoreInfoStanza, target time.Time) (*restoreInfoBack
 	return selected, nil
 }
 
-func availableBytes(ctx context.Context, executor Executor, containerID, path string) (uint64, error) {
-	output, err := executor.ExecContainer(ctx, containerID, []string{"df", "-Pk", "--", path})
-	if err != nil {
-		return 0, fmt.Errorf("inspect repository filesystem capacity: %w", err)
-	}
-	return parseAvailableBytes(output)
-}
-
 func parseAvailableBytes(output string) (uint64, error) {
 	fields := strings.Fields(output)
 	if len(fields) < 6 {
@@ -946,31 +1028,75 @@ func parseAvailableBytes(output string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse available filesystem capacity: %w", err)
 	}
+	if availableKB > math.MaxUint64/1024 {
+		return 0, errors.New("available filesystem capacity overflows bytes")
+	}
 	return availableKB * 1024, nil
 }
 
-func restoreConfigAndMounts(source, target *orcatypes.ClusterSpec, clone bool) (string, []orcadocker.VolumeMount, error) {
+func parseDirectorySizeBytes(output string) (uint64, error) {
+	fields := strings.Fields(output)
+	if len(fields) < 2 {
+		return 0, fmt.Errorf("unexpected du output %q", output)
+	}
+	sizeKB, err := strconv.ParseUint(fields[0], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse directory size: %w", err)
+	}
+	if sizeKB > math.MaxUint64/1024 {
+		return 0, errors.New("directory size overflows bytes")
+	}
+	return sizeKB * 1024, nil
+}
+
+func addBytes(left, right uint64) (uint64, error) {
+	if left > math.MaxUint64-right {
+		return 0, errors.New("capacity calculation overflow")
+	}
+	return left + right, nil
+}
+
+func restoreCapacityRequired(original, restored uint64) (uint64, error) {
+	total, err := addBytes(original, restored)
+	if err != nil {
+		return 0, err
+	}
+	headroom := total / 10
+	if total%10 != 0 {
+		headroom++
+	}
+	return addBytes(total, headroom)
+}
+
+func restoreConfigAndMounts(source, target *orcatypes.ClusterSpec) (string, []orcadocker.VolumeMount, []orcadocker.BindMount, error) {
 	if source == nil || target == nil || source.PgBackRest == nil {
-		return "", nil, errors.New("source, target, and source repository configuration are required")
+		return "", nil, nil, errors.New("source, target, and source repository configuration are required")
 	}
 	repoPath := filepath.Clean(source.PgBackRest.RepoPath)
 	mounts := []orcadocker.VolumeMount{{Name: orcadocker.VolumeName(target.Id), Path: orcadocker.VolumeMountPath(target.Id)}}
-	if clone {
-		relative, err := filepath.Rel(filepath.Clean(orcadocker.VolumeMountPath(source.Id)), repoPath)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return "", nil, errors.New("source repository must be inside the source cluster volume")
-		}
-		repoPath = filepath.Join(restoreSourcePath, relative)
-		mounts = append(mounts, orcadocker.VolumeMount{Name: orcadocker.VolumeName(source.Id), Path: restoreSourcePath, ReadOnly: true})
+	config, err := recoveryConfig(source, target)
+	if err != nil {
+		return "", nil, nil, err
 	}
-	config := fmt.Sprintf("[global]\nrepo1-path=%s\n\n[%s]\npg1-path=%s/primary\n", repoPath, source.Id, orcadocker.VolumeMountPath(target.Id))
-	return config, mounts, nil
+	binds := []orcadocker.BindMount{{Source: repoPath, Path: repoPath, ReadOnly: true}}
+	return config, mounts, binds, nil
 }
 
-func restoreSetCommand(sourceID, targetID, label, targetTime, marker string, clone bool) []string {
+func recoveryConfig(source, target *orcatypes.ClusterSpec) (string, error) {
+	if source == nil || target == nil || source.PgBackRest == nil {
+		return "", errors.New("source, target, and source repository configuration are required")
+	}
+	return fmt.Sprintf("[global]\nrepo1-path=%s\n\n[%s]\npg1-path=%s/primary\n", filepath.Clean(source.PgBackRest.RepoPath), source.Id, orcadocker.VolumeMountPath(target.Id)), nil
+}
+
+func restoreSetCommand(sourceID, targetID, label, targetTime, marker string, clone bool) ([]string, error) {
+	parsedTarget, err := time.Parse(time.RFC3339Nano, targetTime)
+	if err != nil {
+		return nil, fmt.Errorf("parse restore target time: %w", err)
+	}
 	arguments := []string{
 		"--config=" + recoveryConfigPath, "--stanza=" + sourceID, "--set=" + label,
-		"--type=time", "--target=" + targetTime, "--target-action=pause",
+		"--type=time", "--target=" + parsedTarget.Format("2006-01-02 15:04:05.999999999-07:00"), "--target-action=pause",
 	}
 	if clone {
 		arguments = append(arguments, "--archive-mode=off")
@@ -982,7 +1108,7 @@ func restoreSetCommand(sourceID, targetID, label, targetTime, marker string, clo
 		`set -eu; data="$1"; marker="$2"; shift 2; if [ -f "$marker" ]; then exit 0; fi; rm -rf "$data"; install -d -m 0700 -o postgres -g postgres "$data"; gosu postgres pgbackrest "$@"; touch "$marker"`,
 		"sh", dataPath, marker,
 	}
-	return append(command, arguments...)
+	return append(command, arguments...), nil
 }
 
 func primaryIsReadWrite(ctx context.Context, executor Executor, primary string) (bool, error) {
@@ -994,14 +1120,24 @@ func primaryIsReadWrite(ctx context.Context, executor Executor, primary string) 
 	return state == "false|off" || state == "f|off", nil
 }
 
-func restoredPrimarySpec(cluster *orcatypes.ClusterSpec) orcadocker.ContainerSpec {
-	config, _ := postgres.RenderConfig(cluster.Id, cluster.Params)
-	return orcadocker.ContainerSpec{
+func restoredPrimarySpec(cluster *orcatypes.ClusterSpec, recoveryConfig, repoPath string, repoReadOnly bool) (orcadocker.ContainerSpec, error) {
+	config, err := postgres.RenderConfig(cluster.Id, cluster.Params)
+	if err != nil {
+		return orcadocker.ContainerSpec{}, fmt.Errorf("render restored PostgreSQL configuration: %w", err)
+	}
+	spec := orcadocker.ContainerSpec{
 		ClusterID: cluster.Id, Kind: orcadocker.ContainerKindPrimary, Image: restoreImage(cluster.Version), UseVolume: true,
 		Env:     []string{"POSTGRES_HOST_AUTH_METHOD=reject", "PGDATA=" + orcadocker.VolumeMountPath(cluster.Id) + "/primary"},
 		Command: []string{"postgres", "-c", "config_file=" + orcadocker.PostgresConfigContainerPath},
 		Config:  &orcadocker.ConfigMount{RelativePath: orcadocker.PostgresConfigRelativePath, ContainerPath: orcadocker.PostgresConfigContainerPath, Content: config},
 	}
+	if repoPath != "" {
+		spec.Binds = []orcadocker.BindMount{{Source: repoPath, Path: repoPath, ReadOnly: repoReadOnly}}
+	}
+	if recoveryConfig != "" {
+		spec.Configs = []*orcadocker.ConfigMount{{RelativePath: "pgbackrest/recovery.conf", ContainerPath: recoveryConfigPath, Content: recoveryConfig}}
+	}
+	return spec, nil
 }
 
 func restoreImage(version string) string {

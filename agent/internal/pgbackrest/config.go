@@ -3,6 +3,7 @@ package pgbackrest
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
@@ -46,10 +47,14 @@ func ReconciliationState(desired *ClusterDesiredState) (string, error) {
 	}
 	schedule := desired.PgBackRest.Schedule
 	if schedule == nil {
-		return config + "\n[orca-schedule]\n", nil
+		return config + "\n[orca-schedule]\n\n" + repositoryMountState(desired.PgBackRest.RepoPath), nil
 	}
-	return fmt.Sprintf("%s\n[orca-schedule]\nfull=%d\ndiff=%d\nincr=%d\n", config,
-		schedule.FullIntervalSeconds, schedule.DiffIntervalSeconds, schedule.IncrIntervalSeconds), nil
+	return fmt.Sprintf("%s\n[orca-schedule]\nfull=%d\ndiff=%d\nincr=%d\n\n%s", config,
+		schedule.FullIntervalSeconds, schedule.DiffIntervalSeconds, schedule.IncrIntervalSeconds, repositoryMountState(desired.PgBackRest.RepoPath)), nil
+}
+
+func repositoryMountState(repoPath string) string {
+	return fmt.Sprintf("[orca-storage]\nrepo-bind=%s\n", filepath.Clean(repoPath))
 }
 
 func validateSpec(spec *orcatypes.PgBackRestSpec) error {
@@ -58,6 +63,9 @@ func validateSpec(spec *orcatypes.PgBackRestSpec) error {
 	}
 	if strings.ContainsAny(spec.RepoPath, "\r\n") {
 		return errors.New("repository path must not contain a newline")
+	}
+	if !filepath.IsAbs(spec.RepoPath) || filepath.Clean(spec.RepoPath) == string(filepath.Separator) {
+		return errors.New("repository path must be an absolute host directory other than the filesystem root")
 	}
 	if spec.RetentionFull == 0 {
 		return errors.New("full retention must be greater than zero")
