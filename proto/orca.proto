@@ -110,6 +110,8 @@ message PgBouncerSpec {
   uint32 max_connections = 2;
   uint32 reserve_pool_size = 3;
   uint32 reserve_pool_timeout_seconds = 4;
+  string publish_address = 5;
+  uint32 publish_port = 6;
 }
 
 // PgBackRestSpec describes the desired backup repository and retention policy.
@@ -155,6 +157,8 @@ message ActualCluster {
   map<string, PostgresParameterState> parameter_states = 19;
   bool parameters_observed = 20;
   uint64 applied_restart_generation = 21;
+  string network_name = 22;
+  repeated string pg_hba_pool_cidrs = 23;
 }
 
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.
@@ -183,6 +187,8 @@ message ActualReplica {
   bool pg_hba_observed = 11;
   map<string, string> applied_params = 12;
   bool parameters_observed = 13;
+  string network_name = 14;
+  repeated string pg_hba_pool_cidrs = 15;
 }
 
 // ActualPgBouncer describes an observed PgBouncer sidecar.
@@ -193,6 +199,9 @@ message ActualPgBouncer {
   optional uint32 active_client_connections = 4;
   optional uint32 max_client_connections = 5;
   optional bool admin_console_reachable = 6;
+  string network_name = 7;
+  string published_address = 8;
+  uint32 published_port = 9;
 }
 
 // ActualBackup describes applied backup configuration and the latest observed success.

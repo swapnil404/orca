@@ -81,6 +81,9 @@ func GeneratePgBouncerConfig(desired *ClusterDesiredState) (string, error) {
 	config.WriteString("listen_addr = 0.0.0.0\n")
 	config.WriteString("listen_port = 6432\n")
 	config.WriteString("unix_socket_dir = /tmp\n")
+	config.WriteString("auth_type = hba\n")
+	config.WriteString("auth_file = /etc/pgbouncer/userlist.txt\n")
+	config.WriteString("auth_hba_file = /etc/pgbouncer/pg_hba.conf\n")
 	config.WriteString("admin_users = pgbouncer\n")
 	config.WriteString("stats_users = pgbouncer\n")
 	fmt.Fprintf(&config, "pool_mode = %s\n", settings.PoolMode)
@@ -99,6 +102,12 @@ func validatePgBouncerSpec(spec *orcatypes.PgBouncerSpec) error {
 	}
 	if spec.MaxConnections == 0 {
 		return errors.New("max connections must be greater than zero")
+	}
+	if spec.PublishAddress == "" {
+		return errors.New("publish address is required")
+	}
+	if spec.PublishPort == 0 {
+		return errors.New("publish port is required")
 	}
 	if spec.ReservePoolSize > 0 && spec.ReservePoolTimeoutSeconds == 0 {
 		return errors.New("reserve pool timeout must be greater than zero when reserve pool is enabled")

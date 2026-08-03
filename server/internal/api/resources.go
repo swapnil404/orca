@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -414,6 +415,21 @@ func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "max_connections must be greater than zero")
 		return
 	}
+	request.PublishAddress = strings.TrimSpace(request.PublishAddress)
+	if request.PublishAddress == "" {
+		request.PublishAddress = "127.0.0.1"
+	}
+	if net.ParseIP(request.PublishAddress) == nil {
+		writeError(w, http.StatusBadRequest, "publish_address must be an IP address")
+		return
+	}
+	if request.PublishPort == 0 {
+		request.PublishPort = 6432
+	}
+	if request.PublishPort < 1 || request.PublishPort > 65535 {
+		writeError(w, http.StatusBadRequest, "publish_port must be between 1 and 65535")
+		return
+	}
 	current, err := h.store.GetCluster(r.Context(), userID, r.PathValue("clusterID"))
 	if err != nil {
 		writeStoreError(w, err)
@@ -422,6 +438,7 @@ func (h *ResourceHandler) updatePgBouncer(w http.ResponseWriter, r *http.Request
 	cluster, err := h.store.UpdatePgBouncer(r.Context(), store.UpdatePgBouncerParams{
 		ID: current.ID, UserID: userID, PoolMode: request.PoolMode,
 		MaxConnections: request.MaxConnections,
+		PublishAddress: strings.TrimSpace(request.PublishAddress), PublishPort: request.PublishPort,
 	})
 	if err != nil {
 		writeStoreError(w, err)
@@ -606,6 +623,14 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 		}
 		if request.PgBouncer.MaxConnections < 0 {
 			writeError(w, http.StatusBadRequest, "pg_bouncer.max_connections must be greater than zero")
+			return false
+		}
+		if request.PgBouncer.PublishAddress != "" && net.ParseIP(strings.TrimSpace(request.PgBouncer.PublishAddress)) == nil {
+			writeError(w, http.StatusBadRequest, "pg_bouncer.publish_address must be an IP address")
+			return false
+		}
+		if request.PgBouncer.PublishPort < 0 || request.PgBouncer.PublishPort > 65535 {
+			writeError(w, http.StatusBadRequest, "pg_bouncer.publish_port must be between 1 and 65535")
 			return false
 		}
 	}

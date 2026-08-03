@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +28,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	postgresimage "github.com/swapnil404/orca/agent/images/postgres"
 )
@@ -37,6 +40,14 @@ const (
 	PgBouncerConfigRelativePath = "pgbouncer/pgbouncer.ini"
 	// PgBouncerConfigContainerPath is where the generated INI is mounted in PgBouncer.
 	PgBouncerConfigContainerPath = "/etc/pgbouncer/pgbouncer.ini"
+	// PgBouncerAuthRelativePath is the generated SCRAM verifier file.
+	PgBouncerAuthRelativePath = "pgbouncer/userlist.txt"
+	// PgBouncerAuthContainerPath is where PgBouncer reads SCRAM verifiers.
+	PgBouncerAuthContainerPath = "/etc/pgbouncer/userlist.txt"
+	// PgBouncerHbaRelativePath is the generated PgBouncer client authentication policy.
+	PgBouncerHbaRelativePath = "pgbouncer/pg_hba.conf"
+	// PgBouncerHbaContainerPath is where PgBouncer reads its HBA policy.
+	PgBouncerHbaContainerPath = "/etc/pgbouncer/pg_hba.conf"
 	// PostgresConfigRelativePath is the generated PostgreSQL include path.
 	PostgresConfigRelativePath = "postgres/postgresql.conf"
 	// PostgresConfigContainerPath is where the generated include is mounted.
@@ -69,6 +80,9 @@ type sdkClient interface {
 	ImagePull(ctx context.Context, ref string, options imagetypes.PullOptions) (io.ReadCloser, error)
 	VolumeCreate(ctx context.Context, options volumetypes.CreateOptions) (volumetypes.Volume, error)
 	VolumeRemove(ctx context.Context, volumeID string, force bool) error
+	NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
+	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	NetworkRemove(ctx context.Context, networkID string) error
 }
 
 type execSDKClient interface {
@@ -172,25 +186,90 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 		}
 		hostConfig.Mounts = append(hostConfig.Mounts, configMount)
 	}
+	exposedPorts := nat.PortSet{}
+	for _, published := range spec.Ports {
+		if published.ContainerPort == 0 || published.HostPort == 0 || net.ParseIP(published.HostAddress) == nil {
+			return "", errors.New("published port requires a container port, host port, and IP address")
+		}
+		port := nat.Port(strconv.Itoa(int(published.ContainerPort)) + "/tcp")
+		exposedPorts[port] = struct{}{}
+		hostConfig.PortBindings = appendPortBinding(hostConfig.PortBindings, port, nat.PortBinding{
+			HostIP: published.HostAddress, HostPort: strconv.Itoa(int(published.HostPort)),
+		})
+	}
 
 	config := &containertypes.Config{
-		Image:  spec.Image,
-		Env:    spec.Env,
-		Cmd:    spec.Command,
-		Labels: labels,
+		Image:        spec.Image,
+		Env:          spec.Env,
+		Cmd:          spec.Command,
+		Labels:       labels,
+		ExposedPorts: exposedPorts,
 	}
-	created, err := c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
+	networkName := NetworkName(spec.ClusterID)
+	if err := c.ensureNetwork(ctx, networkName, spec.ClusterID); err != nil {
+		return "", err
+	}
+	networkingConfig := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+		networkName: {Aliases: []string{name}},
+	}}
+	created, err := c.sdk.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, name)
 	if errdefs.IsNotFound(err) {
 		if err := c.ensureMissingImage(ctx, spec.Image); err != nil {
 			return "", err
 		}
-		created, err = c.sdk.ContainerCreate(ctx, config, hostConfig, nil, nil, name)
+		created, err = c.sdk.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, name)
 	}
 	if err != nil {
 		return "", err
 	}
 
 	return created.ID, nil
+}
+
+func appendPortBinding(bindings nat.PortMap, port nat.Port, binding nat.PortBinding) nat.PortMap {
+	if bindings == nil {
+		bindings = nat.PortMap{}
+	}
+	bindings[port] = append(bindings[port], binding)
+	return bindings
+}
+
+func (c *Client) ensureNetwork(ctx context.Context, name, clusterID string) error {
+	networks, err := c.sdk.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", name))})
+	if err != nil {
+		return fmt.Errorf("list cluster network %q: %w", name, err)
+	}
+	for _, existing := range networks {
+		if existing.Name == name {
+			return validateNetwork(existing, clusterID)
+		}
+	}
+	_, err = c.sdk.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver: "bridge", Labels: map[string]string{"orca.cluster_id": clusterID, "orca.managed": "true"},
+	})
+	if err != nil && !errdefs.IsConflict(err) {
+		return fmt.Errorf("create cluster network %q: %w", name, err)
+	}
+	if errdefs.IsConflict(err) {
+		networks, listErr := c.sdk.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", name))})
+		if listErr != nil {
+			return fmt.Errorf("re-list cluster network %q: %w", name, listErr)
+		}
+		for _, existing := range networks {
+			if existing.Name == name {
+				return validateNetwork(existing, clusterID)
+			}
+		}
+		return fmt.Errorf("cluster network %q conflicted but was not found", name)
+	}
+	return nil
+}
+
+func validateNetwork(existing network.Summary, clusterID string) error {
+	if existing.Driver != "bridge" || existing.Scope != "local" || existing.Labels["orca.managed"] != "true" || existing.Labels["orca.cluster_id"] != clusterID {
+		return fmt.Errorf("network %q exists but is not the Orca network for cluster %q", existing.Name, clusterID)
+	}
+	return nil
 }
 
 func (c *Client) ensureMissingImage(ctx context.Context, image string) error {
@@ -466,6 +545,89 @@ func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 	return c.sdk.VolumeRemove(ctx, name, false)
 }
 
+// RemoveNetwork removes a named Orca cluster network.
+func (c *Client) RemoveNetwork(ctx context.Context, name string) error {
+	if c.sdk == nil {
+		return errors.New("docker client is nil")
+	}
+	if name == "" {
+		return errors.New("network name is required")
+	}
+	networks, err := c.sdk.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", name))})
+	if err != nil {
+		return err
+	}
+	for _, existing := range networks {
+		if existing.Name == name {
+			clusterID := strings.TrimSuffix(strings.TrimPrefix(name, orcaNamePrefix), "-network")
+			if clusterID == "" || NetworkName(clusterID) != name {
+				return fmt.Errorf("invalid Orca network name %q", name)
+			}
+			if err := validateNetwork(existing, clusterID); err != nil {
+				return err
+			}
+			return c.sdk.NetworkRemove(ctx, existing.ID)
+		}
+	}
+	return nil
+}
+
+// RemoveClusterData removes generated configuration and credentials after cluster deletion.
+func (c *Client) RemoveClusterData(ctx context.Context, clusterID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	path, err := configHostPath(c.dataRoot, clusterID, "managed")
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Dir(path))
+}
+
+// EnsureClusterPassword returns the stable agent-owned PostgreSQL password for a cluster.
+func (c *Client) EnsureClusterPassword(ctx context.Context, clusterID string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	path, err := configHostPath(c.dataRoot, clusterID, "secrets/postgres-password")
+	if err != nil {
+		return "", err
+	}
+	if content, readErr := os.ReadFile(path); readErr == nil {
+		password := strings.TrimSpace(string(content))
+		if password == "" {
+			return "", errors.New("stored PostgreSQL password is empty")
+		}
+		return password, nil
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return "", readErr
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("create cluster secret directory: %w", err)
+	}
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("generate PostgreSQL password: %w", err)
+	}
+	password := base64.RawURLEncoding.EncodeToString(random)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		content, readErr := os.ReadFile(path)
+		return strings.TrimSpace(string(content)), readErr
+	}
+	if err != nil {
+		return "", fmt.Errorf("create PostgreSQL password: %w", err)
+	}
+	if _, err := file.WriteString(password + "\n"); err != nil {
+		file.Close()
+		return "", fmt.Errorf("write PostgreSQL password: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close PostgreSQL password: %w", err)
+	}
+	return password, nil
+}
+
 // ListOrcaContainers lists Docker containers with the orca- prefix and parses their names.
 func (c *Client) ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error) {
 	if c.sdk == nil {
@@ -579,6 +741,11 @@ func VolumeName(clusterID string) string {
 	return fmt.Sprintf("orca-%s-data", clusterID)
 }
 
+// NetworkName returns the isolated Docker bridge name for an Orca cluster.
+func NetworkName(clusterID string) string {
+	return fmt.Sprintf("orca-%s-network", clusterID)
+}
+
 // VolumeMountPath returns the in-container data mount path for an Orca cluster.
 func VolumeMountPath(clusterID string) string {
 	return fmt.Sprintf("%s/%s", dataRoot, clusterID)
@@ -607,7 +774,11 @@ func writeConfigMount(root, clusterID string, config *ConfigMount) (mount.Mount,
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 
-	if err := temporary.Chmod(0o644); err != nil {
+	mode := os.FileMode(config.Mode)
+	if mode == 0 {
+		mode = 0o644
+	}
+	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return mount.Mount{}, fmt.Errorf("set config permissions: %w", err)
 	}
@@ -647,7 +818,11 @@ func writeConfig(root, clusterID string, config *ConfigMount) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o644); err != nil {
+	mode := os.FileMode(config.Mode)
+	if mode == 0 {
+		mode = 0o644
+	}
+	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return fmt.Errorf("set config permissions: %w", err)
 	}
@@ -712,6 +887,23 @@ func parseContainerSummary(container dockertypes.Container) (ContainerInfo, bool
 		parsed.Name = name
 		parsed.Image = container.Image
 		parsed.Status = containerStatus(container.State)
+		if container.NetworkSettings != nil && len(container.NetworkSettings.Networks) == 1 {
+			for networkName := range container.NetworkSettings.Networks {
+				if networkName == NetworkName(parsed.ClusterID) {
+					parsed.NetworkName = networkName
+					break
+				}
+			}
+		}
+		if parsed.Kind == ContainerKindPgBouncer {
+			for _, port := range container.Ports {
+				if port.PrivatePort == 6432 && port.Type == "tcp" && port.PublicPort != 0 {
+					parsed.PublishedAddress = port.IP
+					parsed.PublishedPort = port.PublicPort
+					break
+				}
+			}
+		}
 
 		return parsed, true
 	}

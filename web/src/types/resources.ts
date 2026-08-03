@@ -43,6 +43,8 @@ export type PgBouncerPoolMode = 'session' | 'transaction' | 'statement'
 export interface PgBouncerConfig {
   pool_mode: PgBouncerPoolMode
   max_connections: number
+  publish_address: string
+  publish_port: number
 }
 
 export type PgHbaType = 'host' | 'hostssl' | 'local'
@@ -100,6 +102,9 @@ export interface ActualPgBouncer {
   active_client_connections?: number
   max_client_connections?: number
   admin_console_reachable?: boolean
+  network_name?: string
+  published_address?: string
+  published_port?: number
 }
 
 export interface ActualBackup {

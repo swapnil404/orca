@@ -2,7 +2,8 @@
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
     replica_count, replica_ids, enabled_extensions, pgbouncer_enabled, pgbouncer_pool_mode,
-    pgbouncer_max_connections, pgbackrest_enabled, pgbackrest_repo_path,
+    pgbouncer_max_connections, pgbouncer_publish_address, pgbouncer_publish_port,
+    pgbackrest_enabled, pgbackrest_repo_path,
     pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
     pgbackrest_incr_interval_seconds, pg_hba_rules
@@ -11,7 +12,8 @@ SELECT sqlc.arg(cluster_id)::text, p.id, h.id, sqlc.arg(name)::text,
        sqlc.arg(postgres_version)::text, sqlc.arg(parameters)::jsonb,
        sqlc.arg(replica_count)::integer, sqlc.arg(replica_ids)::jsonb, sqlc.arg(enabled_extensions)::jsonb,
        sqlc.arg(pgbouncer_enabled)::boolean, sqlc.arg(pgbouncer_pool_mode)::text,
-       sqlc.arg(pgbouncer_max_connections)::integer,
+       sqlc.arg(pgbouncer_max_connections)::integer, sqlc.arg(pgbouncer_publish_address)::text,
+       sqlc.arg(pgbouncer_publish_port)::integer,
        sqlc.arg(pgbackrest_enabled)::boolean, sqlc.arg(pgbackrest_repo_path)::text,
        sqlc.arg(pgbackrest_retention_full)::integer, sqlc.arg(pgbackrest_retention_diff)::integer,
        sqlc.arg(pgbackrest_full_interval_seconds)::bigint, sqlc.arg(pgbackrest_diff_interval_seconds)::bigint,
@@ -27,7 +29,8 @@ RETURNING id, project_id, host_id, name, postgres_version, parameters,
           pgbackrest_retention_full, pgbackrest_retention_diff,
           pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
            pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions,
-             pgbouncer_pool_mode, pgbouncer_max_connections, pg_hba_rules, restart_generation;
+             pgbouncer_pool_mode, pgbouncer_max_connections, pg_hba_rules, restart_generation,
+             pgbouncer_publish_address, pgbouncer_publish_port;
 
 -- name: ListClusters :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
@@ -36,7 +39,8 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation
+         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+         c.pgbouncer_publish_address, c.pgbouncer_publish_port
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -51,7 +55,8 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation
+         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+         c.pgbouncer_publish_address, c.pgbouncer_publish_port
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id
@@ -85,17 +90,19 @@ SET name = $3,
     replica_count = $6,
     replica_ids = $7,
     enabled_extensions = $8,
-    pgbouncer_enabled = $9,
-    pgbouncer_pool_mode = $10,
-    pgbouncer_max_connections = $11,
-    pgbackrest_enabled = $12,
-    pgbackrest_repo_path = $13,
-    pgbackrest_retention_full = $14,
-    pgbackrest_retention_diff = $15,
-    pgbackrest_full_interval_seconds = $16,
-    pgbackrest_diff_interval_seconds = $17,
-    pgbackrest_incr_interval_seconds = $18,
-    pg_hba_rules = $19,
+    pgbouncer_enabled = sqlc.arg(pgbouncer_enabled),
+    pgbouncer_pool_mode = sqlc.arg(pgbouncer_pool_mode),
+    pgbouncer_max_connections = sqlc.arg(pgbouncer_max_connections),
+    pgbouncer_publish_address = sqlc.arg(pgbouncer_publish_address),
+    pgbouncer_publish_port = sqlc.arg(pgbouncer_publish_port),
+    pgbackrest_enabled = sqlc.arg(pgbackrest_enabled),
+    pgbackrest_repo_path = sqlc.arg(pgbackrest_repo_path),
+    pgbackrest_retention_full = sqlc.arg(pgbackrest_retention_full),
+    pgbackrest_retention_diff = sqlc.arg(pgbackrest_retention_diff),
+    pgbackrest_full_interval_seconds = sqlc.arg(pgbackrest_full_interval_seconds),
+    pgbackrest_diff_interval_seconds = sqlc.arg(pgbackrest_diff_interval_seconds),
+    pgbackrest_incr_interval_seconds = sqlc.arg(pgbackrest_incr_interval_seconds),
+    pg_hba_rules = sqlc.arg(pg_hba_rules),
     updated_at = NOW()
 FROM projects p, organization_memberships om
 WHERE c.id = $1 AND c.project_id = p.id
@@ -107,7 +114,8 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
            c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-             c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation;
+             c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+             c.pgbouncer_publish_address, c.pgbouncer_publish_port;
 
 -- name: SoftDeleteCluster :one
 UPDATE clusters c
@@ -122,6 +130,8 @@ RETURNING c.id, c.project_id, c.host_id;
 UPDATE clusters c
 SET pgbouncer_pool_mode = sqlc.arg(pgbouncer_pool_mode)::text,
     pgbouncer_max_connections = sqlc.arg(pgbouncer_max_connections)::integer,
+    pgbouncer_publish_address = sqlc.arg(pgbouncer_publish_address)::text,
+    pgbouncer_publish_port = sqlc.arg(pgbouncer_publish_port)::integer,
     updated_at = NOW()
 WHERE c.id = sqlc.arg(cluster_id) AND c.pgbouncer_enabled AND c.deleted_at IS NULL
 RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
@@ -130,7 +140,8 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-            c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation;
+            c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+            c.pgbouncer_publish_address, c.pgbouncer_publish_port;
 
 -- name: UpdateClusterPgHba :one
 UPDATE clusters c
@@ -143,7 +154,8 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation;
+           c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+           c.pgbouncer_publish_address, c.pgbouncer_publish_port;
 
 -- name: UpdateClusterParameters :one
 UPDATE clusters c
@@ -159,7 +171,8 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation;
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+          c.pgbouncer_publish_address, c.pgbouncer_publish_port;
 
 -- name: UpdateClusterRestart :one
 UPDATE clusters c
@@ -175,7 +188,8 @@ RETURNING c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameter
           c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
           c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
           c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation;
+          c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+          c.pgbouncer_publish_address, c.pgbouncer_publish_port;
 
 -- name: ListActiveClustersForProject :many
 SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
@@ -184,7 +198,8 @@ SELECT c.id, c.project_id, c.host_id, c.name, c.postgres_version, c.parameters,
        c.pgbackrest_retention_full, c.pgbackrest_retention_diff,
        c.pgbackrest_full_interval_seconds, c.pgbackrest_diff_interval_seconds,
        c.pgbackrest_incr_interval_seconds, c.replica_ids, c.enabled_extensions,
-         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation
+         c.pgbouncer_pool_mode, c.pgbouncer_max_connections, c.pg_hba_rules, c.restart_generation,
+         c.pgbouncer_publish_address, c.pgbouncer_publish_port
 FROM clusters c
 JOIN projects p ON p.id = c.project_id
 JOIN organization_memberships om ON om.organization_id = p.organization_id

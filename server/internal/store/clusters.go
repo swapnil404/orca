@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	orcatypes "github.com/swapnil404/orca/pkg/types"
@@ -14,6 +15,8 @@ import (
 const (
 	defaultPgBouncerPoolMode       = "transaction"
 	defaultPgBouncerMaxConnections = 100
+	defaultPgBouncerPublishAddress = "127.0.0.1"
+	defaultPgBouncerPublishPort    = 6432
 )
 
 // ErrRestoreOperationInProgress indicates that a cluster mutation conflicts with an unfinished restore.
@@ -44,6 +47,8 @@ type Cluster struct {
 type PgBouncerConfig struct {
 	PoolMode       string `json:"pool_mode"`
 	MaxConnections int32  `json:"max_connections"`
+	PublishAddress string `json:"publish_address"`
+	PublishPort    int32  `json:"publish_port"`
 }
 
 // PgHbaRule contains one ordered PostgreSQL client authentication rule.
@@ -135,6 +140,8 @@ type UpdatePgBouncerParams struct {
 	UserID         string
 	PoolMode       string
 	MaxConnections int32
+	PublishAddress string
+	PublishPort    int32
 }
 
 // UpdatePgHbaParams contains one cluster's ordered authentication rules.
@@ -197,6 +204,8 @@ func (s *Postgres) CreateCluster(ctx context.Context, params CreateClusterParams
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
 		PgbouncerPoolMode:             pgBouncerPoolMode(params.PgBouncer),
 		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
+		PgbouncerPublishAddress:       pgBouncerPublishAddress(params.PgBouncer),
+		PgbouncerPublishPort:          pgBouncerPublishPort(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
 		PgHbaRules:                    pgHbaRules,
@@ -286,6 +295,8 @@ func (s *Postgres) UpdateCluster(ctx context.Context, params UpdateClusterParams
 		ReplicaCount: params.ReplicaCount, PgbouncerEnabled: params.PgBouncerEnabled,
 		PgbouncerPoolMode:             pgBouncerPoolMode(params.PgBouncer),
 		PgbouncerMaxConnections:       pgBouncerMaxConnections(params.PgBouncer),
+		PgbouncerPublishAddress:       pgBouncerPublishAddress(params.PgBouncer),
+		PgbouncerPublishPort:          pgBouncerPublishPort(params.PgBouncer),
 		ReplicaIds:                    replicaIDs,
 		EnabledExtensions:             enabledExtensions,
 		PgHbaRules:                    pgHbaRules,
@@ -329,6 +340,8 @@ func (s *Postgres) UpdatePgBouncer(ctx context.Context, params UpdatePgBouncerPa
 	row, err := queries.UpdateClusterPgBouncer(ctx, sqlcdb.UpdateClusterPgBouncerParams{
 		ClusterID: params.ID, PgbouncerPoolMode: params.PoolMode,
 		PgbouncerMaxConnections: params.MaxConnections,
+		PgbouncerPublishAddress: params.PublishAddress,
+		PgbouncerPublishPort:    params.PublishPort,
 	})
 	if err != nil {
 		return Cluster{}, err
@@ -578,6 +591,7 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 		ReplicaCount: cluster.ReplicaCount, PgBouncerEnabled: cluster.PgbouncerEnabled,
 		PgBouncer: PgBouncerConfig{
 			PoolMode: cluster.PgbouncerPoolMode, MaxConnections: cluster.PgbouncerMaxConnections,
+			PublishAddress: cluster.PgbouncerPublishAddress, PublishPort: cluster.PgbouncerPublishPort,
 		},
 		Replicas: replicasFromIDs(replicaIDs), EnabledExtensions: enabledExtensions, PgHbaRules: pgHbaRules,
 		RestartGeneration: cluster.RestartGeneration,
@@ -627,6 +641,8 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		state.PgBouncer = &orcatypes.PgBouncerSpec{
 			PoolMode:       cluster.PgBouncer.PoolMode,
 			MaxConnections: uint32(cluster.PgBouncer.MaxConnections),
+			PublishAddress: cluster.PgBouncer.PublishAddress,
+			PublishPort:    uint32(cluster.PgBouncer.PublishPort),
 		}
 		state.Databases = []*orcatypes.DatabaseSpec{{Name: "postgres"}}
 	}
@@ -661,6 +677,21 @@ func pgBouncerMaxConnections(config PgBouncerConfig) int32 {
 		return defaultPgBouncerMaxConnections
 	}
 	return config.MaxConnections
+}
+
+func pgBouncerPublishAddress(config PgBouncerConfig) string {
+	address := strings.TrimSpace(config.PublishAddress)
+	if address == "" {
+		return defaultPgBouncerPublishAddress
+	}
+	return address
+}
+
+func pgBouncerPublishPort(config PgBouncerConfig) int32 {
+	if config.PublishPort == 0 {
+		return defaultPgBouncerPublishPort
+	}
+	return config.PublishPort
 }
 
 func replicaIDStrings(replicas []Replica) []string {

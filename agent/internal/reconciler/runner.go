@@ -275,6 +275,7 @@ func (r *Runner) populatePgHba(ctx context.Context, desired *DesiredState, actua
 		if err == nil {
 			cluster.PgHbaRules = observation.Rules
 			cluster.PgHbaReplicationCidrs = observation.ReplicationCIDRs
+			cluster.PgHbaPoolCidrs = observation.PoolCIDRs
 			cluster.PgHbaObserved = true
 		} else if reportErrors {
 			results = append(results, ApplyResult{Action: Action{Type: ActionObservePgHba, ClusterID: cluster.Id}, Status: ApplyStatusFailed, Err: err})
@@ -286,6 +287,7 @@ func (r *Runner) populatePgHba(ctx context.Context, desired *DesiredState, actua
 			observation, err := postgres.ObserveHBA(ctx, executor, replica.ContainerId)
 			if err == nil {
 				replica.PgHbaRules = observation.Rules
+				replica.PgHbaPoolCidrs = observation.PoolCIDRs
 				replica.PgHbaObserved = true
 			} else if reportErrors {
 				results = append(results, ApplyResult{Action: Action{Type: ActionObservePgHba, ClusterID: cluster.Id, ReplicaID: replica.Id}, Status: ApplyStatusFailed, Err: err})
@@ -468,6 +470,7 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 			cluster.Image = container.Image
 			cluster.Version = postgresVersionFromImage(container.Image)
 			cluster.AppliedRestartGeneration = container.RestartGeneration
+			cluster.NetworkName = container.NetworkName
 			cluster.AppliedParams, _ = postgres.ParseConfig(container.Config)
 			if container.BackupConfig != "" {
 				cluster.Backup = &types.ActualBackup{Config: container.BackupConfig}
@@ -475,10 +478,15 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 		case orcadocker.ContainerKindReplica:
 			cluster.Replicas = append(cluster.Replicas, &ActualReplica{
 				Id: container.ReplicaID, ContainerId: container.ID, Status: container.Status,
+				NetworkName:   container.NetworkName,
 				AppliedParams: func() map[string]string { params, _ := postgres.ParseConfig(container.Config); return params }(),
 			})
 		case orcadocker.ContainerKindPgBouncer:
-			cluster.PgBouncer = &ActualPgBouncer{ContainerId: container.ID, Status: container.Status, Config: container.Config}
+			cluster.PgBouncer = &ActualPgBouncer{
+				ContainerId: container.ID, Status: container.Status, Config: container.Config,
+				NetworkName: container.NetworkName, PublishedAddress: container.PublishedAddress,
+				PublishedPort: uint32(container.PublishedPort),
+			}
 		}
 	}
 	for _, volume := range volumes {
@@ -563,11 +571,15 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 	if desired != nil {
 		if desired.PgHba != nil {
 			expectedReplicationCIDRs := []string(nil)
+			expectedPoolCIDRs := []string(nil)
 			if len(desired.Replicas) > 0 {
 				expectedReplicationCIDRs = cluster.NetworkCidrs
 			}
+			if desired.PgBouncer != nil {
+				expectedPoolCIDRs = cluster.NetworkCidrs
+			}
 			if !cluster.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), cluster.PgHbaRules) ||
-				!postgres.StringsEqual(expectedReplicationCIDRs, cluster.PgHbaReplicationCidrs) {
+				!postgres.StringsEqual(expectedReplicationCIDRs, cluster.PgHbaReplicationCidrs) || !postgres.StringsEqual(expectedPoolCIDRs, cluster.PgHbaPoolCidrs) {
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 		}
@@ -576,7 +588,7 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 			observed := replicas[replica.Id]
-			if observed == nil || desired.PgHba != nil && (!observed.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), observed.PgHbaRules)) {
+			if observed == nil || desired.PgHba != nil && (!observed.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), observed.PgHbaRules) || desired.PgBouncer != nil && !postgres.StringsEqual(cluster.NetworkCidrs, observed.PgHbaPoolCidrs)) {
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 		}

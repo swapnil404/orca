@@ -939,6 +939,8 @@ type PgBouncerSpec struct {
 	MaxConnections            uint32                 `protobuf:"varint,2,opt,name=max_connections,json=maxConnections,proto3" json:"max_connections,omitempty"`
 	ReservePoolSize           uint32                 `protobuf:"varint,3,opt,name=reserve_pool_size,json=reservePoolSize,proto3" json:"reserve_pool_size,omitempty"`
 	ReservePoolTimeoutSeconds uint32                 `protobuf:"varint,4,opt,name=reserve_pool_timeout_seconds,json=reservePoolTimeoutSeconds,proto3" json:"reserve_pool_timeout_seconds,omitempty"`
+	PublishAddress            string                 `protobuf:"bytes,5,opt,name=publish_address,json=publishAddress,proto3" json:"publish_address,omitempty"`
+	PublishPort               uint32                 `protobuf:"varint,6,opt,name=publish_port,json=publishPort,proto3" json:"publish_port,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -997,6 +999,20 @@ func (x *PgBouncerSpec) GetReservePoolSize() uint32 {
 func (x *PgBouncerSpec) GetReservePoolTimeoutSeconds() uint32 {
 	if x != nil {
 		return x.ReservePoolTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *PgBouncerSpec) GetPublishAddress() string {
+	if x != nil {
+		return x.PublishAddress
+	}
+	return ""
+}
+
+func (x *PgBouncerSpec) GetPublishPort() uint32 {
+	if x != nil {
+		return x.PublishPort
 	}
 	return 0
 }
@@ -1200,6 +1216,8 @@ type ActualCluster struct {
 	ParameterStates          map[string]*PostgresParameterState `protobuf:"bytes,19,rep,name=parameter_states,json=parameterStates,proto3" json:"parameter_states,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	ParametersObserved       bool                               `protobuf:"varint,20,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
 	AppliedRestartGeneration uint64                             `protobuf:"varint,21,opt,name=applied_restart_generation,json=appliedRestartGeneration,proto3" json:"applied_restart_generation,omitempty"`
+	NetworkName              string                             `protobuf:"bytes,22,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
+	PgHbaPoolCidrs           []string                           `protobuf:"bytes,23,rep,name=pg_hba_pool_cidrs,json=pgHbaPoolCidrs,proto3" json:"pg_hba_pool_cidrs,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1381,6 +1399,20 @@ func (x *ActualCluster) GetAppliedRestartGeneration() uint64 {
 	return 0
 }
 
+func (x *ActualCluster) GetNetworkName() string {
+	if x != nil {
+		return x.NetworkName
+	}
+	return ""
+}
+
+func (x *ActualCluster) GetPgHbaPoolCidrs() []string {
+	if x != nil {
+		return x.PgHbaPoolCidrs
+	}
+	return nil
+}
+
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.
 type PostgresParameterState struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -1490,6 +1522,8 @@ type ActualReplica struct {
 	PgHbaObserved        bool                   `protobuf:"varint,11,opt,name=pg_hba_observed,json=pgHbaObserved,proto3" json:"pg_hba_observed,omitempty"`
 	AppliedParams        map[string]string      `protobuf:"bytes,12,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	ParametersObserved   bool                   `protobuf:"varint,13,opt,name=parameters_observed,json=parametersObserved,proto3" json:"parameters_observed,omitempty"`
+	NetworkName          string                 `protobuf:"bytes,14,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
+	PgHbaPoolCidrs       []string               `protobuf:"bytes,15,rep,name=pg_hba_pool_cidrs,json=pgHbaPoolCidrs,proto3" json:"pg_hba_pool_cidrs,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1615,6 +1649,20 @@ func (x *ActualReplica) GetParametersObserved() bool {
 	return false
 }
 
+func (x *ActualReplica) GetNetworkName() string {
+	if x != nil {
+		return x.NetworkName
+	}
+	return ""
+}
+
+func (x *ActualReplica) GetPgHbaPoolCidrs() []string {
+	if x != nil {
+		return x.PgHbaPoolCidrs
+	}
+	return nil
+}
+
 // ActualPgBouncer describes an observed PgBouncer sidecar.
 type ActualPgBouncer struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
@@ -1624,6 +1672,9 @@ type ActualPgBouncer struct {
 	ActiveClientConnections *uint32                `protobuf:"varint,4,opt,name=active_client_connections,json=activeClientConnections,proto3,oneof" json:"active_client_connections,omitempty"`
 	MaxClientConnections    *uint32                `protobuf:"varint,5,opt,name=max_client_connections,json=maxClientConnections,proto3,oneof" json:"max_client_connections,omitempty"`
 	AdminConsoleReachable   *bool                  `protobuf:"varint,6,opt,name=admin_console_reachable,json=adminConsoleReachable,proto3,oneof" json:"admin_console_reachable,omitempty"`
+	NetworkName             string                 `protobuf:"bytes,7,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
+	PublishedAddress        string                 `protobuf:"bytes,8,opt,name=published_address,json=publishedAddress,proto3" json:"published_address,omitempty"`
+	PublishedPort           uint32                 `protobuf:"varint,9,opt,name=published_port,json=publishedPort,proto3" json:"published_port,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1698,6 +1749,27 @@ func (x *ActualPgBouncer) GetAdminConsoleReachable() bool {
 		return *x.AdminConsoleReachable
 	}
 	return false
+}
+
+func (x *ActualPgBouncer) GetNetworkName() string {
+	if x != nil {
+		return x.NetworkName
+	}
+	return ""
+}
+
+func (x *ActualPgBouncer) GetPublishedAddress() string {
+	if x != nil {
+		return x.PublishedAddress
+	}
+	return ""
+}
+
+func (x *ActualPgBouncer) GetPublishedPort() uint32 {
+	if x != nil {
+		return x.PublishedPort
+	}
+	return 0
 }
 
 // ActualBackup describes applied backup configuration and the latest observed success.
@@ -2040,12 +2112,14 @@ const file_orca_proto_rawDesc = "" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\"\n" +
 	"\fDatabaseSpec\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\xc2\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x8e\x02\n" +
 	"\rPgBouncerSpec\x12\x1b\n" +
 	"\tpool_mode\x18\x01 \x01(\tR\bpoolMode\x12'\n" +
 	"\x0fmax_connections\x18\x02 \x01(\rR\x0emaxConnections\x12*\n" +
 	"\x11reserve_pool_size\x18\x03 \x01(\rR\x0freservePoolSize\x12?\n" +
-	"\x1creserve_pool_timeout_seconds\x18\x04 \x01(\rR\x19reservePoolTimeoutSeconds\"\xb0\x01\n" +
+	"\x1creserve_pool_timeout_seconds\x18\x04 \x01(\rR\x19reservePoolTimeoutSeconds\x12'\n" +
+	"\x0fpublish_address\x18\x05 \x01(\tR\x0epublishAddress\x12!\n" +
+	"\fpublish_port\x18\x06 \x01(\rR\vpublishPort\"\xb0\x01\n" +
 	"\x0ePgBackRestSpec\x12\x1b\n" +
 	"\trepo_path\x18\x01 \x01(\tR\brepoPath\x12%\n" +
 	"\x0eretention_full\x18\x02 \x01(\rR\rretentionFull\x12%\n" +
@@ -2056,7 +2130,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xb6\v\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\x84\f\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -2081,7 +2155,9 @@ const file_orca_proto_rawDesc = "" +
 	"\x18pg_hba_replication_cidrs\x18\x12 \x03(\tR\x15pgHbaReplicationCidrs\x12V\n" +
 	"\x10parameter_states\x18\x13 \x03(\v2+.orca.v1.ActualCluster.ParameterStatesEntryR\x0fparameterStates\x12/\n" +
 	"\x13parameters_observed\x18\x14 \x01(\bR\x12parametersObserved\x12<\n" +
-	"\x1aapplied_restart_generation\x18\x15 \x01(\x04R\x18appliedRestartGeneration\x1a@\n" +
+	"\x1aapplied_restart_generation\x18\x15 \x01(\x04R\x18appliedRestartGeneration\x12!\n" +
+	"\fnetwork_name\x18\x16 \x01(\tR\vnetworkName\x12)\n" +
+	"\x11pg_hba_pool_cidrs\x18\x17 \x03(\tR\x0epgHbaPoolCidrs\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aD\n" +
@@ -2104,7 +2180,7 @@ const file_orca_proto_rawDesc = "" +
 	"\rupdate_method\x18\x04 \x01(\tR\fupdateMethod\x12'\n" +
 	"\x0fpending_restart\x18\x05 \x01(\bR\x0ependingRestart\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12\x18\n" +
-	"\aapplied\x18\a \x01(\bR\aapplied\"\xdd\x05\n" +
+	"\aapplied\x18\a \x01(\bR\aapplied\"\xab\x06\n" +
 	"\rActualReplica\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -2120,19 +2196,24 @@ const file_orca_proto_rawDesc = "" +
 	"pgHbaRules\x12&\n" +
 	"\x0fpg_hba_observed\x18\v \x01(\bR\rpgHbaObserved\x12P\n" +
 	"\x0eapplied_params\x18\f \x03(\v2).orca.v1.ActualReplica.AppliedParamsEntryR\rappliedParams\x12/\n" +
-	"\x13parameters_observed\x18\r \x01(\bR\x12parametersObserved\x1a@\n" +
+	"\x13parameters_observed\x18\r \x01(\bR\x12parametersObserved\x12!\n" +
+	"\fnetwork_name\x18\x0e \x01(\tR\vnetworkName\x12)\n" +
+	"\x11pg_hba_pool_cidrs\x18\x0f \x03(\tR\x0epgHbaPoolCidrs\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
 	"\x16_replication_lag_bytesB\x14\n" +
-	"\x12_standby_connected\"\xf2\x02\n" +
+	"\x12_standby_connected\"\xe9\x03\n" +
 	"\x0fActualPgBouncer\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06config\x18\x03 \x01(\tR\x06config\x12?\n" +
 	"\x19active_client_connections\x18\x04 \x01(\rH\x00R\x17activeClientConnections\x88\x01\x01\x129\n" +
 	"\x16max_client_connections\x18\x05 \x01(\rH\x01R\x14maxClientConnections\x88\x01\x01\x12;\n" +
-	"\x17admin_console_reachable\x18\x06 \x01(\bH\x02R\x15adminConsoleReachable\x88\x01\x01B\x1c\n" +
+	"\x17admin_console_reachable\x18\x06 \x01(\bH\x02R\x15adminConsoleReachable\x88\x01\x01\x12!\n" +
+	"\fnetwork_name\x18\a \x01(\tR\vnetworkName\x12+\n" +
+	"\x11published_address\x18\b \x01(\tR\x10publishedAddress\x12%\n" +
+	"\x0epublished_port\x18\t \x01(\rR\rpublishedPortB\x1c\n" +
 	"\x1a_active_client_connectionsB\x19\n" +
 	"\x17_max_client_connectionsB\x1a\n" +
 	"\x18_admin_console_reachable\"\xcf\x01\n" +

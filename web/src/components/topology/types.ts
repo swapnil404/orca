@@ -6,7 +6,7 @@ export type PaletteNodeType = 'replica' | 'pgbouncer' | 'pgbackrest' | 'extensio
 
 export type ProvisionRequest =
   | { type: 'replica'; clusterID: string }
-  | { type: 'pgbouncer'; clusterID: string; poolMode: 'session' | 'transaction' | 'statement'; maxConnections: number }
+  | { type: 'pgbouncer'; clusterID: string; poolMode: 'session' | 'transaction' | 'statement'; maxConnections: number; publishAddress: string; publishPort: number }
   | { type: 'pgbackrest'; clusterID: string; repoPath: string; retentionFull: number; retentionDiff: number; fullIntervalSeconds: number; diffIntervalSeconds: number; incrIntervalSeconds: number }
   | { type: 'extension'; clusterID: string; extension: string }
 

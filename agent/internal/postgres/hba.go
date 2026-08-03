@@ -28,6 +28,7 @@ type HBAExecutor interface {
 type HBAObservation struct {
 	Rules            []*types.PgHbaRule
 	ReplicationCIDRs []string
+	PoolCIDRs        []string
 }
 
 // DesiredHBARules returns the managed rules, or nil when this server does not manage HBA.
@@ -132,13 +133,17 @@ func ApplyHBA(ctx context.Context, executor HBAExecutor, desired *types.ClusterS
 		content  string
 		previous string
 	}
-	targets := []target{{name: primary, content: renderHBA(rules, cidrs, len(desired.Replicas) > 0)}}
+	targets := []target{{name: primary, content: renderHBA(rules, cidrs, len(desired.Replicas) > 0, desired.PgBouncer != nil)}}
 	if actual != nil {
 		for _, replica := range actual.Replicas {
 			if replica == nil || replica.ContainerId == "" || replica.Status != "running" {
 				continue
 			}
-			targets = append(targets, target{name: replica.ContainerId, content: renderHBA(rules, nil, false)})
+			cidrs, err := executor.ContainerNetworkCIDRs(ctx, replica.ContainerId)
+			if err != nil {
+				return fmt.Errorf("inspect replica network: %w", err)
+			}
+			targets = append(targets, target{name: replica.ContainerId, content: renderHBA(rules, cidrs, false, desired.PgBouncer != nil)})
 		}
 	}
 	for index := range targets {
@@ -174,10 +179,14 @@ func ApplyReplicaHBA(ctx context.Context, executor HBAExecutor, desired *types.C
 	if err := waitForPrimary(ctx, executor, containerID); err != nil {
 		return err
 	}
-	return applyHBAFile(ctx, executor, containerID, renderHBA(rules, nil, false))
+	cidrs, err := executor.ContainerNetworkCIDRs(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("inspect replica network: %w", err)
+	}
+	return applyHBAFile(ctx, executor, containerID, renderHBA(rules, cidrs, false, desired.PgBouncer != nil))
 }
 
-func renderHBA(rules []*types.PgHbaRule, networkCIDRs []string, replication bool) string {
+func renderHBA(rules []*types.PgHbaRule, networkCIDRs []string, replication, pooling bool) string {
 	var builder strings.Builder
 	builder.WriteString("# Managed by Orca. Manual changes are replaced.\n")
 	builder.WriteString("local all postgres trust\n")
@@ -186,6 +195,13 @@ func renderHBA(rules []*types.PgHbaRule, networkCIDRs []string, replication bool
 		sort.Strings(cidrs)
 		for _, cidr := range cidrs {
 			fmt.Fprintf(&builder, "host replication postgres %s trust\n", cidr)
+		}
+	}
+	if pooling {
+		cidrs := append([]string(nil), networkCIDRs...)
+		sort.Strings(cidrs)
+		for _, cidr := range cidrs {
+			fmt.Fprintf(&builder, "host all postgres %s scram-sha-256\n", cidr)
 		}
 	}
 	builder.WriteString(hbaRulesBegin + "\n")
@@ -253,6 +269,7 @@ func parseManagedRules(content string) (HBAObservation, error) {
 		return HBAObservation{}, errors.New("active pg_hba.conf is not managed by Orca")
 	}
 	replicationCIDRs := make([]string, 0)
+	poolCIDRs := make([]string, 0)
 	for _, line := range strings.Split(content[:start], "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 5 && fields[0] == "host" && fields[1] == "replication" && fields[2] == "postgres" && fields[4] == "trust" {
@@ -260,9 +277,15 @@ func parseManagedRules(content string) (HBAObservation, error) {
 				return HBAObservation{}, fmt.Errorf("invalid managed replication CIDR %q", fields[3])
 			}
 			replicationCIDRs = append(replicationCIDRs, fields[3])
+		} else if len(fields) == 5 && fields[0] == "host" && fields[1] == "all" && fields[2] == "postgres" && fields[4] == "scram-sha-256" {
+			if _, err := netip.ParsePrefix(fields[3]); err != nil {
+				return HBAObservation{}, fmt.Errorf("invalid managed pool CIDR %q", fields[3])
+			}
+			poolCIDRs = append(poolCIDRs, fields[3])
 		}
 	}
 	sort.Strings(replicationCIDRs)
+	sort.Strings(poolCIDRs)
 	block := content[start+len(hbaRulesBegin)+1 : end]
 	rules := make([]*types.PgHbaRule, 0)
 	for _, line := range strings.Split(strings.TrimSuffix(block, "\n"), "\n") {
@@ -286,7 +309,7 @@ func parseManagedRules(content string) (HBAObservation, error) {
 	if err := ValidateHBARules(rules); err != nil {
 		return HBAObservation{}, err
 	}
-	return HBAObservation{Rules: rules, ReplicationCIDRs: replicationCIDRs}, nil
+	return HBAObservation{Rules: rules, ReplicationCIDRs: replicationCIDRs, PoolCIDRs: poolCIDRs}, nil
 }
 
 func validHBAAddress(value string) bool {

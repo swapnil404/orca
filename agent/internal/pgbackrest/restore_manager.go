@@ -30,6 +30,7 @@ type RestoreDocker interface {
 	RestartContainer(ctx context.Context, containerID string) error
 	EnsureVolume(ctx context.Context, name string) error
 	RemoveVolume(ctx context.Context, name string) error
+	RemoveNetwork(ctx context.Context, name string) error
 	ListOrcaContainers(ctx context.Context) ([]orcadocker.ContainerInfo, error)
 }
 
@@ -576,6 +577,9 @@ func (m *RestoreManager) rollback(ctx context.Context, desired *orcatypes.Desire
 		if err := m.removeDependents(ctx, record.Target, true); err != nil {
 			return m.fail(ctx, record, "rollback_failed", err)
 		}
+		if err := m.docker.RemoveNetwork(ctx, orcadocker.NetworkName(record.Target)); err != nil && !isMissingDockerObject(err) {
+			return m.fail(ctx, record, "rollback_failed", err)
+		}
 		if err := m.docker.RemoveVolume(ctx, orcadocker.VolumeName(record.Target)); err != nil && !isMissingDockerObject(err) {
 			return m.fail(ctx, record, "rollback_failed", err)
 		}
@@ -618,6 +622,9 @@ func (m *RestoreManager) cancel(ctx context.Context, record *restoreRecord) erro
 	}
 	if record.Mode == "clone" && record.Target != "" {
 		if err := m.removeDependents(ctx, record.Target, true); err != nil {
+			return m.fail(ctx, record, "cancel_cleanup_failed", err)
+		}
+		if err := m.docker.RemoveNetwork(ctx, orcadocker.NetworkName(record.Target)); err != nil && !isMissingDockerObject(err) {
 			return m.fail(ctx, record, "cancel_cleanup_failed", err)
 		}
 		if err := m.docker.RemoveVolume(ctx, orcadocker.VolumeName(record.Target)); err != nil && !isMissingDockerObject(err) {

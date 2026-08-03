@@ -2,14 +2,13 @@ package reconciler
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
@@ -175,8 +174,7 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 	case ActionCreateReplica:
 		return createReplica(ctx, docker, action, desired)
 	case ActionCreatePgBouncer:
-		spec, err := pgBouncerContainerSpec(action)
-		return createAndStart(ctx, docker, spec, err)
+		return createPgBouncer(ctx, docker, action)
 	case ActionUpdatePgBouncer:
 		return updatePgBouncer(ctx, docker, action)
 	case ActionUpdateExtensions:
@@ -198,6 +196,12 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 			if err := stopAndRemove(ctx, docker, cluster.ContainerId); err != nil {
 				return err
 			}
+		}
+		if err := docker.RemoveNetwork(ctx, orcadocker.NetworkName(cluster.Id)); err != nil {
+			return err
+		}
+		if err := docker.RemoveClusterData(ctx, cluster.Id); err != nil {
+			return err
 		}
 		return docker.RemoveVolume(ctx, orcadocker.VolumeName(cluster.Id))
 	case ActionDeleteReplica:
@@ -504,11 +508,20 @@ func createAndStart(ctx context.Context, docker DockerClient, spec orcadocker.Co
 }
 
 func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.ContainerSpec, params map[string]string) error {
-	password := make([]byte, 32)
-	if _, err := rand.Read(password); err != nil {
-		return fmt.Errorf("generate initial PostgreSQL password: %w", err)
+	credentials, ok := docker.(clusterCredentialDockerClient)
+	if !ok {
+		return errors.New("docker client does not support cluster credentials")
 	}
-	spec.Env = append(spec.Env, "POSTGRES_PASSWORD="+base64.RawURLEncoding.EncodeToString(password))
+	password, err := credentials.EnsureClusterPassword(ctx, spec.ClusterID)
+	if err != nil {
+		return err
+	}
+	if err := credentials.WriteConfig(ctx, spec.ClusterID, &orcadocker.ConfigMount{
+		RelativePath: "postgres/password", Content: password + "\n", Mode: 0o600,
+	}); err != nil {
+		return fmt.Errorf("write PostgreSQL password file: %w", err)
+	}
+	spec.Env = append(spec.Env, "POSTGRES_PASSWORD_FILE=/etc/orca/password")
 	baseline, err := postgres.RenderConfig(spec.ClusterID, nil)
 	if err != nil {
 		return err
@@ -525,10 +538,16 @@ func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.Con
 	if !ok {
 		return errors.New("docker client does not support PostgreSQL configuration updates")
 	}
+	if err := postgres.WaitForPrimaryReady(ctx, configDocker, containerID); err != nil {
+		return err
+	}
 	if err := applyPostgresConfig(ctx, configDocker, docker, containerID, spec.ClusterID, orcadocker.VolumeMountPath(spec.ClusterID)+"/primary", orcadocker.PostgresConfigRelativePath, nil, params); err != nil {
 		return err
 	}
-	return writeAppliedParams(ctx, configDocker, spec.ClusterID, orcadocker.PostgresAppliedConfigRelativePath, orcadocker.VolumeMountPath(spec.ClusterID)+"/primary", params)
+	if err := writeAppliedParams(ctx, configDocker, spec.ClusterID, orcadocker.PostgresAppliedConfigRelativePath, orcadocker.VolumeMountPath(spec.ClusterID)+"/primary", params); err != nil {
+		return err
+	}
+	return synchronizePostgresPassword(ctx, credentials, containerID, password)
 }
 
 func stopAndRemove(ctx context.Context, docker DockerClient, containerID string) error {
@@ -734,6 +753,19 @@ func updatePgBouncer(ctx context.Context, docker DockerClient, action Action) er
 	if !ok {
 		return errors.New("docker client does not support PgBouncer updates")
 	}
+	if err := configurePgBouncerAuthentication(ctx, docker, action.ClusterID); err != nil {
+		return err
+	}
+	if update.Actual.NetworkName != orcadocker.NetworkName(action.ClusterID) ||
+		update.Actual.PublishedAddress != update.Desired.PgBouncer.PublishAddress ||
+		update.Actual.PublishedPort != update.Desired.PgBouncer.PublishPort {
+		if update.Actual.ContainerId != "" {
+			if err := stopAndRemove(ctx, docker, update.Actual.ContainerId); err != nil {
+				return err
+			}
+		}
+		return createAndStart(ctx, docker, spec, nil)
+	}
 
 	changed, parseErr := pgbouncer.ChangedConfigKeys(update.Actual.Config, spec.Config.Content)
 	method := pgbouncer.UpdateMethodRestart
@@ -895,13 +927,86 @@ func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
 		ClusterID: action.ClusterID,
 		Kind:      orcadocker.ContainerKindPgBouncer,
 		Image:     "edoburu/pgbouncer:v1.25.2-p0",
-		Env:       []string{"AUTH_FILE=/tmp/userlist.txt"},
+		Ports: []orcadocker.PublishedPort{{
+			ContainerPort: 6432,
+			HostAddress:   cluster.PgBouncer.PublishAddress,
+			HostPort:      uint16(cluster.PgBouncer.PublishPort),
+		}},
 		Config: &orcadocker.ConfigMount{
 			RelativePath:  orcadocker.PgBouncerConfigRelativePath,
 			ContainerPath: orcadocker.PgBouncerConfigContainerPath,
 			Content:       config,
 		},
 	}, nil
+}
+
+type clusterCredentialDockerClient interface {
+	EnsureClusterPassword(context.Context, string) (string, error)
+	ExecContainer(context.Context, string, []string) (string, error)
+	WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
+}
+
+func createPgBouncer(ctx context.Context, docker DockerClient, action Action) error {
+	if err := configurePgBouncerAuthentication(ctx, docker, action.ClusterID); err != nil {
+		return err
+	}
+	spec, err := pgBouncerContainerSpec(action)
+	return createAndStart(ctx, docker, spec, err)
+}
+
+func configurePgBouncerAuthentication(ctx context.Context, docker DockerClient, clusterID string) error {
+	credentials, ok := docker.(clusterCredentialDockerClient)
+	if !ok {
+		return errors.New("docker client does not support cluster credentials")
+	}
+	password, err := credentials.EnsureClusterPassword(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{ClusterID: clusterID, Kind: orcadocker.ContainerKindPrimary})
+	if err != nil {
+		return err
+	}
+	if err := synchronizePostgresPassword(ctx, credentials, primary, password); err != nil {
+		return err
+	}
+	verifier, err := credentials.ExecContainer(ctx, primary, []string{
+		"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align",
+		"--command", "SELECT rolpassword FROM pg_authid WHERE rolname = 'postgres';",
+	})
+	if err != nil {
+		return fmt.Errorf("read PostgreSQL SCRAM verifier: %w", err)
+	}
+	verifier = strings.TrimSpace(verifier)
+	if !strings.HasPrefix(verifier, "SCRAM-SHA-256$") {
+		return errors.New("PostgreSQL did not produce a SCRAM verifier")
+	}
+	if err := credentials.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PgBouncerAuthRelativePath,
+		Content:      fmt.Sprintf("\"postgres\" \"%s\"\n\"pgbouncer\" \"\"\n", verifier),
+	}); err != nil {
+		return fmt.Errorf("write PgBouncer auth file: %w", err)
+	}
+	return credentials.WriteConfig(ctx, clusterID, &orcadocker.ConfigMount{
+		RelativePath: orcadocker.PgBouncerHbaRelativePath,
+		Content: "local pgbouncer pgbouncer trust\n" +
+			"host all all 0.0.0.0/0 scram-sha-256\n" +
+			"host all all ::/0 scram-sha-256\n",
+	})
+}
+
+func synchronizePostgresPassword(ctx context.Context, docker clusterCredentialDockerClient, containerID, password string) error {
+	if password == "" || strings.ContainsAny(password, "'\\") {
+		return errors.New("invalid generated PostgreSQL password")
+	}
+	_, err := docker.ExecContainer(ctx, containerID, []string{
+		"psql", "--username", "postgres", "--dbname", "postgres", "--set", "ON_ERROR_STOP=1",
+		"--command", "SET password_encryption = 'scram-sha-256'; ALTER ROLE postgres PASSWORD '" + password + "';",
+	})
+	if err != nil {
+		return fmt.Errorf("synchronize PostgreSQL password: %w", err)
+	}
+	return nil
 }
 
 func primaryContainerID(action Action) (string, error) {

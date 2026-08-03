@@ -112,7 +112,7 @@ function NewProjectPage() {
         pg_hba_rules: pgHbaRules,
         pgbouncer_enabled: false,
       })
-      if (poolingEnabled) await enablePgBouncer(cluster, { pool_mode: poolMode, max_connections: maxConnections })
+      if (poolingEnabled) await enablePgBouncer(cluster, { pool_mode: poolMode, max_connections: maxConnections, publish_address: '127.0.0.1', publish_port: 6432 })
     } catch (cause) {
       const rollback = []
       if (projectID) {
