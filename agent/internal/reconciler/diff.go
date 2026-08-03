@@ -185,13 +185,17 @@ func diffPgHba(desired *ClusterSpec, actual *ActualCluster) []Action {
 	}
 	desiredRules := postgres.DesiredHBARules(desired)
 	expectedReplicationCIDRs := []string(nil)
+	expectedPoolCIDRs := []string(nil)
 	if len(desired.Replicas) > 0 {
 		expectedReplicationCIDRs = actual.NetworkCidrs
 	}
+	if desired.PgBouncer != nil {
+		expectedPoolCIDRs = actual.NetworkCidrs
+	}
 	needsUpdate := !actual.PgHbaObserved || !postgres.RulesEqual(desiredRules, actual.PgHbaRules) ||
-		!postgres.StringsEqual(expectedReplicationCIDRs, actual.PgHbaReplicationCidrs)
+		!postgres.StringsEqual(expectedReplicationCIDRs, actual.PgHbaReplicationCidrs) || !postgres.StringsEqual(expectedPoolCIDRs, actual.PgHbaPoolCidrs)
 	for _, replica := range actual.Replicas {
-		if replica != nil && replica.Status == "running" && (!replica.PgHbaObserved || !postgres.RulesEqual(desiredRules, replica.PgHbaRules)) {
+		if replica != nil && replica.Status == "running" && (!replica.PgHbaObserved || !postgres.RulesEqual(desiredRules, replica.PgHbaRules) || !postgres.StringsEqual(expectedPoolCIDRs, replica.PgHbaPoolCidrs)) {
 			needsUpdate = true
 		}
 	}
@@ -249,7 +253,7 @@ func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
 
 func primaryRequiresReplacement(desired *ClusterSpec, actual *ActualCluster) bool {
 	imageMissingPgBackRest := desired.PgBackRest != nil && !strings.HasPrefix(strings.TrimPrefix(actual.Image, "docker.io/library/"), "orca-postgres:")
-	return desired.Version != actual.Version || imageMissingPgBackRest
+	return desired.Version != actual.Version || imageMissingPgBackRest || actual.NetworkName != "orca-"+desired.Id+"-network"
 }
 
 func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
@@ -272,7 +276,7 @@ func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionC
 			continue
 		}
 		legacyParameterConfig := actualReplica.AppliedParams == nil && len(cluster.Params) > 0
-		if actualReplica.Status != "running" || primaryVersionChanged || legacyParameterConfig {
+		if actualReplica.Status != "running" || primaryVersionChanged || legacyParameterConfig || actualReplica.NetworkName != "orca-"+cluster.Id+"-network" {
 			actions = append(actions,
 				Action{Type: ActionDeleteReplica, ClusterID: cluster.Id, ReplicaID: actualReplica.Id, Spec: actualReplica},
 				Action{Type: ActionCreateReplica, ClusterID: cluster.Id, ReplicaID: desiredReplica.Id, Spec: desiredReplica},
@@ -314,7 +318,8 @@ func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool,
 	if desired.PgBouncer == nil {
 		return nil
 	}
-	if !configValid || desiredConfig != actual.Config || actual.Status != "running" {
+	if !configValid || desiredConfig != actual.Config || actual.Status != "running" ||
+		actual.NetworkName != "orca-"+desired.Id+"-network" || actual.PublishedAddress != desired.PgBouncer.PublishAddress || actual.PublishedPort != desired.PgBouncer.PublishPort {
 		return []Action{{
 			Type:      ActionUpdatePgBouncer,
 			ClusterID: desired.Id,

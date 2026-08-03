@@ -70,6 +70,8 @@ Correctness rules for this module:
 Docker naming conventions:
 - Containers: `orca-<cluster-id>-primary`, `orca-<cluster-id>-replica-<n>`, `orca-<cluster-id>-pgbouncer`, `orca-<cluster-id>-pgbackrest`.
 - Data volumes: named and explicit, under `/var/orca/data/<cluster-id>/`. Never anonymous volumes.
+- Networks: `orca-<cluster-id>-network`. Every container for a cluster attaches only to that cluster's user-defined bridge.
+- Client access: publish PgBouncer's configured host address and port. PostgreSQL is not published directly.
 
 ## Server (`server/`)
 

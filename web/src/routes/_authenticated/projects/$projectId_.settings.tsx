@@ -264,17 +264,19 @@ function PoolEditor({ cluster, actual, stale, onUpdated }: PoolEditorProps) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const applied = appliedPoolConfig(actual?.config)
-  const isApplied = !stale && actual?.status === 'running' && applied.pool_mode === cluster.pg_bouncer.pool_mode && applied.max_connections === cluster.pg_bouncer.max_connections
+  const isApplied = !stale && actual?.status === 'running' && applied.pool_mode === cluster.pg_bouncer.pool_mode && applied.max_connections === cluster.pg_bouncer.max_connections && actual.published_address === cluster.pg_bouncer.publish_address && actual.published_port === cluster.pg_bouncer.publish_port
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const poolMode = String(form.get('pool_mode')) as PgBouncerPoolMode
     const maxConnections = Number(form.get('max_connections'))
+    const publishAddress = String(form.get('publish_address'))
+    const publishPort = Number(form.get('publish_port'))
     setSaving(true)
     setMessage('')
     try {
-      const updated = await updatePgBouncer(cluster.id, { pool_mode: poolMode, max_connections: maxConnections })
+      const updated = await updatePgBouncer(cluster.id, { pool_mode: poolMode, max_connections: maxConnections, publish_address: publishAddress, publish_port: publishPort })
       onUpdated(updated)
       setMessage('Desired state saved. Waiting for the agent to report the applied config.')
     } catch (error) {
@@ -284,7 +286,7 @@ function PoolEditor({ cluster, actual, stale, onUpdated }: PoolEditorProps) {
     }
   }
 
-  return <form onSubmit={handleSubmit} className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${isApplied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}><span className={`h-1.5 w-1.5 rounded-full ${isApplied ? 'bg-[var(--healthy)]' : 'bg-[var(--warning)]'}`} />{isApplied ? 'Applied' : 'Awaiting agent'}</span></div><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select name="pool_mode" defaultValue={cluster.pg_bouncer.pool_mode} className={fieldClass}><option value="session">Session</option><option value="transaction">Transaction</option><option value="statement">Statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Maximum client connections<input name="max_connections" type="number" min="1" step="1" required defaultValue={cluster.pg_bouncer.max_connections} className={fieldClass} /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-xs text-[var(--text-3)]">{message || (actual?.config ? `Reported: ${applied.pool_mode ?? 'unknown'} / ${applied.max_connections ?? 'unknown'} connections` : 'No applied PgBouncer config has been reported.')}</p><button disabled={saving} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save pool config'}</button></div></form>
+  return <form onSubmit={handleSubmit} className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${isApplied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}><span className={`h-1.5 w-1.5 rounded-full ${isApplied ? 'bg-[var(--healthy)]' : 'bg-[var(--warning)]'}`} />{isApplied ? 'Applied' : 'Awaiting agent'}</span></div><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select name="pool_mode" defaultValue={cluster.pg_bouncer.pool_mode} className={fieldClass}><option value="session">Session</option><option value="transaction">Transaction</option><option value="statement">Statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Maximum client connections<input name="max_connections" type="number" min="1" step="1" required defaultValue={cluster.pg_bouncer.max_connections} className={fieldClass} /></label><label className="text-xs font-medium text-[var(--text-2)]">Publish address<input name="publish_address" required defaultValue={cluster.pg_bouncer.publish_address} className={fieldClass} /></label><label className="text-xs font-medium text-[var(--text-2)]">Publish port<input name="publish_port" type="number" min="1" max="65535" step="1" required defaultValue={cluster.pg_bouncer.publish_port} className={fieldClass} /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-xs text-[var(--text-3)]">{message || (actual?.config ? `Reported: ${applied.pool_mode ?? 'unknown'} / ${applied.max_connections ?? 'unknown'} connections at ${cluster.pg_bouncer.publish_address}:${cluster.pg_bouncer.publish_port}` : 'No applied PgBouncer config has been reported.')}</p><button disabled={saving} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save pool config'}</button></div></form>
 }
 
 function AgentRow({ host, statusUnknown }: { host: ProjectHost; statusUnknown: boolean }) {

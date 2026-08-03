@@ -16,7 +16,50 @@ import (
 const (
 	configApplyTimeout  = 30 * time.Second
 	configApplyInterval = 250 * time.Millisecond
+	primaryStablePeriod = time.Second
 )
+
+// WaitForPrimaryReady waits for the final PostgreSQL postmaster to remain
+// available, avoiding the temporary server used by the image entrypoint.
+func WaitForPrimaryReady(ctx context.Context, executor ConfigExecutor, containerID string) error {
+	if executor == nil {
+		return errors.New("config executor is nil")
+	}
+	command := []string{"psql", "--username", "postgres", "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "SELECT pg_postmaster_start_time();"}
+	timer := time.NewTimer(configApplyTimeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(configApplyInterval)
+	defer ticker.Stop()
+
+	var postmaster string
+	var stableSince time.Time
+	var lastErr error
+	for {
+		output, err := executor.ExecContainer(ctx, containerID, command)
+		output = strings.TrimSpace(output)
+		if err == nil && output != "" {
+			if output != postmaster {
+				postmaster = output
+				stableSince = time.Now()
+			} else if time.Since(stableSince) >= primaryStablePeriod {
+				return nil
+			}
+			lastErr = nil
+		} else {
+			postmaster = ""
+			stableSince = time.Time{}
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), lastErr)
+		case <-timer.C:
+			return fmt.Errorf("wait for stable PostgreSQL primary: %w", lastErr)
+		case <-ticker.C:
+		}
+	}
+}
 
 // ConfigExecutor runs commands in a PostgreSQL container.
 type ConfigExecutor interface {

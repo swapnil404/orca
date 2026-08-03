@@ -435,11 +435,15 @@ func activateClone(ctx context.Context, queries *sqlcdb.Queries, operation sqlcd
 		Name: operation.TargetClusterName.String, PostgresVersion: spec.GetVersion(), Parameters: parameters,
 		ReplicaCount: int32(len(spec.GetReplicas())), ReplicaIds: replicas, EnabledExtensions: extensions,
 		PgbouncerEnabled: spec.GetPgBouncer() != nil, PgHbaRules: hbaRules,
+		PgbouncerPoolMode: defaultPgBouncerPoolMode, PgbouncerMaxConnections: defaultPgBouncerMaxConnections,
+		PgbouncerPublishAddress: defaultPgBouncerPublishAddress, PgbouncerPublishPort: defaultPgBouncerPublishPort,
 		RestartGeneration: int64(spec.GetRestartGeneration()),
 	}
 	if pool := spec.GetPgBouncer(); pool != nil {
 		params.PgbouncerPoolMode = pool.GetPoolMode()
 		params.PgbouncerMaxConnections = int32(pool.GetMaxConnections())
+		params.PgbouncerPublishAddress = pool.GetPublishAddress()
+		params.PgbouncerPublishPort = int32(pool.GetPublishPort())
 	}
 	clusterRow, err := queries.CreateActivatedCloneCluster(ctx, params)
 	if err != nil {
@@ -457,7 +461,10 @@ func cloneTargetFromSource(source sqlcdb.GetRestoreMutationContextRow, targetID 
 	cluster := Cluster{
 		ID: targetID, HostID: source.HostID, PostgresVersion: source.PostgresVersion,
 		ReplicaCount: source.ReplicaCount, PgBouncerEnabled: source.PgbouncerEnabled,
-		PgBouncer:         PgBouncerConfig{PoolMode: source.PgbouncerPoolMode, MaxConnections: source.PgbouncerMaxConnections},
+		PgBouncer: PgBouncerConfig{
+			PoolMode: source.PgbouncerPoolMode, MaxConnections: source.PgbouncerMaxConnections,
+			PublishAddress: source.PgbouncerPublishAddress, PublishPort: source.PgbouncerPublishPort,
+		},
 		RestartGeneration: source.RestartGeneration,
 	}
 	if err := json.Unmarshal(source.Parameters, &cluster.Parameters); err != nil {
@@ -479,6 +486,8 @@ func cloneTargetFromSource(source sqlcdb.GetRestoreMutationContextRow, targetID 
 	}
 	// A clone cannot use the source volume's repository path after activation.
 	cluster.PgBackRest = nil
+	// The source's host port cannot also be assigned to a same-host clone.
+	cluster.PgBouncerEnabled = false
 	payload, err := clusterDesiredStatePayload(cluster)
 	if err != nil {
 		return nil, err

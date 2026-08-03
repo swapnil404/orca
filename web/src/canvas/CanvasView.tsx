@@ -157,7 +157,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
     setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? { ...draft, stage: 'submitting', error: undefined } : draft))
     try {
       const updated = request.type === 'replica' ? await addReplica(cluster)
-        : request.type === 'pgbouncer' ? await enablePgBouncer(cluster, { pool_mode: request.poolMode, max_connections: request.maxConnections })
+        : request.type === 'pgbouncer' ? await enablePgBouncer(cluster, { pool_mode: request.poolMode, max_connections: request.maxConnections, publish_address: request.publishAddress, publish_port: request.publishPort })
           : request.type === 'pgbackrest' ? await configurePgBackRest(cluster, { repo_path: request.repoPath, retention_full: request.retentionFull, retention_diff: request.retentionDiff, full_interval_seconds: request.fullIntervalSeconds, diff_interval_seconds: request.diffIntervalSeconds, incr_interval_seconds: request.incrIntervalSeconds })
             : await installExtension(cluster, request.extension)
       const newReplica = request.type === 'replica' ? updated.replicas.at(-1) : undefined
@@ -168,7 +168,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
       if (!resourceID) throw new Error('The server did not return the provisioned resource identity.')
       onClusterUpdated(updated)
       const expectedConfig = request.type === 'pgbackrest' ? pgBackRestReconciliationState(cluster.id, request)
-        : request.type === 'pgbouncer' ? `${request.poolMode}:${request.maxConnections}` : undefined
+        : request.type === 'pgbouncer' ? `${request.poolMode}:${request.maxConnections}:${request.publishAddress}:${request.publishPort}` : undefined
       if (!updated.desired_revision) throw new Error('The server did not return a desired-state revision.')
       setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? { ...draft, stage: 'awaiting', clusterID: cluster.id, resourceID, resourceName: request.type === 'extension' ? request.extension : undefined, expectedConfig, expectedRevision: updated.desired_revision } : draft))
       setActiveDraftID(null)

@@ -69,7 +69,8 @@ const createActivatedCloneCluster = `-- name: CreateActivatedCloneCluster :one
 INSERT INTO clusters (
     id, project_id, host_id, name, postgres_version, parameters,
     replica_count, replica_ids, enabled_extensions, pgbouncer_enabled,
-    pgbouncer_pool_mode, pgbouncer_max_connections, pgbackrest_enabled,
+    pgbouncer_pool_mode, pgbouncer_max_connections, pgbouncer_publish_address,
+    pgbouncer_publish_port, pgbackrest_enabled,
     pgbackrest_repo_path, pgbackrest_retention_full, pgbackrest_retention_diff,
     pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds,
     pgbackrest_incr_interval_seconds, pg_hba_rules, restart_generation
@@ -82,9 +83,10 @@ INSERT INTO clusters (
     $15, $16,
     $17, $18,
     $19, $20,
-    $21
+    $21, $22,
+    $23
 )
-RETURNING id, project_id, host_id, name, postgres_version, parameters, replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at, pgbackrest_enabled, pgbackrest_repo_path, pgbackrest_retention_full, pgbackrest_retention_diff, pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds, pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions, pgbouncer_pool_mode, pgbouncer_max_connections, pg_hba_rules, restart_generation
+RETURNING id, project_id, host_id, name, postgres_version, parameters, replica_count, pgbouncer_enabled, created_at, updated_at, deleted_at, pgbackrest_enabled, pgbackrest_repo_path, pgbackrest_retention_full, pgbackrest_retention_diff, pgbackrest_full_interval_seconds, pgbackrest_diff_interval_seconds, pgbackrest_incr_interval_seconds, replica_ids, enabled_extensions, pgbouncer_pool_mode, pgbouncer_max_connections, pg_hba_rules, restart_generation, pgbouncer_publish_address, pgbouncer_publish_port
 `
 
 type CreateActivatedCloneClusterParams struct {
@@ -100,6 +102,8 @@ type CreateActivatedCloneClusterParams struct {
 	PgbouncerEnabled              bool            `json:"pgbouncer_enabled"`
 	PgbouncerPoolMode             string          `json:"pgbouncer_pool_mode"`
 	PgbouncerMaxConnections       int32           `json:"pgbouncer_max_connections"`
+	PgbouncerPublishAddress       string          `json:"pgbouncer_publish_address"`
+	PgbouncerPublishPort          int32           `json:"pgbouncer_publish_port"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
 	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
@@ -125,6 +129,8 @@ func (q *Queries) CreateActivatedCloneCluster(ctx context.Context, arg CreateAct
 		arg.PgbouncerEnabled,
 		arg.PgbouncerPoolMode,
 		arg.PgbouncerMaxConnections,
+		arg.PgbouncerPublishAddress,
+		arg.PgbouncerPublishPort,
 		arg.PgbackrestEnabled,
 		arg.PgbackrestRepoPath,
 		arg.PgbackrestRetentionFull,
@@ -161,6 +167,8 @@ func (q *Queries) CreateActivatedCloneCluster(ctx context.Context, arg CreateAct
 		&i.PgbouncerMaxConnections,
 		&i.PgHbaRules,
 		&i.RestartGeneration,
+		&i.PgbouncerPublishAddress,
+		&i.PgbouncerPublishPort,
 	)
 	return i, err
 }
@@ -307,6 +315,7 @@ SELECT c.id AS source_cluster_id, c.project_id, c.host_id, c.pgbackrest_enabled,
        om.role, c.name, c.postgres_version, c.parameters, c.replica_count,
        c.replica_ids, c.enabled_extensions, c.pgbouncer_enabled,
        c.pgbouncer_pool_mode, c.pgbouncer_max_connections,
+       c.pgbouncer_publish_address, c.pgbouncer_publish_port,
        c.pgbackrest_repo_path, c.pgbackrest_retention_full,
        c.pgbackrest_retention_diff, c.pgbackrest_full_interval_seconds,
        c.pgbackrest_diff_interval_seconds, c.pgbackrest_incr_interval_seconds,
@@ -339,6 +348,8 @@ type GetRestoreMutationContextRow struct {
 	PgbouncerEnabled              bool             `json:"pgbouncer_enabled"`
 	PgbouncerPoolMode             string           `json:"pgbouncer_pool_mode"`
 	PgbouncerMaxConnections       int32            `json:"pgbouncer_max_connections"`
+	PgbouncerPublishAddress       string           `json:"pgbouncer_publish_address"`
+	PgbouncerPublishPort          int32            `json:"pgbouncer_publish_port"`
 	PgbackrestRepoPath            string           `json:"pgbackrest_repo_path"`
 	PgbackrestRetentionFull       int32            `json:"pgbackrest_retention_full"`
 	PgbackrestRetentionDiff       int32            `json:"pgbackrest_retention_diff"`
@@ -367,6 +378,8 @@ func (q *Queries) GetRestoreMutationContext(ctx context.Context, arg GetRestoreM
 		&i.PgbouncerEnabled,
 		&i.PgbouncerPoolMode,
 		&i.PgbouncerMaxConnections,
+		&i.PgbouncerPublishAddress,
+		&i.PgbouncerPublishPort,
 		&i.PgbackrestRepoPath,
 		&i.PgbackrestRetentionFull,
 		&i.PgbackrestRetentionDiff,

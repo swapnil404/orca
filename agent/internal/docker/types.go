@@ -10,6 +10,8 @@ type DockerClient interface {
 	RemoveContainer(ctx context.Context, containerID string) error
 	EnsureVolume(ctx context.Context, name string) error
 	RemoveVolume(ctx context.Context, name string) error
+	RemoveNetwork(ctx context.Context, name string) error
+	RemoveClusterData(ctx context.Context, clusterID string) error
 	ListOrcaContainers(ctx context.Context) ([]ContainerInfo, error)
 }
 
@@ -39,6 +41,14 @@ type ContainerSpec struct {
 	UseVolume bool
 	Volumes   []VolumeMount
 	Config    *ConfigMount
+	Ports     []PublishedPort
+}
+
+// PublishedPort describes a container port published on the agent host.
+type PublishedPort struct {
+	ContainerPort uint16
+	HostAddress   string
+	HostPort      uint16
 }
 
 // VolumeMount describes an explicit named-volume mount.
@@ -54,6 +64,7 @@ type ConfigMount struct {
 	RelativePath  string
 	ContainerPath string
 	Content       string
+	Mode          uint32
 }
 
 // ContainerInfo describes an Orca container currently visible in Docker.
@@ -68,6 +79,9 @@ type ContainerInfo struct {
 	Config            string
 	BackupConfig      string
 	RestartGeneration uint64
+	NetworkName       string
+	PublishedAddress  string
+	PublishedPort     uint16
 }
 
 // VolumeInfo describes an Orca data volume visible in Docker.

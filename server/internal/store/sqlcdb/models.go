@@ -249,6 +249,8 @@ type Cluster struct {
 	PgbouncerMaxConnections       int32           `json:"pgbouncer_max_connections"`
 	PgHbaRules                    json.RawMessage `json:"pg_hba_rules"`
 	RestartGeneration             int64           `json:"restart_generation"`
+	PgbouncerPublishAddress       string          `json:"pgbouncer_publish_address"`
+	PgbouncerPublishPort          int32           `json:"pgbouncer_publish_port"`
 }
 
 type ClusterReport struct {
