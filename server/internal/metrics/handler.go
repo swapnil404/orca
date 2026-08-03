@@ -89,6 +89,9 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	registry.MustRegister(clusterUp, replicationLag, poolUtilization, backupLastSuccess, backupAge)
 
 	for _, metric := range currentMetricValues(reports, now) {
+		if !metric.known || !metric.sample {
+			continue
+		}
 		labels := prometheus.Labels{"project_id": metric.projectID, "cluster_id": metric.clusterID}
 		switch metric.name {
 		case MetricClusterUp:

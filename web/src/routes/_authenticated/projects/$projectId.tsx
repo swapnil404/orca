@@ -3,7 +3,7 @@ import { Copy, Eye, EyeOff, RefreshCw, Settings2, Terminal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectTopology, listProjectHosts, restartProject, rotateHostToken } from '../../../api'
 import { CanvasView } from '../../../canvas/CanvasView'
-import { isReportStale } from '../../../canvas/status'
+import { areReportsFresh } from '../../../canvas/status'
 import { ConnectHostEmptyState } from '../../../components/ConnectHostEmptyState'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
@@ -48,7 +48,7 @@ function ProjectCanvasPage() {
   useEffect(() => setClusters(initialTopology.clusters), [initialTopology.clusters, projectId])
   const projectSnapshot = snapshot?.project_id === projectId ? snapshot : null
   const [now, setNow] = useState(() => Date.now())
-  const fresh = projectSnapshot !== null && projectSnapshot.clusters.length > 0 && projectSnapshot.clusters.every((state) => state.last_seen !== undefined && !isReportStale(state, now))
+  const fresh = projectSnapshot !== null && areReportsFresh(projectSnapshot.clusters, now)
   const hosts = hostState.projectID === projectId ? hostState.hosts : initialTopology.hosts
   const awaitingHost = hosts.find((host) => host.status === 'never_connected')
   const [commandState, setCommandState] = useState<CommandState | null>(null)

@@ -569,6 +569,19 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 		}
 	}
 	if desired != nil {
+		extensionActions, err := extensions.Diff(desired.EnabledExtensions, cluster.EnabledExtensions)
+		if cluster.EnabledExtensions == nil || err != nil || len(extensionActions) > 0 {
+			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+		}
+		if !cluster.ParametersObserved || len(postgres.ChangedParameters(desired.Params, cluster.AppliedParams)) > 0 {
+			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+		}
+		for name := range desired.Params {
+			state := cluster.ParameterStates[strings.ToLower(strings.TrimSpace(name))]
+			if state == nil || state.Error != "" || !state.Applied || state.PendingRestart {
+				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
+			}
+		}
 		if desired.PgHba != nil {
 			expectedReplicationCIDRs := []string(nil)
 			expectedPoolCIDRs := []string(nil)
@@ -588,7 +601,7 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 			observed := replicas[replica.Id]
-			if observed == nil || desired.PgHba != nil && (!observed.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), observed.PgHbaRules) || desired.PgBouncer != nil && !postgres.StringsEqual(cluster.NetworkCidrs, observed.PgHbaPoolCidrs)) {
+			if observed == nil || !observed.ParametersObserved || len(postgres.ChangedParameters(desired.Params, observed.AppliedParams)) > 0 || desired.PgHba != nil && (!observed.PgHbaObserved || !postgres.RulesEqual(postgres.DesiredHBARules(desired), observed.PgHbaRules) || desired.PgBouncer != nil && !postgres.StringsEqual(cluster.NetworkCidrs, observed.PgHbaPoolCidrs)) {
 				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 			}
 		}
@@ -601,7 +614,7 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 	}
 	if desired != nil && desired.PgBackRest != nil {
 		expected, err := pgbackrest.ReconciliationState(desired)
-		if err != nil || cluster.Backup == nil || cluster.Backup.Config != expected || len(backupObservationFailed) > 0 && backupObservationFailed[0] {
+		if err != nil || cluster.Backup == nil || cluster.Backup.Config != expected || cluster.Backup.Status == "failed" || len(backupObservationFailed) > 0 && backupObservationFailed[0] {
 			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 		}
 	}

@@ -2,6 +2,7 @@ import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft, KeyRound, Network, Plus, RotateCw, ServerCog, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ApiError, deleteProject, getProjectTopology, listProjectHosts, restartProject, updateParameters, updatePgBouncer, updatePgHba } from '../../../api'
+import { isReportStale } from '../../../canvas/status'
 import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
@@ -26,8 +27,14 @@ function ProjectSettingsPage() {
   const [clusters, setClusters] = useState(initial.clusters)
   const [hosts, setHosts] = useState(initial.hosts)
   const [hostStatusUnknown, setHostStatusUnknown] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const snapshot = useTopologyStore((state) => state.snapshot)
   useProjectEvents(projectId)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (snapshot?.project_id === projectId) setClusters(snapshot.desired_clusters)
@@ -59,15 +66,27 @@ function ProjectSettingsPage() {
 
         <div className="space-y-6">
           <SettingsSection icon={Settings2} title="PostgreSQL parameters" description="Parameters are validated by the running PostgreSQL version, then reloaded or restarted according to pg_settings.context on every node.">
-            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <ParameterEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={state?.actual_state ?? undefined} stale={state?.stale ?? true} results={state?.reconciliation_results ?? []} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>
+            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => {
+              const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id)
+              const stale = !state?.last_seen || isReportStale(state, now)
+              return <ParameterEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={stale ? undefined : state.actual_state ?? undefined} stale={stale} results={stale ? [] : state.reconciliation_results} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+            })}</div>
           </SettingsSection>
 
           <SettingsSection icon={ShieldCheck} title="PostgreSQL access control" description="Rules are persisted in order, applied to the primary and replicas, and reloaded without restarting PostgreSQL.">
-            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <PgHbaEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={state?.actual_state ?? undefined} stale={state?.stale ?? true} results={state?.reconciliation_results ?? []} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>
+            <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => {
+              const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id)
+              const stale = !state?.last_seen || isReportStale(state, now)
+              return <PgHbaEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={stale ? undefined : state.actual_state ?? undefined} stale={stale} results={stale ? [] : state.reconciliation_results} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+            })}</div>
           </SettingsSection>
 
           <SettingsSection icon={Network} title="PgBouncer pools" description="Each save is persisted with the cluster's complete desired state, then reconciled by its agent.">
-            {pools.length === 0 ? <EmptyText>No PgBouncer-enabled clusters are configured.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{pools.map((cluster) => { const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id); return <PoolEditor key={cluster.id} cluster={cluster} actual={state?.actual_state?.pg_bouncer} stale={state?.stale ?? true} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} /> })}</div>}
+            {pools.length === 0 ? <EmptyText>No PgBouncer-enabled clusters are configured.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{pools.map((cluster) => {
+              const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id)
+              const stale = !state?.last_seen || isReportStale(state, now)
+              return <PoolEditor key={cluster.id} cluster={cluster} actual={stale ? undefined : state.actual_state?.pg_bouncer} stale={stale} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+            })}</div>}
           </SettingsSection>
 
           <SettingsSection icon={KeyRound} title="Project secrets" description="Secret material must never be returned to or rendered by this page.">
@@ -148,9 +167,9 @@ function ParameterEditor({ cluster, actual, stale, results, onUpdated }: Paramet
   const invalid = rows.some((row) => !parameterNamePattern.test(row.name.trim()) || row.value.includes('\n') || row.value.includes('\r')) || new Set(names).size !== names.length
   const desiredApplied = parametersEqual(cluster.parameters, actual?.applied_params, actual?.parameters_observed === true)
   const replicasApplied = cluster.replicas.every((replica) => { const observed = actual?.replicas?.find((candidate) => candidate.id === replica.id); return parametersEqual(cluster.parameters, observed?.applied_params, observed?.parameters_observed === true) })
-  const pendingRestart = Object.values(actual?.parameter_states ?? {}).some((state) => state.pending_restart)
+  const pendingRestart = !stale && Object.values(actual?.parameter_states ?? {}).some((state) => state.pending_restart)
   const applied = !stale && actual?.postgres_ready === true && desiredApplied && replicasApplied && !pendingRestart
-  const failure = [...results].reverse().find((result) => ['create_primary', 'update_primary', 'create_replica', 'observe_parameters'].includes(result.action) && result.status === 'failed')
+  const failure = stale ? undefined : [...results].reverse().find((result) => ['create_primary', 'update_primary', 'create_replica', 'observe_parameters'].includes(result.action) && result.status === 'failed')
 
   function updateRow(id: number, changes: Partial<ParameterRow>) {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...changes } : row))
@@ -218,7 +237,7 @@ function PgHbaEditor({ cluster, actual, stale, results, onUpdated }: PgHbaEditor
   const expectedReplicationCIDRs = cluster.replicas.length > 0 ? actual?.network_cidrs ?? [] : []
   const replicationApplied = JSON.stringify(expectedReplicationCIDRs) === JSON.stringify(actual?.pg_hba_replication_cidrs ?? [])
   const applied = !stale && primaryApplied && replicasApplied && replicationApplied
-  const failure = [...results].reverse().find((result) => result.action === 'update_pg_hba' && result.status === 'failed')
+  const failure = stale ? undefined : [...results].reverse().find((result) => result.action === 'update_pg_hba' && result.status === 'failed')
 
   async function save() {
     setSaving(true)

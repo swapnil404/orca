@@ -3,7 +3,7 @@ import { ArrowLeft, Blocks, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useEffect } from 'react'
 import { ApiError, getProjectTopology, updateCluster } from '../../../api'
-import { isReportStale } from '../../../canvas/status'
+import { areReportsFresh, isReportStale } from '../../../canvas/status'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
 import type { Cluster, ClusterInput, ProjectClusterState } from '../../../types/resources'
@@ -41,8 +41,8 @@ function ProjectExtensionsPage() {
 
   const states = snapshot?.project_id === projectId ? snapshot.clusters : []
   const [now, setNow] = useState(() => Date.now())
-  const fresh = states.length > 0 && states.every((state) => state.last_seen !== undefined && !isReportStale(state, now))
-  const extensionNames = collectExtensionNames(clusters, states)
+  const fresh = areReportsFresh(states, now)
+  const extensionNames = collectExtensionNames(clusters, states, now)
   useEffect(() => {
     if (snapshot?.project_id === projectId && snapshot.desired_clusters) setClusters(snapshot.desired_clusters)
   }, [projectId, snapshot?.desired_clusters, snapshot?.project_id])
@@ -100,7 +100,7 @@ function ProjectExtensionsPage() {
         </section>
 
         <p role="status" className="mb-4 min-h-5 text-xs text-[var(--text-3)]">{message}</p>
-        {extensionNames.length === 0 ? <EmptyState /> : <div className="space-y-5">{extensionNames.map((extension) => <ExtensionSection key={extension} extension={extension} clusters={clusters} states={states} pending={pending} onChange={changeDesired} onRetry={retry} />)}</div>}
+        {extensionNames.length === 0 ? <EmptyState /> : <div className="space-y-5">{extensionNames.map((extension) => <ExtensionSection key={extension} extension={extension} clusters={clusters} states={states} now={now} pending={pending} onChange={changeDesired} onRetry={retry} />)}</div>}
       </div>
     </main>
   )
@@ -110,14 +110,16 @@ interface ExtensionSectionProps {
   extension: string
   clusters: Cluster[]
   states: ProjectClusterState[]
+  now: number
   pending: string
   onChange: (cluster: Cluster, extension: string, enabled: boolean) => Promise<void>
   onRetry: (cluster: Cluster, extension: string) => Promise<void>
 }
 
-function ExtensionSection({ extension, clusters, states, pending, onChange, onRetry }: ExtensionSectionProps) {
-  const installedNodes = clusters.filter((cluster) => states.find((state) => state.cluster_id === cluster.id)?.actual_state?.enabled_extensions?.includes(extension))
-  const method = states.map((state) => state.actual_state?.extension_update_methods?.[extension]).find((value) => value !== undefined)
+function ExtensionSection({ extension, clusters, states, now, pending, onChange, onRetry }: ExtensionSectionProps) {
+  const freshStates = states.filter((state) => state.last_seen !== undefined && !isReportStale(state, now))
+  const installedNodes = clusters.filter((cluster) => freshStates.find((state) => state.cluster_id === cluster.id)?.actual_state?.enabled_extensions?.includes(extension))
+  const method = freshStates.map((state) => state.actual_state?.extension_update_methods?.[extension]).find((value) => value !== undefined)
 
   return (
     <section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)]">
@@ -129,7 +131,9 @@ function ExtensionSection({ extension, clusters, states, pending, onChange, onRe
         <table className="w-full min-w-[820px] border-collapse text-left text-sm">
           <thead className="bg-[var(--panel)] font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-3)]"><tr><th className="border-b border-[var(--border)] px-6 py-3 font-medium">Node</th><th className="border-b border-[var(--border)] px-6 py-3 font-medium">Desired</th><th className="border-b border-[var(--border)] px-6 py-3 font-medium">Actual version</th><th className="border-b border-[var(--border)] px-6 py-3 font-medium">Reconciliation</th><th className="border-b border-[var(--border)] px-6 py-3 text-right font-medium">Actions</th></tr></thead>
           <tbody className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => {
-            const actual = states.find((state) => state.cluster_id === cluster.id)?.actual_state
+            const state = states.find((candidate) => candidate.cluster_id === cluster.id)
+            const fresh = state?.last_seen !== undefined && !isReportStale(state, now)
+            const actual = fresh ? state.actual_state : undefined
             const desired = cluster.enabled_extensions.includes(extension)
             const installed = actual?.enabled_extensions?.includes(extension) ?? false
             const reported = actual?.enabled_extensions !== undefined
@@ -143,9 +147,10 @@ function ExtensionSection({ extension, clusters, states, pending, onChange, onRe
   )
 }
 
-function collectExtensionNames(clusters: Cluster[], states: ProjectClusterState[]): string[] {
+function collectExtensionNames(clusters: Cluster[], states: ProjectClusterState[], now: number): string[] {
   const names = new Set(clusters.flatMap((cluster) => cluster.enabled_extensions))
   for (const state of states) {
+    if (state.last_seen === undefined || isReportStale(state, now)) continue
     for (const extension of state.actual_state?.enabled_extensions ?? []) names.add(extension)
     for (const extension of Object.keys(state.actual_state?.extension_update_methods ?? {})) names.add(extension)
   }

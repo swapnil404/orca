@@ -21,6 +21,8 @@ const (
 	defaultReconcileInterval = 30 * time.Second
 	maxServerMessage         = 4 * 1024 * 1024
 	connectionDeadline       = 10 * time.Second
+	heartbeatInterval        = 20 * time.Second
+	heartbeatTimeout         = 60 * time.Second
 )
 
 type reconcileRunner interface {
@@ -118,6 +120,12 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 	c.logger.Info("agent tunnel WebSocket handshake succeeded", "url", c.config.ServerURL)
 	defer connection.Close()
 	connection.SetReadLimit(maxServerMessage)
+	if err := connection.SetReadDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
+		return false, err
+	}
+	connection.SetPongHandler(func(string) error {
+		return connection.SetReadDeadline(time.Now().Add(heartbeatTimeout))
+	})
 	if err := connection.SetWriteDeadline(time.Now().Add(connectionDeadline)); err != nil {
 		return false, err
 	}
@@ -151,21 +159,62 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 	type frame struct {
 		messageType int
 		payload     []byte
-		err         error
 	}
-	frames := make(chan frame)
+	frames := make(chan frame, 1)
+	readErrors := make(chan error, 1)
 	go func() {
 		for {
 			messageType, payload, err := connection.ReadMessage()
+			if err != nil {
+				select {
+				case readErrors <- err:
+				default:
+				}
+				return
+			}
 			select {
-			case frames <- frame{messageType: messageType, payload: payload, err: err}:
+			case frames <- frame{messageType: messageType, payload: payload}:
+			default:
+				select {
+				case <-frames:
+				default:
+				}
+				select {
+				case frames <- frame{messageType: messageType, payload: payload}:
+				case <-ctx.Done():
+					return
+				case <-closed:
+					return
+				}
+			}
+			select {
 			case <-ctx.Done():
 				return
 			case <-closed:
 				return
+			default:
 			}
-			if err != nil {
+		}
+	}()
+	heartbeatErrors := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case <-closed:
+				return
+			case <-ticker.C:
+				if err := connection.WriteControl(websocket.PingMessage, nil, time.Now().Add(connectionDeadline)); err != nil {
+					select {
+					case heartbeatErrors <- err:
+					default:
+					}
+					_ = connection.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -176,13 +225,14 @@ func (c *Client) runSession(ctx context.Context) (bool, error) {
 		select {
 		case <-ctx.Done():
 			return reconciled, ctx.Err()
-		case incoming := <-frames:
-			if incoming.err != nil {
-				if !authenticated {
-					c.logger.Warn("agent tunnel authentication failed before confirmation", "error", incoming.err)
-				}
-				return reconciled, fmt.Errorf("read desired state: %w", incoming.err)
+		case err := <-readErrors:
+			if !authenticated {
+				c.logger.Warn("agent tunnel authentication failed before confirmation", "error", err)
 			}
+			return reconciled, fmt.Errorf("read desired state: %w", err)
+		case err := <-heartbeatErrors:
+			return reconciled, fmt.Errorf("agent tunnel heartbeat: %w", err)
+		case incoming := <-frames:
 			if incoming.messageType != websocket.BinaryMessage {
 				return reconciled, fmt.Errorf("unexpected desired-state message type %d", incoming.messageType)
 			}
