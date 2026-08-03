@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/swapnil404/orca/agent/internal/postgres"
 )
 
 const postgresUser = "postgres"
@@ -62,6 +64,9 @@ func ConfigureWALArchiving(ctx context.Context, executor PrimaryExecutor, desire
 		if err := executor.RestartContainer(ctx, primary); err != nil {
 			return fmt.Errorf("restart primary after enabling archive_mode: %w", err)
 		}
+		if err := postgres.WaitForPrimaryReady(ctx, executor, primary); err != nil {
+			return fmt.Errorf("wait for primary after enabling archive_mode: %w", err)
+		}
 	} else if commandChanged {
 		if _, err := executor.ExecContainer(ctx, primary, psqlCommand("SELECT pg_reload_conf()")); err != nil {
 			return fmt.Errorf("reload archive_command: %w", err)
@@ -107,6 +112,9 @@ func DisableWALArchiving(ctx context.Context, executor PrimaryExecutor, clusterI
 	if modeChanged {
 		if err := executor.RestartContainer(ctx, primary); err != nil {
 			return fmt.Errorf("restart primary after disabling archive_mode: %w", err)
+		}
+		if err := postgres.WaitForPrimaryReady(ctx, executor, primary); err != nil {
+			return fmt.Errorf("wait for primary after disabling archive_mode: %w", err)
 		}
 	} else if commandChanged {
 		if _, err := executor.ExecContainer(ctx, primary, psqlCommand("SELECT pg_reload_conf()")); err != nil {
