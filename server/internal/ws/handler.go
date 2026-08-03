@@ -20,7 +20,10 @@ const (
 	defaultAuthenticationTimeout = 10 * time.Second
 	statusUpdateTimeout          = 5 * time.Second
 	reportStoreTimeout           = 5 * time.Second
+	desiredStatePushTimeout      = 10 * time.Second
 	maxAgentMessageBytes         = 1024 * 1024
+	heartbeatInterval            = 20 * time.Second
+	heartbeatTimeout             = 60 * time.Second
 )
 
 type agentHostStore interface {
@@ -128,19 +131,26 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Info("agent host activation succeeded", "host_id", host.ID)
 
-	_ = connection.SetReadDeadline(time.Time{})
+	_ = connection.SetReadDeadline(h.now().Add(heartbeatTimeout))
+	connection.SetPongHandler(func(string) error {
+		return connection.SetReadDeadline(h.now().Add(heartbeatTimeout))
+	})
 	session := NewSession(connection)
 	h.hub.Register(host.ID, session)
 	h.logger.Info("agent host session registered", "host_id", host.ID)
 	defer h.disconnect(host.ID, session)
 	if h.pusher != nil {
 		h.logger.Info("setting up initial desired-state snapshot", "host_id", host.ID)
-		if err := h.pusher.PushDesiredState(r.Context(), host.ID); err != nil {
+		pushCtx, cancel := context.WithTimeout(r.Context(), desiredStatePushTimeout)
+		err := h.pusher.PushDesiredState(pushCtx, host.ID)
+		cancel()
+		if err != nil {
 			h.logger.Error("initial desired-state snapshot setup failed", "host_id", host.ID, "error", err)
 			return
 		}
 		h.logger.Info("initial desired-state snapshot sent", "host_id", host.ID)
 	}
+	go h.heartbeat(host.ID, session)
 
 	for {
 		messageType, payload, err := connection.ReadMessage()
@@ -148,11 +158,11 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.Info("agent WebSocket read stopped", "host_id", host.ID, "error", err)
 			return
 		}
-		h.handleReportFrame(host.ID, messageType, payload)
+		h.handleReportFrame(host.ID, session, messageType, payload)
 	}
 }
 
-func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload []byte) {
+func (h *AgentHandler) handleReportFrame(hostID string, session *Session, messageType int, payload []byte) {
 	if messageType != websocket.BinaryMessage {
 		h.logger.Warn("dropping unexpected agent WebSocket message", "host_id", hostID, "message_type", messageType)
 		return
@@ -174,12 +184,22 @@ func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload
 
 	ctx, cancel := context.WithTimeout(context.Background(), reportStoreTimeout)
 	defer cancel()
-	if err := h.reports.StoreAgentReport(ctx, hostID, report, h.now().UTC()); err != nil {
-		h.logger.Error("failed to store agent report", "host_id", hostID, "error", err)
+	var storeErr error
+	current := h.hub.withCurrentSession(hostID, session, func() {
+		if err := h.reports.StoreAgentReport(ctx, hostID, report, h.now().UTC()); err != nil {
+			storeErr = fmt.Errorf("store agent report: %w", err)
+			return
+		}
+		if _, err := h.reports.ApplyRestoreOperationReports(ctx, hostID, report.GetRestoreOperationReports()); err != nil {
+			storeErr = fmt.Errorf("store restore operation reports: %w", err)
+		}
+	})
+	if !current {
+		h.logger.Warn("dropping report from replaced agent session", "host_id", hostID)
 		return
 	}
-	if _, err := h.reports.ApplyRestoreOperationReports(ctx, hostID, report.GetRestoreOperationReports()); err != nil {
-		h.logger.Error("failed to store restore operation reports", "host_id", hostID, "error", err)
+	if storeErr != nil {
+		h.logger.Error("failed to store agent report", "host_id", hostID, "error", storeErr)
 		return
 	}
 	if len(report.GetRestoreOperationReports()) > 0 && h.pusher != nil {
@@ -197,6 +217,22 @@ func (h *AgentHandler) handleReportFrame(hostID string, messageType int, payload
 	if h.notifier != nil {
 		if err := h.notifier.NotifyHostReport(ctx, hostID); err != nil {
 			h.logger.Error("failed to notify frontend clients of agent report", "host_id", hostID, "error", err)
+		}
+	}
+}
+
+func (h *AgentHandler) heartbeat(hostID string, session *Session) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-session.Done():
+			return
+		case <-ticker.C:
+			if err := session.Ping(); err != nil {
+				h.logger.Info("agent WebSocket heartbeat stopped", "host_id", hostID, "error", err)
+				return
+			}
 		}
 	}
 }

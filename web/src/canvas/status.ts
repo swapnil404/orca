@@ -23,7 +23,8 @@ export function replicaStatus(
   const replicationHealthy =
     replica.standby_connected === true &&
     replica.streaming_state === 'streaming' &&
-    !['degraded', 'lagging', 'critical'].includes(replica.replication_lag_status ?? '')
+    replica.replication_lag_bytes !== undefined &&
+    replica.replication_lag_status === 'known'
   return isRunning(replica.status) && replicationHealthy ? 'healthy' : 'degraded'
 }
 
@@ -56,6 +57,10 @@ export function pgBackRestStatus(
 export function isReportStale(state: ProjectClusterState, now = Date.now()): boolean {
   if (state.stale) return true
   return state.last_seen !== undefined && now - new Date(state.last_seen).getTime() > reportStalenessWindowMs
+}
+
+export function areReportsFresh(states: ProjectClusterState[], now = Date.now()): boolean {
+  return states.length > 0 && states.every((state) => state.last_seen !== undefined && !isReportStale(state, now))
 }
 
 export function extensionStatus(state: ProjectClusterState | undefined, desired: string[], now = Date.now()): NodeStatus {

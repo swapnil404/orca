@@ -93,15 +93,15 @@ type ruleStateMachine struct {
 }
 
 func (s *ruleStateMachine) evaluate(rule store.AlertRule, values []metricValue, now time.Time) (store.AlertRuleState, bool) {
-	conditionMet := ruleConditionMet(rule, values)
+	condition := evaluateRuleCondition(rule, values)
 	if rule.CurrentState == store.AlertRuleStateFiring {
 		delete(s.pendingSince, rule.ID)
-		if conditionMet {
+		if condition != conditionFalse {
 			return store.AlertRuleStateFiring, false
 		}
 		return store.AlertRuleStateOK, true
 	}
-	if !conditionMet {
+	if condition != conditionTrue {
 		delete(s.pendingSince, rule.ID)
 		return store.AlertRuleStateOK, false
 	}
@@ -125,7 +125,17 @@ func (s *ruleStateMachine) prune(activeRuleIDs map[string]struct{}) {
 	}
 }
 
-func ruleConditionMet(rule store.AlertRule, values []metricValue) bool {
+type conditionResult uint8
+
+const (
+	conditionUnknown conditionResult = iota
+	conditionFalse
+	conditionTrue
+)
+
+func evaluateRuleCondition(rule store.AlertRule, values []metricValue) conditionResult {
+	known := false
+	unknown := false
 	for _, metric := range values {
 		if metric.name != rule.MetricName || metric.projectID != rule.ProjectID {
 			continue
@@ -133,11 +143,19 @@ func ruleConditionMet(rule store.AlertRule, values []metricValue) bool {
 		if rule.ClusterID != "" && metric.clusterID != rule.ClusterID {
 			continue
 		}
-		if compareMetric(metric.value, rule.Comparison, rule.Threshold) {
-			return true
+		if !metric.known {
+			unknown = true
+			continue
+		}
+		known = true
+		if metric.sample && compareMetric(metric.value, rule.Comparison, rule.Threshold) {
+			return conditionTrue
 		}
 	}
-	return false
+	if unknown || !known {
+		return conditionUnknown
+	}
+	return conditionFalse
 }
 
 func compareMetric(value float64, comparison store.AlertComparison, threshold float64) bool {

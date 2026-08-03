@@ -23,17 +23,26 @@ func (h *Hub) Register(hostID string, session *Session) {
 	if h.sessions == nil {
 		h.sessions = make(map[string]*Session)
 	}
-	if h.sessions[hostID] == session {
+	previous := h.sessions[hostID]
+	if previous == session {
 		h.mu.Unlock()
 		return
 	}
 	h.sessions[hostID] = session
 	h.mu.Unlock()
+	if previous != nil {
+		previous.Close()
+	}
+}
 
-	go func() {
-		<-session.Done()
-		h.UnregisterSession(hostID, session)
-	}()
+func (h *Hub) withCurrentSession(hostID string, session *Session, fn func()) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.sessions[hostID] != session {
+		return false
+	}
+	fn()
+	return true
 }
 
 // Unregister removes the active session for hostID.

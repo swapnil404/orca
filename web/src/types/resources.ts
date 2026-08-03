@@ -88,7 +88,7 @@ export interface ActualReplica {
   streaming_state?: string
   last_wal_received_lsn?: string
   last_wal_replayed_lsn?: string
-  replication_lag_status?: string
+  replication_lag_status?: 'unknown' | 'known' | 'lagging' | 'critical'
   pg_hba_rules?: PgHbaRule[]
   pg_hba_observed?: boolean
   applied_params?: Record<string, string>

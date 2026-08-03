@@ -161,6 +161,7 @@ func (q *Queries) ListClusterReportsForHost(ctx context.Context, hostID string) 
 
 const listMetricClusterReports = `-- name: ListMetricClusterReports :many
 SELECT p.id AS project_id, c.id AS cluster_id,
+	   c.replica_count, c.pgbouncer_enabled, c.pgbackrest_enabled,
        COALESCE(cr.actual_state, 'null'::jsonb) AS actual_state,
        COALESCE(cr.health_status, 'unknown') AS health_status,
        COALESCE(cr.reported_at, 'epoch'::timestamptz) AS reported_at
@@ -173,11 +174,14 @@ ORDER BY p.id, c.id
 `
 
 type ListMetricClusterReportsRow struct {
-	ProjectID    string          `json:"project_id"`
-	ClusterID    string          `json:"cluster_id"`
-	ActualState  json.RawMessage `json:"actual_state"`
-	HealthStatus string          `json:"health_status"`
-	ReportedAt   time.Time       `json:"reported_at"`
+	ProjectID         string          `json:"project_id"`
+	ClusterID         string          `json:"cluster_id"`
+	ReplicaCount      int32           `json:"replica_count"`
+	PgbouncerEnabled  bool            `json:"pgbouncer_enabled"`
+	PgbackrestEnabled bool            `json:"pgbackrest_enabled"`
+	ActualState       json.RawMessage `json:"actual_state"`
+	HealthStatus      string          `json:"health_status"`
+	ReportedAt        time.Time       `json:"reported_at"`
 }
 
 func (q *Queries) ListMetricClusterReports(ctx context.Context, projectID string) ([]ListMetricClusterReportsRow, error) {
@@ -192,6 +196,9 @@ func (q *Queries) ListMetricClusterReports(ctx context.Context, projectID string
 		if err := rows.Scan(
 			&i.ProjectID,
 			&i.ClusterID,
+			&i.ReplicaCount,
+			&i.PgbouncerEnabled,
+			&i.PgbackrestEnabled,
 			&i.ActualState,
 			&i.HealthStatus,
 			&i.ReportedAt,

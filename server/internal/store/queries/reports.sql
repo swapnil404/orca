@@ -37,6 +37,7 @@ ORDER BY cluster_id;
 
 -- name: ListMetricClusterReports :many
 SELECT p.id AS project_id, c.id AS cluster_id,
+	   c.replica_count, c.pgbouncer_enabled, c.pgbackrest_enabled,
        COALESCE(cr.actual_state, 'null'::jsonb) AS actual_state,
        COALESCE(cr.health_status, 'unknown') AS health_status,
        COALESCE(cr.reported_at, 'epoch'::timestamptz) AS reported_at

@@ -45,12 +45,15 @@ type ClusterReport struct {
 
 // MetricClusterReport is the latest persisted observation used for metrics exposition.
 type MetricClusterReport struct {
-	ProjectID   string
-	ClusterID   string
-	ActualState *types.ActualCluster
-	Health      string
-	LastSeen    time.Time
-	Stale       bool
+	ProjectID         string
+	ClusterID         string
+	ReplicaCount      int32
+	PgBouncerEnabled  bool
+	PgBackRestEnabled bool
+	ActualState       *types.ActualCluster
+	Health            string
+	LastSeen          time.Time
+	Stale             bool
 }
 
 // BackupJob is the latest reported backup state for one active cluster.
@@ -216,9 +219,12 @@ func (s *Postgres) ListMetricClusterReports(ctx context.Context, projectID strin
 	reports := make([]MetricClusterReport, 0, len(rows))
 	for _, row := range rows {
 		report := MetricClusterReport{
-			ProjectID: row.ProjectID,
-			ClusterID: row.ClusterID,
-			Health:    unknownHealthStatus,
+			ProjectID:         row.ProjectID,
+			ClusterID:         row.ClusterID,
+			ReplicaCount:      row.ReplicaCount,
+			PgBouncerEnabled:  row.PgbouncerEnabled,
+			PgBackRestEnabled: row.PgbackrestEnabled,
+			Health:            unknownHealthStatus,
 		}
 		if string(row.ActualState) != "null" {
 			report.ActualState = &types.ActualCluster{}
