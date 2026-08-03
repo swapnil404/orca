@@ -7,7 +7,7 @@ import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
-import type { ActualCluster, ActualPgBouncer, Cluster, PgBouncerConfig, PgBouncerPoolMode, PgHbaRule, ProjectHost, ReconciliationResult } from '../../../types/resources'
+import type { ActualCluster, ActualPgBouncer, Cluster, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ReconciliationResult } from '../../../types/resources'
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/settings')({
   ssr: false,
@@ -15,15 +15,26 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/setti
     const [topology, hosts] = await Promise.all([getProjectTopology(params.projectId), listProjectHosts(params.projectId)])
     return { ...topology, hosts }
   },
-  component: ProjectSettingsPage,
+  component: ProjectSettingsRoute,
 })
 
 const fieldClass = 'mt-2 w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 font-mono text-sm text-[var(--text)] outline-none hover:border-[var(--text-3)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-50'
 const primaryButtonClass = 'inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50'
 
-function ProjectSettingsPage() {
+interface ProjectSettingsData {
+  project: Project
+  clusters: Cluster[]
+  hosts: ProjectHost[]
+}
+
+function ProjectSettingsRoute() {
   const initial = Route.useLoaderData()
   const { projectId } = Route.useParams()
+  if (initial.project.id !== projectId) return null
+  return <ProjectSettingsPage key={projectId} projectId={projectId} initial={initial} />
+}
+
+function ProjectSettingsPage({ projectId, initial }: { projectId: string; initial: ProjectSettingsData }) {
   const [clusters, setClusters] = useState(initial.clusters)
   const [hosts, setHosts] = useState(initial.hosts)
   const [hostStatusUnknown, setHostStatusUnknown] = useState(false)
@@ -85,7 +96,7 @@ function ProjectSettingsPage() {
             {pools.length === 0 ? <EmptyText>No PgBouncer-enabled clusters are configured.</EmptyText> : <div className="divide-y divide-[var(--border-soft)]">{pools.map((cluster) => {
               const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id)
               const stale = !state?.last_seen || isReportStale(state, now)
-              return <PoolEditor key={cluster.id} cluster={cluster} actual={stale ? undefined : state.actual_state?.pg_bouncer} stale={stale} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+              return <PoolEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={stale ? undefined : state.actual_state?.pg_bouncer} stale={stale} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
             })}</div>}
           </SettingsSection>
 
@@ -100,7 +111,7 @@ function ProjectSettingsPage() {
 
           <RestartProject projectID={projectId} clusterCount={clusters.length} />
 
-          <DangerZone projectID={projectId} projectName={initial.project.name} />
+          <DangerZone projectID={projectId} projectName={initial.project.name} organizationID={initial.project.organization_id} />
         </div>
       </div>
     </main>
@@ -282,20 +293,20 @@ function appliedPoolConfig(content?: string): Partial<PgBouncerConfig> {
 function PoolEditor({ cluster, actual, stale, onUpdated }: PoolEditorProps) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [config, setConfig] = useState<PgBouncerConfig>(cluster.pg_bouncer)
   const applied = appliedPoolConfig(actual?.config)
   const isApplied = !stale && actual?.status === 'running' && applied.pool_mode === cluster.pg_bouncer.pool_mode && applied.max_connections === cluster.pg_bouncer.max_connections && actual.published_address === cluster.pg_bouncer.publish_address && actual.published_port === cluster.pg_bouncer.publish_port
 
+  useEffect(() => {
+    setConfig(cluster.pg_bouncer)
+  }, [cluster.id, cluster.pg_bouncer.max_connections, cluster.pg_bouncer.pool_mode, cluster.pg_bouncer.publish_address, cluster.pg_bouncer.publish_port])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const poolMode = String(form.get('pool_mode')) as PgBouncerPoolMode
-    const maxConnections = Number(form.get('max_connections'))
-    const publishAddress = String(form.get('publish_address'))
-    const publishPort = Number(form.get('publish_port'))
     setSaving(true)
     setMessage('')
     try {
-      const updated = await updatePgBouncer(cluster.id, { pool_mode: poolMode, max_connections: maxConnections, publish_address: publishAddress, publish_port: publishPort })
+      const updated = await updatePgBouncer(cluster.id, config)
       onUpdated(updated)
       setMessage('Desired state saved. Waiting for the agent to report the applied config.')
     } catch (error) {
@@ -305,7 +316,50 @@ function PoolEditor({ cluster, actual, stale, onUpdated }: PoolEditorProps) {
     }
   }
 
-  return <form onSubmit={handleSubmit} className="py-5 first:pt-0 last:pb-0"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-medium">{cluster.name}</h3><p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p></div><span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${isApplied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}><span className={`h-1.5 w-1.5 rounded-full ${isApplied ? 'bg-[var(--healthy)]' : 'bg-[var(--warning)]'}`} />{isApplied ? 'Applied' : 'Awaiting agent'}</span></div><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-medium text-[var(--text-2)]">Pool mode<select name="pool_mode" defaultValue={cluster.pg_bouncer.pool_mode} className={fieldClass}><option value="session">Session</option><option value="transaction">Transaction</option><option value="statement">Statement</option></select></label><label className="text-xs font-medium text-[var(--text-2)]">Maximum client connections<input name="max_connections" type="number" min="1" step="1" required defaultValue={cluster.pg_bouncer.max_connections} className={fieldClass} /></label><label className="text-xs font-medium text-[var(--text-2)]">Publish address<input name="publish_address" required defaultValue={cluster.pg_bouncer.publish_address} className={fieldClass} /></label><label className="text-xs font-medium text-[var(--text-2)]">Publish port<input name="publish_port" type="number" min="1" max="65535" step="1" required defaultValue={cluster.pg_bouncer.publish_port} className={fieldClass} /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-xs text-[var(--text-3)]">{message || (actual?.config ? `Reported: ${applied.pool_mode ?? 'unknown'} / ${applied.max_connections ?? 'unknown'} connections at ${cluster.pg_bouncer.publish_address}:${cluster.pg_bouncer.publish_port}` : 'No applied PgBouncer config has been reported.')}</p><button disabled={saving} className={primaryButtonClass}>{saving ? 'Saving...' : 'Save pool config'}</button></div></form>
+  return (
+    <form onSubmit={handleSubmit} className="py-5 first:pt-0 last:pb-0">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium">{cluster.name}</h3>
+          <p className="mt-1 font-mono text-[11px] text-[var(--text-3)]">{cluster.id}</p>
+        </div>
+        <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide ${isApplied ? 'border-[var(--healthy)]/30 text-[var(--healthy)]' : 'border-[var(--warning)]/30 text-[var(--warning)]'}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${isApplied ? 'bg-[var(--healthy)]' : 'bg-[var(--warning)]'}`} />
+          {isApplied ? 'Applied' : 'Awaiting agent'}
+        </span>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="text-xs font-medium text-[var(--text-2)]">
+          Pool mode
+          <select name="pool_mode" value={config.pool_mode} onChange={(event) => setConfig((current) => ({ ...current, pool_mode: event.target.value as PgBouncerConfig['pool_mode'] }))} className={fieldClass}>
+            <option value="session">Session</option>
+            <option value="transaction">Transaction</option>
+            <option value="statement">Statement</option>
+          </select>
+        </label>
+        <label className="text-xs font-medium text-[var(--text-2)]">
+          Maximum client connections
+          <input name="max_connections" type="number" min="1" step="1" required value={config.max_connections} onChange={(event) => setConfig((current) => ({ ...current, max_connections: Number(event.target.value) }))} className={fieldClass} />
+        </label>
+        <label className="text-xs font-medium text-[var(--text-2)]">
+          Publish address
+          <input name="publish_address" required value={config.publish_address} onChange={(event) => setConfig((current) => ({ ...current, publish_address: event.target.value }))} className={fieldClass} />
+        </label>
+        <label className="text-xs font-medium text-[var(--text-2)]">
+          Publish port
+          <input name="publish_port" type="number" min="1" max="65535" step="1" required value={config.publish_port} onChange={(event) => setConfig((current) => ({ ...current, publish_port: Number(event.target.value) }))} className={fieldClass} />
+        </label>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p role="status" className="text-xs text-[var(--text-3)]">
+          {message || (actual?.config ? `Reported: ${applied.pool_mode ?? 'unknown'} / ${applied.max_connections ?? 'unknown'} connections at ${cluster.pg_bouncer.publish_address}:${cluster.pg_bouncer.publish_port}` : 'No applied PgBouncer config has been reported.')}
+        </p>
+        <button disabled={saving} className={primaryButtonClass}>
+          {saving ? 'Saving...' : 'Save pool config'}
+        </button>
+      </div>
+    </form>
+  )
 }
 
 function AgentRow({ host, statusUnknown }: { host: ProjectHost; statusUnknown: boolean }) {
@@ -314,7 +368,7 @@ function AgentRow({ host, statusUnknown }: { host: ProjectHost; statusUnknown: b
   return <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div><p className="font-mono text-xs text-[var(--text)]">{host.id}</p><p className="mt-1 text-[11px] text-[var(--text-3)]">Host identifier</p></div><div className="flex items-center gap-2 text-xs text-[var(--text-2)]"><span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-[var(--healthy)]' : statusUnknown ? 'bg-[var(--warning)]' : 'bg-[var(--text-3)]'}`} />{statusUnknown ? 'Status unknown' : labels[host.status]}</div><div className="text-xs text-[var(--text-3)]"><span className="mr-2">Agent version</span><span className="font-mono text-[var(--text-2)]">Not reported</span></div></div>
 }
 
-function DangerZone({ projectID, projectName }: { projectID: string; projectName: string }) {
+function DangerZone({ projectID, projectName, organizationID }: { projectID: string; projectName: string; organizationID: string }) {
   const navigate = useNavigate()
   const [confirmation, setConfirmation] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -326,7 +380,7 @@ function DangerZone({ projectID, projectName }: { projectID: string; projectName
     setError('')
     try {
       await deleteProject(projectID)
-      await navigate({ to: '/' })
+      await navigate({ to: '/', search: { organizationId: organizationID } })
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : 'Could not delete this project.')
       setDeleting(false)

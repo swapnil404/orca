@@ -98,9 +98,9 @@ export function TopBar({ session, organizations, projects, loggingOut, onLogout,
     }
   }, [])
 
-  const projectMatch = matches.find((match) => match.routeId === '/_authenticated/projects/$projectId')
+  const projectMatch = [...matches].reverse().find((match) => 'projectId' in match.params && typeof match.params.projectId === 'string')
   const topology = isProjectTopology(projectMatch?.loaderData) ? projectMatch.loaderData : undefined
-  const projectID = typeof projectMatch?.params.projectId === 'string' ? projectMatch.params.projectId : undefined
+  const projectID = projectMatch && 'projectId' in projectMatch.params && typeof projectMatch.params.projectId === 'string' ? projectMatch.params.projectId : undefined
   const searchOrganizationID = typeof location.search.organizationId === 'string' ? location.search.organizationId : undefined
   const activeOrganizationID = topology?.project.organization_id ?? searchOrganizationID ?? organizations[0]?.id ?? ''
   const organizationProjects = projects.filter((project) => project.organization_id === activeOrganizationID)

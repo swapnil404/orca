@@ -61,7 +61,7 @@ export function getCluster(clusterID: string): Promise<Cluster> {
   return apiRequest(`/clusters/${encode(clusterID)}`)
 }
 
-export function updateCluster(clusterID: string, input: ClusterInput): Promise<Cluster> {
+function putCluster(clusterID: string, input: ClusterInput): Promise<Cluster> {
   return apiRequest(`/clusters/${encode(clusterID)}`, {
     method: 'PUT',
     body: JSON.stringify(input),
@@ -83,23 +83,28 @@ function clusterInput(cluster: Cluster, changes: Partial<ClusterInput>): Cluster
   }
 }
 
+type ClusterChanges = Partial<ClusterInput> | ((cluster: Cluster) => Partial<ClusterInput>)
+
+export async function updateCluster(clusterID: string, changes: ClusterChanges): Promise<Cluster> {
+  const current = await getCluster(clusterID)
+  const resolvedChanges = typeof changes === 'function' ? changes(current) : changes
+  return putCluster(current.id, clusterInput(current, resolvedChanges))
+}
+
 export function addReplica(cluster: Cluster): Promise<Cluster> {
-  return getCluster(cluster.id).then((current) => updateCluster(current.id, clusterInput(current, { replica_count: current.replica_count + 1 })))
+  return updateCluster(cluster.id, (current) => ({ replica_count: current.replica_count + 1 }))
 }
 
 export function enablePgBouncer(cluster: Cluster, config: PgBouncerConfig): Promise<Cluster> {
-  return getCluster(cluster.id).then((current) => updateCluster(current.id, clusterInput(current, { pgbouncer_enabled: true, pg_bouncer: config })))
+  return updateCluster(cluster.id, { pgbouncer_enabled: true, pg_bouncer: config })
 }
 
 export function configurePgBackRest(cluster: Cluster, config: NonNullable<ClusterInput['pg_back_rest']>): Promise<Cluster> {
-  return getCluster(cluster.id).then((current) => updateCluster(current.id, clusterInput(current, { pg_back_rest: config })))
+  return updateCluster(cluster.id, { pg_back_rest: config })
 }
 
 export function installExtension(cluster: Cluster, extension: string): Promise<Cluster> {
-  return getCluster(cluster.id).then((current) => {
-    const enabledExtensions = [...new Set([...current.enabled_extensions, extension])].sort()
-    return updateCluster(current.id, clusterInput(current, { enabled_extensions: enabledExtensions }))
-  })
+  return updateCluster(cluster.id, (current) => ({ enabled_extensions: [...new Set([...current.enabled_extensions, extension])].sort() }))
 }
 
 export function updatePgBouncer(clusterID: string, config: PgBouncerConfig): Promise<Cluster> {
