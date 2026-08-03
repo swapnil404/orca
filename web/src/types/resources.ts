@@ -64,7 +64,7 @@ export interface ProjectHost {
 
 export interface HostRegistration {
   host_id: string
-  status: 'never_connected'
+  status: ProjectHost['status']
   docker_run_command: string
 }
 

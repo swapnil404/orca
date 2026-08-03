@@ -25,6 +25,7 @@ const (
 
 type agentHostStore interface {
 	HostByTokenHash(context.Context, []byte) (store.Host, error)
+	UserIsActive(context.Context, string) (bool, error)
 	UpdateHostStatus(context.Context, string, store.HostStatus) error
 }
 
@@ -110,6 +111,12 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !h.now().Before(host.TokenExpiresAt) {
 		h.logger.Warn("agent token validation failed", "host_id", host.ID, "reason", "token expired", "expired_at", host.TokenExpiresAt)
+		closeConnection(connection, websocket.ClosePolicyViolation, "invalid or expired token")
+		return
+	}
+	active, err := h.hosts.UserIsActive(r.Context(), host.UserID)
+	if err != nil || !active {
+		h.logger.Warn("agent token validation failed", "host_id", host.ID, "reason", "user inactive", "error", err)
 		closeConnection(connection, websocket.ClosePolicyViolation, "invalid or expired token")
 		return
 	}

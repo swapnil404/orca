@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
@@ -92,9 +93,23 @@ func (s *Postgres) GetHost(ctx context.Context, hostID string) (Host, error) {
 	return hostFromSQLC(host), nil
 }
 
-// RotateHostToken replaces the connection token for an owned host that has never connected.
-func (s *Postgres) RotateHostToken(ctx context.Context, hostID, userID string, tokenHash []byte, expiresAt time.Time) (bool, error) {
-	count, err := s.queries.RotateHostToken(ctx, sqlcdb.RotateHostTokenParams{
+// RotateHostToken replaces the connection token for an owned host.
+func (s *Postgres) RotateHostToken(ctx context.Context, hostID, userID string, tokenHash []byte, expiresAt time.Time) (HostStatus, bool, error) {
+	status, err := s.queries.RotateHostToken(ctx, sqlcdb.RotateHostTokenParams{
+		ID:             hostID,
+		UserID:         userID,
+		TokenHash:      tokenHash,
+		TokenExpiresAt: expiresAt,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return HostStatus(status), err == nil, err
+}
+
+// RevokeUnusedHostToken expires the connection token for an owned host that has never connected.
+func (s *Postgres) RevokeUnusedHostToken(ctx context.Context, hostID, userID string, tokenHash []byte, expiresAt time.Time) (bool, error) {
+	count, err := s.queries.RevokeUnusedHostToken(ctx, sqlcdb.RevokeUnusedHostTokenParams{
 		ID:             hostID,
 		UserID:         userID,
 		TokenHash:      tokenHash,

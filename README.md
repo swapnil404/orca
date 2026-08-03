@@ -94,7 +94,7 @@ curl -sS http://localhost:8080/hosts \
 export ORCA_TOKEN='<generated-token>'
 export ORCA_SERVER_URL='<configured-server-websocket-url>'
 export ORCA_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/orca/data"
-export ORCA_STATE_PATH='/var/orca/state/desired.json'
+export ORCA_STATE_PATH="${XDG_STATE_HOME:-$HOME/.local/state}/orca/desired.json"
 go run ./agent/cmd/agent
 ```
 
@@ -134,7 +134,7 @@ The checked-in Caddy development proxy routes `/auth/*`, JSON API requests, agen
 | `ORCA_API_URL` | web server | Go API origin used by TanStack Start server functions; defaults to `http://127.0.0.1:8080` |
 | `ORCA_TOKEN` | agent | Required in tunnel mode |
 | `ORCA_DATA_DIR` | agent | Generated container configuration and disk-metrics path; defaults to `/var/orca/data` |
-| `ORCA_STATE_PATH` | agent | Desired-state cache path; defaults to `/var/orca/state/desired.json` |
+| `ORCA_STATE_PATH` | agent | Desired-state cache path; defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/orca/desired.json` |
 | `ORCA_DEV_ADDRESS` | agent | Standalone development endpoint address when `ORCA_SERVER_URL` is unset; defaults to `127.0.0.1:8080` |
 
 The Docker SDK also honors its standard `DOCKER_*` environment variables through `client.FromEnv`; those are Docker configuration rather than Orca-specific settings.

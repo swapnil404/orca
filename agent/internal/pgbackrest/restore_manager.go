@@ -14,6 +14,7 @@ import (
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/postgres"
+	"github.com/swapnil404/orca/agent/internal/state"
 	orcatypes "github.com/swapnil404/orca/pkg/types"
 	"google.golang.org/protobuf/proto"
 )
@@ -94,7 +95,7 @@ type RestoreManager struct {
 // NewRestoreManager creates a manager whose journal is beside ORCA_STATE_PATH.
 func NewRestoreManager(statePath string, docker RestoreDocker) *RestoreManager {
 	if statePath == "" {
-		statePath = "/var/orca/state/desired.json"
+		statePath = state.DefaultPath()
 	}
 	return &RestoreManager{
 		docker: docker, journalPath: filepath.Join(filepath.Dir(statePath), restoreJournalName),
