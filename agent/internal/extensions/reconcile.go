@@ -6,17 +6,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
+
+	"github.com/swapnil404/orca/agent/internal/postgres"
 )
 
 const installedExtensionsQuery = "SELECT extname || E'\\t' || extversion FROM pg_extension WHERE extname IN ('vector', 'powa', 'timescaledb', 'pg_partman', 'postgis') ORDER BY extname;"
 
-const (
-	sharedPreloadLibrariesQuery = "SHOW shared_preload_libraries;"
-	readinessQuery              = "SELECT 1;"
-	readinessPollInterval       = 250 * time.Millisecond
-	readinessTimeout            = 30 * time.Second
-)
+const sharedPreloadLibrariesQuery = "SHOW shared_preload_libraries;"
 
 // PrimaryExecutor runs PostgreSQL commands and restarts a cluster primary.
 type PrimaryExecutor interface {
@@ -154,7 +150,7 @@ func applyPreloadAndRestart(ctx context.Context, executor PrimaryExecutor, conta
 	if err := executor.RestartContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("restart primary for extension changes: %w", err)
 	}
-	if err := waitUntilReady(ctx, executor, containerID); err != nil {
+	if err := postgres.WaitForPrimaryReady(ctx, executor, containerID); err != nil {
 		return fmt.Errorf("wait for primary after extension restart: %w", err)
 	}
 	return nil
@@ -177,28 +173,6 @@ func preloadLibrarySet(output string) map[string]struct{} {
 		}
 	}
 	return libraries
-}
-
-func waitUntilReady(ctx context.Context, executor PrimaryExecutor, containerID string) error {
-	readyCtx, cancel := context.WithTimeout(ctx, readinessTimeout)
-	defer cancel()
-	ticker := time.NewTicker(readinessPollInterval)
-	defer ticker.Stop()
-
-	for {
-		output, err := executor.ExecContainer(readyCtx, containerID, psqlCommand(readinessQuery))
-		if err == nil && strings.TrimSpace(output) == "1" {
-			return nil
-		}
-		select {
-		case <-readyCtx.Done():
-			if errors.Is(readyCtx.Err(), context.DeadlineExceeded) {
-				return errors.New("timed out waiting for PostgreSQL readiness")
-			}
-			return readyCtx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 func parseInstalled(output string) ([]string, error) {

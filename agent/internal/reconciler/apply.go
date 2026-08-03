@@ -76,6 +76,13 @@ func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Schedul
 	failedBackupDeletes := make(map[string]struct{})
 	for _, action := range actions {
 		key := action.ClusterID + "\x00" + action.ReplicaID
+		if isPrimaryMutation(action.Type) {
+			if _, blocked := failedDependentDeletes[action.ClusterID]; blocked {
+				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
+				failedPrimaryActions[action.ClusterID] = struct{}{}
+				continue
+			}
+		}
 		if isPrimaryDependentAction(action.Type) {
 			if _, blocked := failedPrimaryActions[action.ClusterID]; blocked {
 				results = append(results, ApplyResult{Action: action, Status: ApplyStatusSkippedDependency})
@@ -170,7 +177,7 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		if err != nil {
 			return err
 		}
-		return docker.StartContainer(ctx, containerID)
+		return recoverPrimary(ctx, docker, containerID)
 	case ActionCreateReplica:
 		return createReplica(ctx, docker, action, desired)
 	case ActionCreatePgBouncer:
@@ -209,7 +216,8 @@ func applyAction(ctx context.Context, docker DockerClient, backups *pgbackrest.S
 		if err != nil {
 			return err
 		}
-		if !desiredContainsCluster(desired, action.ClusterID) {
+		deleteSpec, _ := action.Spec.(*replicaDeleteSpec)
+		if !desiredContainsCluster(desired, action.ClusterID) || deleteSpec != nil && deleteSpec.SkipPrimaryCleanup {
 			return stopAndRemove(ctx, docker, containerID)
 		}
 		replicaDocker, ok := docker.(postgres.ReplicaDockerClient)
@@ -268,21 +276,28 @@ func restartCluster(ctx context.Context, docker DockerClient, action Action) err
 	if primaryIndex < 0 {
 		return errors.Join(errors.New("managed primary container is missing"), startContainers(ctx, docker, stopped))
 	}
+	configDocker, ok := docker.(primaryConfigDockerClient)
+	if !ok {
+		return errors.Join(errors.New("docker client does not support PostgreSQL readiness checks"), startContainers(ctx, docker, stopped))
+	}
 	if err := docker.StartContainer(ctx, stopped[primaryIndex].ID); err != nil {
 		return fmt.Errorf("start primary after project restart: %w", err)
+	}
+	if err := postgres.WaitForPrimaryReady(ctx, configDocker, stopped[primaryIndex].ID); err != nil {
+		return fmt.Errorf("wait for primary after project restart: %w", err)
 	}
 	dependents := append([]orcadocker.ContainerInfo(nil), stopped[:primaryIndex]...)
 	dependents = append(dependents, stopped[primaryIndex+1:]...)
 	if err := startContainers(ctx, docker, dependents); err != nil {
 		return err
 	}
-	configDocker, ok := docker.(interface {
+	stateDocker, ok := docker.(interface {
 		WriteConfig(context.Context, string, *orcadocker.ConfigMount) error
 	})
 	if !ok {
 		return errors.New("docker client does not support restart state persistence")
 	}
-	return configDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
+	return stateDocker.WriteConfig(ctx, action.ClusterID, &orcadocker.ConfigMount{
 		RelativePath: orcadocker.RestartAppliedRelativePath,
 		Content:      strconv.FormatUint(cluster.RestartGeneration, 10),
 	})
@@ -324,7 +339,6 @@ func desiredContainsCluster(desired *DesiredState, clusterID string) bool {
 type replicaDockerClient interface {
 	postgres.DockerClient
 	postgres.ReplicaDockerClient
-	ContainerNetworkAddresses(context.Context, string) ([]string, error)
 }
 
 type pgBouncerDockerClient interface {
@@ -452,20 +466,13 @@ func createReplica(ctx context.Context, docker DockerClient, action Action, desi
 	if err != nil {
 		return err
 	}
-	addresses, err := replicaDocker.ContainerNetworkAddresses(ctx, primary)
-	if err != nil {
-		return fmt.Errorf("inspect primary address: %w", err)
-	}
-	if len(addresses) == 0 {
-		return errors.New("primary container has no network address")
-	}
 	replicaID, err := postgres.CreateReplica(ctx, replicaDocker, postgres.ReplicaSpec{
 		ClusterID:       cluster.Id,
 		ReplicaID:       action.ReplicaID,
 		PostgresVersion: cluster.Version,
 		Params:          cluster.Params,
 		Primary: postgres.PrimaryConnectionInfo{
-			Host: addresses[0],
+			Host: primary,
 		},
 	})
 	if err != nil {
@@ -550,6 +557,17 @@ func createPrimary(ctx context.Context, docker DockerClient, spec orcadocker.Con
 	return synchronizePostgresPassword(ctx, credentials, containerID, password)
 }
 
+func recoverPrimary(ctx context.Context, docker DockerClient, containerID string) error {
+	configDocker, ok := docker.(primaryConfigDockerClient)
+	if !ok {
+		return errors.New("docker client does not support PostgreSQL readiness checks")
+	}
+	if err := docker.StartContainer(ctx, containerID); err != nil {
+		return err
+	}
+	return postgres.WaitForPrimaryReady(ctx, configDocker, containerID)
+}
+
 func stopAndRemove(ctx context.Context, docker DockerClient, containerID string) error {
 	if containerID == "" {
 		return errors.New("container ID is required")
@@ -584,6 +602,9 @@ func updatePrimary(ctx context.Context, docker DockerClient, action Action) erro
 	}
 	if update.Actual.Status != "running" {
 		if err := docker.StartContainer(ctx, update.Actual.ContainerId); err != nil {
+			return err
+		}
+		if err := postgres.WaitForPrimaryReady(ctx, configDocker, update.Actual.ContainerId); err != nil {
 			return err
 		}
 	}
@@ -1020,7 +1041,10 @@ func primaryContainerID(action Action) (string, error) {
 
 func replicaContainerID(action Action) (string, error) {
 	replica, ok := action.Spec.(*ActualReplica)
-	if !ok {
+	if deleteSpec, deleteOK := action.Spec.(*replicaDeleteSpec); deleteOK {
+		replica, ok = deleteSpec.Actual, deleteSpec.Actual != nil
+	}
+	if !ok || replica == nil {
 		return "", errors.New("delete_replica action requires ActualReplica")
 	}
 

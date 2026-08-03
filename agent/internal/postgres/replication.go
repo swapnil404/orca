@@ -5,17 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	orcatypes "github.com/swapnil404/orca/pkg/types"
 )
 
-const (
-	postgresUser         = "postgres"
-	primaryReadyTimeout  = 30 * time.Second
-	primaryReadyInterval = 250 * time.Millisecond
-)
+const postgresUser = "postgres"
 
 // ClusterDesiredState describes the desired state of one PostgreSQL cluster.
 type ClusterDesiredState = orcatypes.ClusterSpec
@@ -43,7 +38,7 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 	if err != nil {
 		return err
 	}
-	if err := waitForPrimary(ctx, docker, primary); err != nil {
+	if err := WaitForPrimaryReady(ctx, docker, primary); err != nil {
 		return err
 	}
 
@@ -57,6 +52,9 @@ func ConfigurePrimaryReplication(ctx context.Context, docker DockerClient, desir
 		}
 		if err := docker.RestartContainer(ctx, primary); err != nil {
 			return fmt.Errorf("restart primary after changing wal_level: %w", err)
+		}
+		if err := WaitForPrimaryReady(ctx, docker, primary); err != nil {
+			return fmt.Errorf("wait for primary after changing wal_level: %w", err)
 		}
 	}
 
@@ -106,28 +104,6 @@ func dropReplicationSlot(ctx context.Context, docker ReplicaDockerClient, primar
 	dropSlot := fmt.Sprintf("SELECT pg_drop_replication_slot('%s') WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s')", slotName, slotName)
 	_, err := docker.ExecContainer(ctx, primary, psqlCommand(dropSlot))
 	return err
-}
-
-func waitForPrimary(ctx context.Context, docker DockerClient, primary string) error {
-	ctx, cancel := context.WithTimeout(ctx, primaryReadyTimeout)
-	defer cancel()
-
-	var lastErr error
-	for {
-		if _, err := docker.ExecContainer(ctx, primary, psqlCommand("SELECT 1")); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-
-		timer := time.NewTimer(primaryReadyInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("wait for primary readiness: %w", errors.Join(lastErr, ctx.Err()))
-		case <-timer.C:
-		}
-	}
 }
 
 func psqlCommand(query string) []string {

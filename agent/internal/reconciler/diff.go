@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/extensions"
 	"github.com/swapnil404/orca/agent/internal/pgbackrest"
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
@@ -70,6 +71,11 @@ type primaryUpdateSpec struct {
 	Actual  *ActualCluster
 }
 
+type replicaDeleteSpec struct {
+	Actual             *ActualReplica
+	SkipPrimaryCleanup bool
+}
+
 type pgBackRestDeleteSpec struct {
 	Backup        *ActualBackup
 	DeleteCluster bool
@@ -109,26 +115,39 @@ func Diff(desired *DesiredState, actual *ActualState) []Action {
 		}
 
 		primaryReplacement := primaryRequiresReplacement(desiredCluster, actualCluster)
+		primaryRecreated := actualCluster.ContainerId == "" || primaryReplacement
 		primaryWillChange := actualCluster.ContainerId == "" || primaryNeedsUpdate(desiredCluster, actualCluster)
+		primaryActions := []Action{}
 		if actualCluster.ContainerId == "" {
-			actions = append(actions, Action{Type: ActionCreatePrimary, ClusterID: desiredCluster.Id, Spec: desiredCluster})
+			primaryActions = append(primaryActions, Action{Type: ActionCreatePrimary, ClusterID: desiredCluster.Id, Spec: desiredCluster})
 		} else if primaryNeedsUpdate(desiredCluster, actualCluster) {
-			actions = append(actions, Action{
+			primaryActions = append(primaryActions, Action{
 				Type:      ActionUpdatePrimary,
 				ClusterID: desiredCluster.Id,
 				Spec:      &primaryUpdateSpec{Desired: desiredCluster, Actual: actualCluster},
 			})
 		} else if actualCluster.Status != "running" {
-			actions = append(actions, Action{
+			primaryActions = append(primaryActions, Action{
 				Type: ActionRecoverPrimary, ClusterID: desiredCluster.Id, Spec: actualCluster,
 			})
 		}
 
-		actions = append(actions, diffPgHba(desiredCluster, actualCluster)...)
-		actions = append(actions, diffReplicas(desiredCluster, actualCluster.Replicas, primaryReplacement)...)
-		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer)
-		actions = append(actions, pgBouncerActions...)
-		extensionActions := diffExtensions(desiredCluster, actualCluster)
+		replicaActions := diffReplicas(desiredCluster, actualCluster.Replicas, primaryRecreated, actualCluster.ContainerId == "")
+		pgBouncerActions := diffPgBouncer(desiredCluster, desiredPgBouncerConfig, pgBouncerConfigValid, actualCluster.PgBouncer, primaryRecreated)
+		if primaryRecreated {
+			actions = append(actions, actionsOfType(replicaActions, ActionDeleteReplica)...)
+			actions = append(actions, actionsOfType(pgBouncerActions, ActionDeletePgBouncer)...)
+			actions = append(actions, primaryActions...)
+			actions = append(actions, diffPgHba(desiredCluster, actualCluster, true)...)
+			actions = append(actions, actionsExceptType(replicaActions, ActionDeleteReplica)...)
+			actions = append(actions, actionsExceptType(pgBouncerActions, ActionDeletePgBouncer)...)
+		} else {
+			actions = append(actions, primaryActions...)
+			actions = append(actions, diffPgHba(desiredCluster, actualCluster, false)...)
+			actions = append(actions, replicaActions...)
+			actions = append(actions, pgBouncerActions...)
+		}
+		extensionActions := diffExtensions(desiredCluster, actualCluster, primaryRecreated)
 		actions = append(actions, extensionActions...)
 		actions = append(actions, diffPgBackRest(desiredCluster, actualCluster.Backup, primaryWillChange)...)
 		if desiredCluster.RestartGeneration > actualCluster.AppliedRestartGeneration {
@@ -179,8 +198,14 @@ func createClusterActions(cluster *ClusterSpec) []Action {
 	return actions
 }
 
-func diffPgHba(desired *ClusterSpec, actual *ActualCluster) []Action {
-	if desired.PgHba == nil || actual == nil || actual.ContainerId == "" {
+func diffPgHba(desired *ClusterSpec, actual *ActualCluster, primaryRecreated bool) []Action {
+	if desired.PgHba == nil || actual == nil {
+		return nil
+	}
+	if primaryRecreated {
+		return []Action{{Type: ActionUpdatePgHba, ClusterID: desired.Id, Spec: &pgHbaUpdateSpec{Desired: desired}}}
+	}
+	if actual.ContainerId == "" {
 		return nil
 	}
 	desiredRules := postgres.DesiredHBARules(desired)
@@ -256,7 +281,7 @@ func primaryRequiresReplacement(desired *ClusterSpec, actual *ActualCluster) boo
 	return desired.Version != actual.Version || imageMissingPgBackRest || actual.NetworkName != "orca-"+desired.Id+"-network"
 }
 
-func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionChanged bool) []Action {
+func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryRecreated, primaryMissing bool) []Action {
 	actions := []Action{}
 	desired := cluster.Replicas
 	actualReplicas := make(map[string]*ActualReplica, len(actual))
@@ -276,9 +301,9 @@ func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionC
 			continue
 		}
 		legacyParameterConfig := actualReplica.AppliedParams == nil && len(cluster.Params) > 0
-		if actualReplica.Status != "running" || primaryVersionChanged || legacyParameterConfig || actualReplica.NetworkName != "orca-"+cluster.Id+"-network" {
+		if actualReplica.Status != "running" || primaryRecreated || legacyParameterConfig || actualReplica.NetworkName != "orca-"+cluster.Id+"-network" {
 			actions = append(actions,
-				Action{Type: ActionDeleteReplica, ClusterID: cluster.Id, ReplicaID: actualReplica.Id, Spec: actualReplica},
+				deleteReplicaAction(cluster.Id, actualReplica, primaryMissing),
 				Action{Type: ActionCreateReplica, ClusterID: cluster.Id, ReplicaID: desiredReplica.Id, Spec: desiredReplica},
 			)
 		}
@@ -288,19 +313,14 @@ func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryVersionC
 
 	for _, actualReplica := range actual {
 		if _, exists := actualReplicas[actualReplica.Id]; exists {
-			actions = append(actions, Action{
-				Type:      ActionDeleteReplica,
-				ClusterID: cluster.Id,
-				ReplicaID: actualReplica.Id,
-				Spec:      actualReplica,
-			})
+			actions = append(actions, deleteReplicaAction(cluster.Id, actualReplica, primaryMissing))
 		}
 	}
 
 	return actions
 }
 
-func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool, actual *ActualPgBouncer) []Action {
+func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool, actual *ActualPgBouncer, primaryRecreated bool) []Action {
 	if desired.PgBouncer != nil && actual == nil {
 		return []Action{{
 			Type:      ActionCreatePgBouncer,
@@ -317,6 +337,12 @@ func diffPgBouncer(desired *ClusterSpec, desiredConfig string, configValid bool,
 	}
 	if desired.PgBouncer == nil {
 		return nil
+	}
+	if primaryRecreated {
+		return []Action{
+			{Type: ActionDeletePgBouncer, ClusterID: desired.Id, Spec: actual},
+			{Type: ActionCreatePgBouncer, ClusterID: desired.Id, Spec: desired},
+		}
 	}
 	if !configValid || desiredConfig != actual.Config || actual.Status != "running" ||
 		actual.NetworkName != "orca-"+desired.Id+"-network" || actual.PublishedAddress != desired.PgBouncer.PublishAddress || actual.PublishedPort != desired.PgBouncer.PublishPort {
@@ -350,7 +376,16 @@ func diffPgBackRest(desired *ClusterSpec, actual *ActualBackup, forceUpdate ...b
 	return nil
 }
 
-func diffExtensions(desired *ClusterSpec, actual *ActualCluster) []Action {
+func diffExtensions(desired *ClusterSpec, actual *ActualCluster, primaryRecreated bool) []Action {
+	if primaryRecreated {
+		primary, err := postgresPrimaryName(desired.Id)
+		if err != nil {
+			return []Action{{Type: ActionUpdateExtensions, ClusterID: desired.Id, Spec: &extensionUpdateSpec{Desired: desired.EnabledExtensions, DiffErr: err}}}
+		}
+		return diffExtensions(desired, &ActualCluster{
+			ContainerId: primary, Status: "running", EnabledExtensions: actual.EnabledExtensions,
+		}, false)
+	}
 	if actual == nil || actual.ContainerId == "" || actual.Status != "running" || actual.EnabledExtensions == nil {
 		return nil
 	}
@@ -376,6 +411,36 @@ func diffExtensions(desired *ClusterSpec, actual *ActualCluster) []Action {
 			Actions: extensionActions,
 		},
 	}}
+}
+
+func deleteReplicaAction(clusterID string, replica *ActualReplica, skipPrimaryCleanup bool) Action {
+	return Action{Type: ActionDeleteReplica, ClusterID: clusterID, ReplicaID: replica.Id, Spec: &replicaDeleteSpec{
+		Actual: replica, SkipPrimaryCleanup: skipPrimaryCleanup,
+	}}
+}
+
+func actionsOfType(actions []Action, actionType ActionType) []Action {
+	filtered := make([]Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Type == actionType {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+func actionsExceptType(actions []Action, actionType ActionType) []Action {
+	filtered := make([]Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Type != actionType {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+func postgresPrimaryName(clusterID string) (string, error) {
+	return orcadocker.ContainerName(orcadocker.ContainerSpec{ClusterID: clusterID, Kind: orcadocker.ContainerKindPrimary})
 }
 
 func generatedPgBouncerConfig(desired *ClusterSpec) (string, bool) {

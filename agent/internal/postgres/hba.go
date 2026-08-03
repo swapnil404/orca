@@ -121,7 +121,7 @@ func ApplyHBA(ctx context.Context, executor HBAExecutor, desired *types.ClusterS
 	if err != nil {
 		return err
 	}
-	if err := waitForPrimary(ctx, executor, primary); err != nil {
+	if err := WaitForPrimaryReady(ctx, executor, primary); err != nil {
 		return err
 	}
 	cidrs, err := executor.ContainerNetworkCIDRs(ctx, primary)
@@ -176,7 +176,7 @@ func ApplyReplicaHBA(ctx context.Context, executor HBAExecutor, desired *types.C
 	if err := ValidateHBARules(rules); err != nil {
 		return err
 	}
-	if err := waitForPrimary(ctx, executor, containerID); err != nil {
+	if err := WaitForPrimaryReady(ctx, executor, containerID); err != nil {
 		return err
 	}
 	cidrs, err := executor.ContainerNetworkCIDRs(ctx, containerID)
