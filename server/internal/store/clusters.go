@@ -492,17 +492,20 @@ func (s *Postgres) DeleteCluster(ctx context.Context, userID, clusterID string) 
 }
 
 func lockClusterMutation(ctx context.Context, queries *sqlcdb.Queries, userID, clusterID string) error {
-	resourceID, err := queries.GetClusterMutationResource(ctx, sqlcdb.GetClusterMutationResourceParams{
+	resource, err := queries.GetClusterMutationResource(ctx, sqlcdb.GetClusterMutationResourceParams{
 		ClusterID: clusterID,
 		UserID:    userID,
 	})
 	if err != nil {
 		return err
 	}
-	if err := queries.LockRestoreResource(ctx, resourceID); err != nil {
+	if err := requireMutationRole(resource.Role); err != nil {
 		return err
 	}
-	conflict, err := queries.HasClusterRestoreMutationConflict(ctx, resourceID)
+	if err := queries.LockRestoreResource(ctx, resource.ID); err != nil {
+		return err
+	}
+	conflict, err := queries.HasClusterRestoreMutationConflict(ctx, resource.ID)
 	if err != nil {
 		return err
 	}
@@ -513,6 +516,16 @@ func lockClusterMutation(ctx context.Context, queries *sqlcdb.Queries, userID, c
 }
 
 func lockProjectClusterMutations(ctx context.Context, queries *sqlcdb.Queries, userID, projectID string) error {
+	project, err := queries.GetProjectMutationResource(ctx, sqlcdb.GetProjectMutationResourceParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := requireMutationRole(project.Role); err != nil {
+		return err
+	}
 	resourceIDs, err := queries.ListProjectClusterMutationResources(ctx, sqlcdb.ListProjectClusterMutationResourcesParams{
 		ProjectID: projectID,
 		UserID:    userID,

@@ -72,6 +72,32 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 	return i, err
 }
 
+const getProjectMutationResource = `-- name: GetProjectMutationResource :one
+SELECT p.id, om.role
+FROM projects p
+JOIN organization_memberships om ON om.organization_id = p.organization_id
+WHERE p.id = $1 AND om.user_id = $2
+  AND p.deleted_at IS NULL
+FOR UPDATE OF p
+`
+
+type GetProjectMutationResourceParams struct {
+	ProjectID string `json:"project_id"`
+	UserID    string `json:"user_id"`
+}
+
+type GetProjectMutationResourceRow struct {
+	ID   string           `json:"id"`
+	Role OrganizationRole `json:"role"`
+}
+
+func (q *Queries) GetProjectMutationResource(ctx context.Context, arg GetProjectMutationResourceParams) (GetProjectMutationResourceRow, error) {
+	row := q.db.QueryRowContext(ctx, getProjectMutationResource, arg.ProjectID, arg.UserID)
+	var i GetProjectMutationResourceRow
+	err := row.Scan(&i.ID, &i.Role)
+	return i, err
+}
+
 const listProjectIDsForHost = `-- name: ListProjectIDsForHost :many
 SELECT DISTINCT p.id
 FROM projects p

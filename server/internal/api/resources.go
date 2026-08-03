@@ -801,6 +801,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) bool {
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrMutationForbidden) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, store.ErrRestoreOperationInProgress) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

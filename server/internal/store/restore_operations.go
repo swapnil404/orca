@@ -17,8 +17,6 @@ import (
 )
 
 var (
-	// ErrRestoreMutationForbidden indicates that the user is not an organization owner or admin.
-	ErrRestoreMutationForbidden = errors.New("restore mutations require organization owner or admin role")
 	// ErrRestoreIdempotencyConflict indicates reuse of a key for a different request.
 	ErrRestoreIdempotencyConflict = errors.New("idempotency key was already used for a different restore request")
 	// ErrRestoreOperationConflict indicates another active operation touches the source or target.
@@ -97,8 +95,8 @@ func (s *Postgres) CreateRestoreOperation(ctx context.Context, params CreateRest
 	if err != nil {
 		return RestoreOperation{}, false, err
 	}
-	if source.Role != sqlcdb.OrganizationRoleOwner && source.Role != sqlcdb.OrganizationRoleAdmin {
-		return RestoreOperation{}, false, ErrRestoreMutationForbidden
+	if err := requireMutationRole(source.Role); err != nil {
+		return RestoreOperation{}, false, err
 	}
 	if !source.PgbackrestEnabled {
 		return RestoreOperation{}, false, ErrRestorePgBackRestRequired
@@ -247,8 +245,8 @@ func (s *Postgres) changeRestoreIntent(ctx context.Context, userID, operationID 
 	if err != nil {
 		return RestoreOperation{}, err
 	}
-	if current.Role != sqlcdb.OrganizationRoleOwner && current.Role != sqlcdb.OrganizationRoleAdmin {
-		return RestoreOperation{}, ErrRestoreMutationForbidden
+	if err := requireMutationRole(current.Role); err != nil {
+		return RestoreOperation{}, err
 	}
 	if (intent == sqlcdb.RestoreOperationIntentExecute || intent == sqlcdb.RestoreOperationIntentRollback) && !validRestoreConfirmation(current.RestoreOperation, confirmation) {
 		return RestoreOperation{}, ErrRestoreInvalidConfirmation
@@ -287,8 +285,8 @@ func (s *Postgres) FinalizeRestoreOperation(ctx context.Context, userID, operati
 	if err != nil {
 		return RestoreOperation{}, err
 	}
-	if current.Role != sqlcdb.OrganizationRoleOwner && current.Role != sqlcdb.OrganizationRoleAdmin {
-		return RestoreOperation{}, ErrRestoreMutationForbidden
+	if err := requireMutationRole(current.Role); err != nil {
+		return RestoreOperation{}, err
 	}
 	if !validRestoreConfirmation(current.RestoreOperation, confirmation) {
 		return RestoreOperation{}, ErrRestoreInvalidConfirmation
