@@ -22,7 +22,8 @@ const (
 
 type hostCreator interface {
 	CreateHost(context.Context, store.CreateHostParams) (store.Host, error)
-	RotateHostToken(context.Context, string, string, []byte, time.Time) (bool, error)
+	RotateHostToken(context.Context, string, string, []byte, time.Time) (store.HostStatus, bool, error)
+	RevokeUnusedHostToken(context.Context, string, string, []byte, time.Time) (bool, error)
 	DeleteUnusedHost(context.Context, string, string) (bool, error)
 }
 
@@ -115,16 +116,16 @@ func (h *HostRegistrationHandler) rotateToken(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to generate host token")
 		return
 	}
-	updated, err := h.hosts.RotateHostToken(r.Context(), r.PathValue("hostID"), userID, auth.HashAgentToken(token), h.now().UTC().Add(tokenLifetime))
+	status, updated, err := h.hosts.RotateHostToken(r.Context(), r.PathValue("hostID"), userID, auth.HashAgentToken(token), h.now().UTC().Add(tokenLifetime))
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	if !updated {
-		writeError(w, http.StatusNotFound, "host not found or already connected")
+		writeError(w, http.StatusNotFound, "host not found")
 		return
 	}
-	h.writeRegistration(w, r.PathValue("hostID"), store.HostStatusNeverConnected, token)
+	h.writeRegistration(w, r.PathValue("hostID"), status, token)
 }
 
 func (h *HostRegistrationHandler) deleteUnused(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +149,7 @@ func (h *HostRegistrationHandler) deleteUnused(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "failed to revoke host token")
 		return
 	}
-	revoked, err := h.hosts.RotateHostToken(r.Context(), r.PathValue("hostID"), userID, auth.HashAgentToken(revocationToken), h.now().UTC())
+	revoked, err := h.hosts.RevokeUnusedHostToken(r.Context(), r.PathValue("hostID"), userID, auth.HashAgentToken(revocationToken), h.now().UTC())
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -168,7 +169,7 @@ func (h *HostRegistrationHandler) writeRegistration(w http.ResponseWriter, hostI
 	}{
 		HostID:           hostID,
 		Status:           status,
-		DockerRunCommand: fmt.Sprintf("export ORCA_TOKEN=%s\nexport ORCA_SERVER_URL=%s\nexport ORCA_DATA_DIR=\"${XDG_DATA_HOME:-$HOME/.local/share}/orca/data\"\nexport ORCA_STATE_PATH='/var/orca/state/desired.json'\ngo run ./agent/cmd/agent", shellQuote(token), shellQuote(h.serverURL)),
+		DockerRunCommand: fmt.Sprintf("export ORCA_TOKEN=%s\nexport ORCA_SERVER_URL=%s\nexport ORCA_DATA_DIR=\"${XDG_DATA_HOME:-$HOME/.local/share}/orca/data\"\nexport ORCA_STATE_PATH=\"${XDG_STATE_HOME:-$HOME/.local/state}/orca/desired.json\"\ngo run ./agent/cmd/agent", shellQuote(token), shellQuote(h.serverURL)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

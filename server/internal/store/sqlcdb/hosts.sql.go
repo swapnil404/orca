@@ -125,7 +125,7 @@ func (q *Queries) GetHostByTokenHash(ctx context.Context, tokenHash []byte) (Hos
 	return i, err
 }
 
-const rotateHostToken = `-- name: RotateHostToken :execrows
+const revokeUnusedHostToken = `-- name: RevokeUnusedHostToken :execrows
 UPDATE hosts
 SET token_hash = $1,
     token_expires_at = $2
@@ -134,15 +134,15 @@ WHERE id = $3
   AND status = 'never_connected'
 `
 
-type RotateHostTokenParams struct {
+type RevokeUnusedHostTokenParams struct {
 	TokenHash      []byte    `json:"token_hash"`
 	TokenExpiresAt time.Time `json:"token_expires_at"`
 	ID             string    `json:"id"`
 	UserID         string    `json:"user_id"`
 }
 
-func (q *Queries) RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, rotateHostToken,
+func (q *Queries) RevokeUnusedHostToken(ctx context.Context, arg RevokeUnusedHostTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeUnusedHostToken,
 		arg.TokenHash,
 		arg.TokenExpiresAt,
 		arg.ID,
@@ -152,6 +152,34 @@ func (q *Queries) RotateHostToken(ctx context.Context, arg RotateHostTokenParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const rotateHostToken = `-- name: RotateHostToken :one
+UPDATE hosts
+SET token_hash = $1,
+    token_expires_at = $2
+WHERE id = $3
+  AND user_id = $4
+RETURNING status
+`
+
+type RotateHostTokenParams struct {
+	TokenHash      []byte    `json:"token_hash"`
+	TokenExpiresAt time.Time `json:"token_expires_at"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+}
+
+func (q *Queries) RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, rotateHostToken,
+		arg.TokenHash,
+		arg.TokenExpiresAt,
+		arg.ID,
+		arg.UserID,
+	)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const updateHostStatus = `-- name: UpdateHostStatus :exec

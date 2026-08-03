@@ -9,8 +9,7 @@ import (
 	"path/filepath"
 )
 
-// DefaultPath is the default location of the desired-state cache.
-const DefaultPath = "/var/orca/state/desired.json"
+const defaultRelativePath = "orca/desired.json"
 
 // StateCache persists the desired state used by reconciliation.
 type StateCache interface {
@@ -25,10 +24,22 @@ type FileCache struct {
 
 var _ StateCache = (*FileCache)(nil)
 
+// DefaultPath returns the user-writable default location of the desired-state cache.
+func DefaultPath() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			base = filepath.Join(home, ".local", "state")
+		}
+	}
+	return filepath.Join(base, defaultRelativePath)
+}
+
 // NewFileCache creates a file-backed cache. An empty path uses DefaultPath.
 func NewFileCache(path string) *FileCache {
 	if path == "" {
-		path = DefaultPath
+		path = DefaultPath()
 	}
 
 	return &FileCache{path: path}

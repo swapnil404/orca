@@ -70,7 +70,8 @@ type Querier interface {
 	LockRestoreOperationForAgentReport(ctx context.Context, arg LockRestoreOperationForAgentReportParams) (RestoreOperation, error)
 	LockRestoreResource(ctx context.Context, resourceID string) error
 	RequestRestoreFinalization(ctx context.Context, id string) (RestoreOperation, error)
-	RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (int64, error)
+	RevokeUnusedHostToken(ctx context.Context, arg RevokeUnusedHostTokenParams) (int64, error)
+	RotateHostToken(ctx context.Context, arg RotateHostTokenParams) (string, error)
 	SoftDeleteCluster(ctx context.Context, arg SoftDeleteClusterParams) (SoftDeleteClusterRow, error)
 	SoftDeleteClustersForProject(ctx context.Context, arg SoftDeleteClustersForProjectParams) error
 	SoftDeleteProject(ctx context.Context, arg SoftDeleteProjectParams) (string, error)

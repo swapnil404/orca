@@ -19,7 +19,15 @@ SELECT id, user_id, token_hash, token_expires_at, status, created_at, connected_
 FROM hosts
 WHERE id = $1;
 
--- name: RotateHostToken :execrows
+-- name: RotateHostToken :one
+UPDATE hosts
+SET token_hash = sqlc.arg(token_hash),
+    token_expires_at = sqlc.arg(token_expires_at)
+WHERE id = sqlc.arg(id)
+  AND user_id = sqlc.arg(user_id)
+RETURNING status;
+
+-- name: RevokeUnusedHostToken :execrows
 UPDATE hosts
 SET token_hash = sqlc.arg(token_hash),
     token_expires_at = sqlc.arg(token_expires_at)
