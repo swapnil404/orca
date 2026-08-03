@@ -236,10 +236,11 @@ function reportReachedRevision(draft: ProvisionDraft, snapshot: ProjectStateSnap
   if (!draft.clusterID || !draft.expectedRevision) return false
   const revision = snapshot?.clusters.find((candidate) => candidate.cluster_id === draft.clusterID)?.desired_state_revision
   if (!revision) return false
+  const desiredRevision = revision.split(':', 1)[0]
   try {
-    return BigInt(revision) >= BigInt(draft.expectedRevision)
+    return BigInt(desiredRevision) >= BigInt(draft.expectedRevision)
   } catch {
-    return revision === draft.expectedRevision
+    return desiredRevision === draft.expectedRevision
   }
 }
 
@@ -259,5 +260,5 @@ function reconciliationFailure(draft: ProvisionDraft, snapshot: ProjectStateSnap
 }
 
 function pgBackRestReconciliationState(clusterID: string, request: Extract<ProvisionRequest, { type: 'pgbackrest' }>): string {
-  return `[global]\nrepo1-path=${request.repoPath}\nrepo1-retention-full=${request.retentionFull}\nrepo1-retention-diff=${request.retentionDiff}\n\n[${clusterID}]\npg1-path=/var/orca/data/${clusterID}/primary\n\n[orca-schedule]\nfull=${request.fullIntervalSeconds}\ndiff=${request.diffIntervalSeconds}\nincr=${request.incrIntervalSeconds}\n`
+  return `[global]\nrepo1-path=${request.repoPath}\nrepo1-retention-full=${request.retentionFull}\nrepo1-retention-diff=${request.retentionDiff}\n\n[${clusterID}]\npg1-path=/var/orca/data/${clusterID}/primary\n\n[orca-schedule]\nfull=${request.fullIntervalSeconds}\ndiff=${request.diffIntervalSeconds}\nincr=${request.incrIntervalSeconds}\n\n[orca-storage]\nrepo-bind=${request.repoPath}\n`
 }

@@ -36,14 +36,20 @@ func RestoreToTime(ctx context.Context, executor RecoveryExecutor, desired *Clus
 func validateRecoveryRepository(desired *ClusterDesiredState) error {
 	volumePath := filepath.Clean(orcadocker.VolumeMountPath(desired.Id))
 	repositoryPath := filepath.Clean(desired.PgBackRest.RepoPath)
+	if !filepath.IsAbs(repositoryPath) || repositoryPath == string(filepath.Separator) {
+		return fmt.Errorf("pgBackRest repository %q must be an absolute host directory other than the filesystem root", repositoryPath)
+	}
 	relative, err := filepath.Rel(volumePath, repositoryPath)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("pgBackRest repository %q must be within shared cluster volume %q for recovery", repositoryPath, volumePath)
+	if err != nil {
+		return fmt.Errorf("compare pgBackRest repository %q with managed data path %q: %w", repositoryPath, volumePath, err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil
 	}
 	first, _, _ := strings.Cut(relative, string(filepath.Separator))
 	if relative == "." || first == "primary" || first == "replicas" || first == "pgbackrest" ||
 		strings.HasPrefix(first, "restore-original-") || strings.HasPrefix(first, ".orca-restore-") {
-		return fmt.Errorf("pgBackRest repository %q overlaps Orca-managed data inside %q", repositoryPath, volumePath)
+		return fmt.Errorf("pgBackRest repository %q overlaps Orca-managed data %q at %q", repositoryPath, first, volumePath)
 	}
 	return nil
 }

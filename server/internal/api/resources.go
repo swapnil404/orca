@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -635,8 +636,9 @@ func validateClusterRequest(w http.ResponseWriter, request clusterRequest, requi
 		}
 	}
 	if request.PgBackRest != nil {
-		if strings.TrimSpace(request.PgBackRest.RepoPath) == "" || strings.ContainsAny(request.PgBackRest.RepoPath, "\r\n") {
-			writeError(w, http.StatusBadRequest, "pg_back_rest.repo_path must be nonempty and single-line")
+		repoPath := strings.TrimSpace(request.PgBackRest.RepoPath)
+		if repoPath == "" || repoPath == string(filepath.Separator) || repoPath != request.PgBackRest.RepoPath || filepath.Clean(repoPath) != repoPath || strings.ContainsAny(repoPath, "\r\n") || !filepath.IsAbs(repoPath) {
+			writeError(w, http.StatusBadRequest, "pg_back_rest.repo_path must be an absolute, single-line host path")
 			return false
 		}
 		if request.PgBackRest.RetentionFull <= 0 || request.PgBackRest.RetentionDiff <= 0 {

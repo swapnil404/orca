@@ -278,7 +278,9 @@ func primaryNeedsUpdate(desired *ClusterSpec, actual *ActualCluster) bool {
 
 func primaryRequiresReplacement(desired *ClusterSpec, actual *ActualCluster) bool {
 	imageMissingPgBackRest := desired.PgBackRest != nil && !strings.HasPrefix(strings.TrimPrefix(actual.Image, "docker.io/library/"), "orca-postgres:")
-	return desired.Version != actual.Version || imageMissingPgBackRest || actual.NetworkName != "orca-"+desired.Id+"-network"
+	repositoryMountMissing := desired.PgBackRest != nil && (actual.Backup == nil || !strings.Contains(actual.Backup.Config, "\n[orca-storage]\nrepo-bind="+desired.PgBackRest.RepoPath+"\n"))
+	repositoryMountStale := desired.PgBackRest == nil && actual.Backup != nil && strings.Contains(actual.Backup.Config, "\n[orca-storage]\nrepo-bind=")
+	return desired.Version != actual.Version || imageMissingPgBackRest || repositoryMountMissing || repositoryMountStale || actual.NetworkName != "orca-"+desired.Id+"-network"
 }
 
 func diffReplicas(cluster *ClusterSpec, actual []*ActualReplica, primaryRecreated, primaryMissing bool) []Action {

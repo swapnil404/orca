@@ -476,7 +476,7 @@ func cloneTargetFromSource(source sqlcdb.GetRestoreMutationContextRow, targetID 
 	}
 	cluster.Replicas = make([]Replica, len(sourceReplicaIDs))
 	for index := range cluster.Replicas {
-		cluster.Replicas[index].ID = fmt.Sprintf("%s-restore-replica-%d", targetID, index+1)
+		cluster.Replicas[index].ID = fmt.Sprintf("restore-%d", index+1)
 	}
 	if err := json.Unmarshal(source.EnabledExtensions, &cluster.EnabledExtensions); err != nil {
 		return nil, err

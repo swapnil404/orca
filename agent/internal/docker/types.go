@@ -40,7 +40,9 @@ type ContainerSpec struct {
 	Command   []string
 	UseVolume bool
 	Volumes   []VolumeMount
+	Binds     []BindMount
 	Config    *ConfigMount
+	Configs   []*ConfigMount
 	Ports     []PublishedPort
 }
 
@@ -56,6 +58,14 @@ type VolumeMount struct {
 	Name     string
 	Path     string
 	ReadOnly bool
+}
+
+// BindMount describes a host path mounted into a container.
+type BindMount struct {
+	Source   string
+	Path     string
+	ReadOnly bool
+	Create   bool
 }
 
 // ConfigMount describes generated configuration persisted on the host and

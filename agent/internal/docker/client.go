@@ -179,8 +179,29 @@ func (c *Client) CreateContainer(ctx context.Context, spec ContainerSpec) (strin
 			Type: mount.TypeVolume, Source: volume.Name, Target: filepath.Clean(volume.Path), ReadOnly: volume.ReadOnly,
 		})
 	}
+	for _, bind := range spec.Binds {
+		if bind.Source == "" || bind.Path == "" || !filepath.IsAbs(bind.Source) || !filepath.IsAbs(bind.Path) {
+			return "", errors.New("bind mount requires absolute source and target paths")
+		}
+		source := filepath.Clean(bind.Source)
+		target := filepath.Clean(bind.Path)
+		if source == string(filepath.Separator) || target == string(filepath.Separator) {
+			return "", errors.New("bind mount cannot use the filesystem root")
+		}
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
+			Type: mount.TypeBind, Source: source, Target: target, ReadOnly: bind.ReadOnly,
+			BindOptions: &mount.BindOptions{CreateMountpoint: bind.Create},
+		})
+	}
 	if spec.Config != nil {
 		configMount, err := writeConfigMount(c.dataRoot, spec.ClusterID, spec.Config)
+		if err != nil {
+			return "", err
+		}
+		hostConfig.Mounts = append(hostConfig.Mounts, configMount)
+	}
+	for _, config := range spec.Configs {
+		configMount, err := writeConfigMount(c.dataRoot, spec.ClusterID, config)
 		if err != nil {
 			return "", err
 		}

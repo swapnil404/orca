@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -58,8 +60,17 @@ func DeriveReplicaIdentity(clusterID, replicaID string) (ReplicaIdentity, error)
 	return ReplicaIdentity{
 		ContainerName: containerName,
 		DataPath:      fmt.Sprintf("%s/replicas/%s", orcadocker.VolumeMountPath(clusterID), replicaID),
-		SlotName:      "replica_" + hex.EncodeToString([]byte(replicaID)),
+		SlotName:      replicationSlotName(clusterID, replicaID),
 	}, nil
+}
+
+func replicationSlotName(clusterID, replicaID string) string {
+	legacy := "replica_" + hex.EncodeToString([]byte(replicaID))
+	if len(legacy) <= 63 {
+		return legacy
+	}
+	digest := sha256.Sum256([]byte("orca.replication-slot.v1\x00" + clusterID + "\x00" + replicaID))
+	return "replica_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
 }
 
 // ReplicaDockerClient is the Docker functionality required to create a replica.
