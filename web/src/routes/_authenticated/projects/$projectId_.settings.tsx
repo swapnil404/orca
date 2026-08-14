@@ -1,11 +1,12 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft, KeyRound, Network, Plus, RotateCw, ServerCog, Settings2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { ApiError, deleteProject, getProjectTopology, listProjectHosts, restartProject, updateParameters, updatePgBouncer, updatePgHba } from '../../../api'
+import { ApiError, deleteProject, getProjectTopology, listProjectHosts, updateParameters, updatePgBouncer, updatePgHba } from '../../../api'
 import { isReportStale } from '../../../canvas/status'
 import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
+import { useRestartProject } from '../../../hooks/useRestartProject'
 import { useTopologyStore } from '../../../store/topology'
 import type { ActualCluster, ActualPgBouncer, Cluster, ParameterConvergence, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ReconciliationResult } from '../../../types/resources'
 
@@ -119,28 +120,9 @@ function ProjectSettingsPage({ projectId, initial }: { projectId: string; initia
 }
 
 function RestartProject({ projectID, clusterCount }: { projectID: string; clusterCount: number }) {
-  const [restarting, setRestarting] = useState(false)
-  const [message, setMessage] = useState('')
-  const [failed, setFailed] = useState(false)
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const restart = useRestartProject(projectID)
 
-  async function restart() {
-    setRestarting(true)
-    setMessage('')
-    setFailed(false)
-    try {
-      await restartProject(projectID)
-      setDialogOpen(false)
-      setMessage('Restart request queued. Completion is not yet confirmed; offline agents will process the latest request after reconnecting.')
-    } catch (cause) {
-      setFailed(true)
-      setMessage(cause instanceof ApiError ? cause.message : 'Could not request the project restart.')
-    } finally {
-      setRestarting(false)
-    }
-  }
-
-  return <><section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--warning)]/35 bg-[var(--card)]"><div className="flex gap-3 border-b border-[var(--warning)]/25 bg-[var(--warning)]/5 px-5 py-4 sm:px-6"><RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" /><div><h2 className="font-medium">Restart project containers</h2><p className="mt-1 text-xs leading-5 text-[var(--text-2)]">Queues a restart for every primary, replica, and PgBouncer container. Active database connections will be interrupted.</p></div></div><div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-6"><p role={failed ? 'alert' : 'status'} className={`max-w-2xl text-xs leading-5 ${failed ? 'text-[var(--critical)]' : 'text-[var(--text-3)]'}`}>{message || `${clusterCount} cluster${clusterCount === 1 ? '' : 's'} will receive a durable, latest-request-wins restart generation.`}</p><button type="button" disabled={restarting || clusterCount === 0} onClick={() => setDialogOpen(true)} className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--warning)]/50 bg-[var(--warning)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--warning)] hover:bg-[var(--warning)]/15 disabled:cursor-not-allowed disabled:opacity-40"><RotateCw className={`h-4 w-4 ${restarting ? 'animate-spin' : ''}`} />{restarting ? 'Requesting restart...' : 'Restart project'}</button></div></section><RestartProjectDialog open={dialogOpen} clusterCount={clusterCount} restarting={restarting} onCancel={() => setDialogOpen(false)} onConfirm={restart} /></>
+  return <><section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--warning)]/35 bg-[var(--card)]"><div className="flex gap-3 border-b border-[var(--warning)]/25 bg-[var(--warning)]/5 px-5 py-4 sm:px-6"><RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" /><div><h2 className="font-medium">Restart project containers</h2><p className="mt-1 text-xs leading-5 text-[var(--text-2)]">Queues a restart for every primary, replica, and PgBouncer container. Active database connections will be interrupted.</p></div></div><div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-6"><p role={restart.failed ? 'alert' : 'status'} className={`max-w-2xl text-xs leading-5 ${restart.failed ? 'text-[var(--critical)]' : 'text-[var(--text-3)]'}`}>{restart.message || `${clusterCount} cluster${clusterCount === 1 ? '' : 's'} will receive a durable, latest-request-wins restart generation.`}</p><button type="button" disabled={restart.restarting || clusterCount === 0} onClick={restart.openDialog} className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--warning)]/50 bg-[var(--warning)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--warning)] hover:bg-[var(--warning)]/15 disabled:cursor-not-allowed disabled:opacity-40"><RotateCw className={`h-4 w-4 ${restart.restarting ? 'animate-spin' : ''}`} />{restart.restarting ? 'Requesting restart...' : 'Restart project'}</button></div></section><RestartProjectDialog open={restart.dialogOpen} clusterCount={clusterCount} restarting={restart.restarting} onCancel={restart.closeDialog} onConfirm={restart.requestRestart} /></>
 }
 
 interface ParameterRow {

@@ -1,6 +1,6 @@
 import type { Cluster, ProjectStateSnapshot } from '../types/resources'
 import type { LagTone, TopologyEdgeData, TopologyEdgeType } from './edges/TopologyEdge'
-import { extensionPresenceStatus, pgBackRestStatus, pgBouncerStatus, primaryStatus, replicaStatus } from './status'
+import { displayStatus } from './status'
 import type { InfrastructureNode } from './nodes/types'
 
 export interface CanvasTopology {
@@ -50,7 +50,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
         label: cluster.name,
         eyebrow: 'Primary',
         detail: state?.actual_state?.container_id ? `Container ${state.actual_state.container_id.slice(0, 12)}` : 'Awaiting actual state',
-        status: primaryStatus(state, now),
+        status: displayStatus(state, now),
         cluster,
         state,
         actual: state?.actual_state ?? undefined,
@@ -72,7 +72,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           label: `Replica ${replicaID}`,
           eyebrow: 'Streaming replica',
           detail: actual?.replication_lag_bytes !== undefined ? `${actual.replication_lag_bytes} bytes lag` : 'Replication state unavailable',
-          status: replicaStatus(state, actual, now),
+          status: displayStatus(state, now),
           cluster,
           state,
           actual,
@@ -101,7 +101,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           label: 'PgBouncer',
           eyebrow: 'Connection pool',
           detail: actual?.container_id ? `Container ${actual.container_id.slice(0, 12)}` : 'Awaiting actual state',
-          status: pgBouncerStatus(state, actual, now),
+          status: displayStatus(state, now),
           cluster,
           state,
           actual,
@@ -124,7 +124,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           label: 'pgBackRest',
           eyebrow: 'Backup repository',
           detail: actual?.status ? `Agent reports ${actual.status}` : 'Awaiting applied backup config',
-          status: pgBackRestStatus(state, actual, now),
+          status: displayStatus(state, now),
           cluster,
           state,
           actual,
@@ -149,7 +149,7 @@ export function buildCanvasTopology(clusters: Cluster[], snapshot: ProjectStateS
           label: extension,
           eyebrow: 'PostgreSQL extension',
           detail: installed ? `Version ${state?.actual_state?.extension_versions?.[extension] ?? 'not reported'}` : reportedExtensions ? 'Install pending or failed' : 'Awaiting installation report',
-          status: extensionPresenceStatus(state, extension, now),
+          status: displayStatus(state, now),
           cluster,
           state,
           version: state?.actual_state?.extension_versions?.[extension],

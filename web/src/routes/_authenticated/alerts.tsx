@@ -1,21 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, type ReactNode } from 'react'
 import { listGlobalAlerts, type AlertSeverity, type AlertStatus, type GlobalAlertIncident } from '../../api/global-alerts'
+import { alertComparisonLabel } from '../../lib/alerts'
 
 export const Route = createFileRoute('/_authenticated/alerts')({
   ssr: false,
   loader: () => listGlobalAlerts(),
   component: AlertsPage,
 })
-
-const comparisonLabels: Record<GlobalAlertIncident['comparison'], string> = {
-  gt: '>',
-  gte: '>=',
-  lt: '<',
-  lte: '<=',
-  eq: '=',
-  neq: '!=',
-}
 
 function AlertsPage() {
   const initialAlerts = Route.useLoaderData()
@@ -97,7 +89,7 @@ function AlertTable({ alerts }: { alerts: GlobalAlertIncident[] }) {
       <table className="w-full min-w-[760px] border-collapse text-left text-sm">
         <thead className="bg-[var(--panel)] text-xs font-medium text-[var(--text-2)]"><tr><th className="px-4 py-3">Project</th><th className="px-4 py-3">Rule</th><th className="px-4 py-3">Severity</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Fired at</th></tr></thead>
         <tbody className="divide-y divide-[var(--border-soft)] bg-[var(--card)]">
-          {alerts.map((alert) => <tr key={alert.id} className="hover:bg-[var(--card-raised)]"><td className="px-4 py-3"><a href={`/projects/${encodeURIComponent(alert.project_id)}/alerts`} className="font-medium text-[var(--text)] hover:underline">{alert.project_name}</a></td><td className="px-4 py-3"><div className="font-medium text-[var(--text)]">{alert.metric_name}</div><div className="mt-0.5 font-mono text-[11px] text-[var(--text-3)]">{comparisonLabels[alert.comparison]} {alert.threshold}</div></td><td className="px-4 py-3"><SeverityBadge severity={alert.severity} /></td><td className="px-4 py-3"><StatusBadge firing={!alert.resolved_at} /></td><td className="px-4 py-3 font-mono text-xs text-[var(--text-2)]">{new Date(alert.fired_at).toLocaleString()}</td></tr>)}
+          {alerts.map((alert) => <tr key={alert.id} className="hover:bg-[var(--card-raised)]"><td className="px-4 py-3"><a href={`/projects/${encodeURIComponent(alert.project_id)}/alerts`} className="font-medium text-[var(--text)] hover:underline">{alert.project_name}</a></td><td className="px-4 py-3"><div className="font-medium text-[var(--text)]">{alert.metric_name}</div><div className="mt-0.5 font-mono text-[11px] text-[var(--text-3)]">{alertComparisonLabel(alert.comparison)} {alert.threshold}</div></td><td className="px-4 py-3"><SeverityBadge severity={alert.severity} /></td><td className="px-4 py-3"><StatusBadge firing={!alert.resolved_at} /></td><td className="px-4 py-3 font-mono text-xs text-[var(--text-2)]">{new Date(alert.fired_at).toLocaleString()}</td></tr>)}
         </tbody>
       </table>
     </div>
