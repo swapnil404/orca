@@ -540,7 +540,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		}
 		reconciliationResults = append(reconciliationResults, &types.ReconciliationResult{
 			Action: string(result.Action.Type), ClusterId: result.Action.ClusterID,
-			Status: string(result.Status), Error: message,
+			Status: string(result.Status), Error: message, ResourceId: result.Action.ReplicaID,
 		})
 	}
 	return &types.AgentReportMessage{

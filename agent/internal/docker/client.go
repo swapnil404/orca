@@ -784,34 +784,12 @@ func writeConfigMount(root, clusterID string, config *ConfigMount) (mount.Mount,
 	if err != nil {
 		return mount.Mount{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
-		return mount.Mount{}, fmt.Errorf("create config directory: %w", err)
-	}
-
-	temporary, err := os.CreateTemp(filepath.Dir(hostPath), ".orca-config-*")
-	if err != nil {
-		return mount.Mount{}, fmt.Errorf("create temporary config: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-
 	mode := os.FileMode(config.Mode)
 	if mode == 0 {
 		mode = 0o644
 	}
-	if err := temporary.Chmod(mode); err != nil {
-		temporary.Close()
-		return mount.Mount{}, fmt.Errorf("set config permissions: %w", err)
-	}
-	if _, err := temporary.WriteString(config.Content); err != nil {
-		temporary.Close()
-		return mount.Mount{}, fmt.Errorf("write config: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return mount.Mount{}, fmt.Errorf("close config: %w", err)
-	}
-	if err := os.Rename(temporaryPath, hostPath); err != nil {
-		return mount.Mount{}, fmt.Errorf("install config: %w", err)
+	if err := writeAtomicConfig(hostPath, config.Content, mode); err != nil {
+		return mount.Mount{}, err
 	}
 
 	return mount.Mount{
@@ -830,6 +808,14 @@ func writeConfig(root, clusterID string, config *ConfigMount) error {
 	if err != nil {
 		return err
 	}
+	mode := os.FileMode(config.Mode)
+	if mode == 0 {
+		mode = 0o644
+	}
+	return writeAtomicConfig(hostPath, config.Content, mode)
+}
+
+func writeAtomicConfig(hostPath, content string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
@@ -839,15 +825,11 @@ func writeConfig(root, clusterID string, config *ConfigMount) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	mode := os.FileMode(config.Mode)
-	if mode == 0 {
-		mode = 0o644
-	}
 	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return fmt.Errorf("set config permissions: %w", err)
 	}
-	if _, err := temporary.WriteString(config.Content); err != nil {
+	if _, err := temporary.WriteString(content); err != nil {
 		temporary.Close()
 		return fmt.Errorf("write config: %w", err)
 	}
