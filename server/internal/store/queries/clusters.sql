@@ -15,7 +15,7 @@ SELECT sqlc.arg(cluster_id)::text, p.id, h.id, sqlc.arg(name)::text,
        sqlc.arg(pgbouncer_max_connections)::integer, sqlc.arg(pgbouncer_publish_address)::text,
        sqlc.arg(pgbouncer_publish_port)::integer,
        sqlc.arg(pgbackrest_enabled)::boolean, sqlc.arg(pgbackrest_repo_path)::text,
-       sqlc.arg(pgbackrest_retention_full)::integer, sqlc.arg(pgbackrest_retention_diff)::integer,
+       sqlc.arg(pgbackrest_retention_full)::bigint, sqlc.arg(pgbackrest_retention_diff)::bigint,
        sqlc.arg(pgbackrest_full_interval_seconds)::bigint, sqlc.arg(pgbackrest_diff_interval_seconds)::bigint,
        sqlc.arg(pgbackrest_incr_interval_seconds)::bigint, sqlc.arg(pg_hba_rules)::jsonb
 FROM projects p

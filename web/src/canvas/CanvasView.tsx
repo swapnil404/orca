@@ -158,7 +158,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
     try {
       const updated = request.type === 'replica' ? await addReplica(cluster)
         : request.type === 'pgbouncer' ? await enablePgBouncer(cluster, { pool_mode: request.poolMode, max_connections: request.maxConnections, publish_address: request.publishAddress, publish_port: request.publishPort })
-          : request.type === 'pgbackrest' ? await configurePgBackRest(cluster, { repo_path: request.repoPath, retention_full: request.retentionFull, retention_diff: request.retentionDiff, full_interval_seconds: request.fullIntervalSeconds, diff_interval_seconds: request.diffIntervalSeconds, incr_interval_seconds: request.incrIntervalSeconds })
+          : request.type === 'pgbackrest' ? await configurePgBackRest(cluster, { repo_path: request.repoPath, retention_full: request.retentionFull, retention_diff: request.retentionDiff, schedule: { full_interval_seconds: request.fullIntervalSeconds, diff_interval_seconds: request.diffIntervalSeconds, incr_interval_seconds: request.incrIntervalSeconds } })
             : await installExtension(cluster, request.extension)
       const newReplica = request.type === 'replica' ? updated.replicas.at(-1) : undefined
       const resourceID = request.type === 'replica' && newReplica ? `replica:${cluster.id}:${newReplica.id}`
@@ -167,8 +167,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
             : request.type === 'extension' ? extensionNodeID(cluster.id, request.extension) : undefined
       if (!resourceID) throw new Error('The server did not return the provisioned resource identity.')
       onClusterUpdated(updated)
-      const expectedConfig = request.type === 'pgbackrest' ? pgBackRestReconciliationState(cluster.id, request)
-        : request.type === 'pgbouncer' ? `${request.poolMode}:${request.maxConnections}:${request.publishAddress}:${request.publishPort}` : undefined
+      const expectedConfig = request.type === 'pgbouncer' ? `${request.poolMode}:${request.maxConnections}:${request.publishAddress}:${request.publishPort}` : undefined
       if (!updated.desired_revision) throw new Error('The server did not return a desired-state revision.')
       setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? { ...draft, stage: 'awaiting', clusterID: cluster.id, resourceID, resourceName: request.type === 'extension' ? request.extension : undefined, expectedConfig, expectedRevision: updated.desired_revision } : draft))
       setActiveDraftID(null)
@@ -228,7 +227,7 @@ function isApplied(draft: ProvisionDraft, snapshot: ProjectStateSnapshot | null)
     const values = Object.fromEntries(pooler.config.split('\n').map((line) => line.split('=').map((part) => part.trim())).filter((parts) => parts.length === 2))
     return `${values.pool_mode}:${values.max_client_conn}` === draft.expectedConfig
   }
-  if (draft.type === 'pgbackrest') return state.actual_state.backup?.config === draft.expectedConfig
+  if (draft.type === 'pgbackrest') return Boolean(state.actual_state.backup?.config)
   return state.actual_state.enabled_extensions?.includes(draft.resourceName ?? '') ?? false
 }
 
@@ -257,8 +256,4 @@ function reconciliationFailure(draft: ProvisionDraft, snapshot: ProjectStateSnap
     ?? results.find((result) => result.status === 'failed')
   if (!failed) return undefined
   return failed.error || `Agent reported ${failed.action.replaceAll('_', ' ')} failed.`
-}
-
-function pgBackRestReconciliationState(clusterID: string, request: Extract<ProvisionRequest, { type: 'pgbackrest' }>): string {
-  return `[global]\nrepo1-path=${request.repoPath}\nrepo1-retention-full=${request.retentionFull}\nrepo1-retention-diff=${request.retentionDiff}\n\n[${clusterID}]\npg1-path=/var/orca/data/${clusterID}/primary\n\n[orca-schedule]\nfull=${request.fullIntervalSeconds}\ndiff=${request.diffIntervalSeconds}\nincr=${request.incrIntervalSeconds}\n\n[orca-storage]\nrepo-bind=${request.repoPath}\n`
 }

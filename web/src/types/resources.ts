@@ -71,6 +71,10 @@ export interface PgBackRestConfig {
   repo_path: string
   retention_full: number
   retention_diff: number
+  schedule?: BackupSchedule
+}
+
+export interface BackupSchedule {
   full_interval_seconds: number
   diff_interval_seconds: number
   incr_interval_seconds: number

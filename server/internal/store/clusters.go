@@ -68,28 +68,8 @@ type Replica struct {
 	ID string `json:"id"`
 }
 
-// PgBackRestConfig contains repository, retention, and schedule settings.
-type PgBackRestConfig struct {
-	RepoPath            string `json:"repo_path"`
-	RetentionFull       int32  `json:"retention_full"`
-	RetentionDiff       int32  `json:"retention_diff"`
-	FullIntervalSeconds int64  `json:"full_interval_seconds"`
-	DiffIntervalSeconds int64  `json:"diff_interval_seconds"`
-	IncrIntervalSeconds int64  `json:"incr_interval_seconds"`
-}
-
-type pgBackRestDesiredState struct {
-	RepoPath      string                    `json:"repo_path"`
-	RetentionFull int32                     `json:"retention_full"`
-	RetentionDiff int32                     `json:"retention_diff"`
-	Schedule      pgBackRestScheduleDesired `json:"schedule"`
-}
-
-type pgBackRestScheduleDesired struct {
-	FullIntervalSeconds int64 `json:"full_interval_seconds"`
-	DiffIntervalSeconds int64 `json:"diff_interval_seconds"`
-	IncrIntervalSeconds int64 `json:"incr_interval_seconds"`
-}
+// PgBackRestConfig is the shared backup contract sent to agents.
+type PgBackRestConfig = orcatypes.PgBackRestSpec
 
 type pgHbaDesiredState struct {
 	Rules []PgHbaRule `json:"rules"`
@@ -591,13 +571,35 @@ func clusterFromSQLC(cluster sqlcdb.Cluster) (Cluster, error) {
 		CreatedAt:         cluster.CreatedAt, UpdatedAt: cluster.UpdatedAt,
 	}
 	if cluster.PgbackrestEnabled {
+		retentionFull, err := backupUint32FromDatabase(cluster.PgbackrestRetentionFull)
+		if err != nil {
+			return Cluster{}, err
+		}
+		retentionDiff, err := backupUint32FromDatabase(cluster.PgbackrestRetentionDiff)
+		if err != nil {
+			return Cluster{}, err
+		}
+		fullInterval, err := backupUint32FromDatabase(cluster.PgbackrestFullIntervalSeconds)
+		if err != nil {
+			return Cluster{}, err
+		}
+		diffInterval, err := backupUint32FromDatabase(cluster.PgbackrestDiffIntervalSeconds)
+		if err != nil {
+			return Cluster{}, err
+		}
+		incrInterval, err := backupUint32FromDatabase(cluster.PgbackrestIncrIntervalSeconds)
+		if err != nil {
+			return Cluster{}, err
+		}
 		result.PgBackRest = &PgBackRestConfig{
-			RepoPath:            cluster.PgbackrestRepoPath,
-			RetentionFull:       cluster.PgbackrestRetentionFull,
-			RetentionDiff:       cluster.PgbackrestRetentionDiff,
-			FullIntervalSeconds: cluster.PgbackrestFullIntervalSeconds,
-			DiffIntervalSeconds: cluster.PgbackrestDiffIntervalSeconds,
-			IncrIntervalSeconds: cluster.PgbackrestIncrIntervalSeconds,
+			RepoPath:      cluster.PgbackrestRepoPath,
+			RetentionFull: retentionFull,
+			RetentionDiff: retentionDiff,
+			Schedule: &orcatypes.BackupSchedule{
+				FullIntervalSeconds: fullInterval,
+				DiffIntervalSeconds: diffInterval,
+				IncrIntervalSeconds: incrInterval,
+			},
 		}
 	}
 	return result, nil
@@ -622,7 +624,7 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		PgBouncer         *orcatypes.PgBouncerSpec  `json:"pg_bouncer,omitempty"`
 		Databases         []*orcatypes.DatabaseSpec `json:"databases,omitempty"`
 		EnabledExtensions []string                  `json:"enabled_extensions,omitempty"`
-		PgBackRest        *pgBackRestDesiredState   `json:"pg_back_rest,omitempty"`
+		PgBackRest        *orcatypes.PgBackRestSpec `json:"pg_back_rest,omitempty"`
 		PgHba             *pgHbaDesiredState        `json:"pg_hba,omitempty"`
 		RestartGeneration int64                     `json:"restart_generation,omitempty"`
 	}{
@@ -640,16 +642,7 @@ func clusterDesiredStatePayload(cluster Cluster) ([]byte, error) {
 		state.Databases = []*orcatypes.DatabaseSpec{{Name: "postgres"}}
 	}
 	if cluster.PgBackRest != nil {
-		state.PgBackRest = &pgBackRestDesiredState{
-			RepoPath:      cluster.PgBackRest.RepoPath,
-			RetentionFull: cluster.PgBackRest.RetentionFull,
-			RetentionDiff: cluster.PgBackRest.RetentionDiff,
-			Schedule: pgBackRestScheduleDesired{
-				FullIntervalSeconds: cluster.PgBackRest.FullIntervalSeconds,
-				DiffIntervalSeconds: cluster.PgBackRest.DiffIntervalSeconds,
-				IncrIntervalSeconds: cluster.PgBackRest.IncrIntervalSeconds,
-			},
-		}
+		state.PgBackRest = cluster.PgBackRest
 	}
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -721,39 +714,47 @@ func pgBackRestRepoPath(config *PgBackRestConfig) string {
 	return config.RepoPath
 }
 
-func pgBackRestRetentionFull(config *PgBackRestConfig) int32 {
+func pgBackRestRetentionFull(config *PgBackRestConfig) int64 {
 	if config == nil {
 		return 0
 	}
-	return config.RetentionFull
+	return int64(config.RetentionFull)
 }
 
-func pgBackRestRetentionDiff(config *PgBackRestConfig) int32 {
+func pgBackRestRetentionDiff(config *PgBackRestConfig) int64 {
 	if config == nil {
 		return 0
 	}
-	return config.RetentionDiff
+	return int64(config.RetentionDiff)
 }
 
 func pgBackRestFullInterval(config *PgBackRestConfig) int64 {
-	if config == nil {
+	if config == nil || config.Schedule == nil {
 		return 0
 	}
-	return config.FullIntervalSeconds
+	return int64(config.Schedule.FullIntervalSeconds)
 }
 
 func pgBackRestDiffInterval(config *PgBackRestConfig) int64 {
-	if config == nil {
+	if config == nil || config.Schedule == nil {
 		return 0
 	}
-	return config.DiffIntervalSeconds
+	return int64(config.Schedule.DiffIntervalSeconds)
 }
 
 func pgBackRestIncrInterval(config *PgBackRestConfig) int64 {
-	if config == nil {
+	if config == nil || config.Schedule == nil {
 		return 0
 	}
-	return config.IncrIntervalSeconds
+	return int64(config.Schedule.IncrIntervalSeconds)
+}
+
+func backupUint32FromDatabase(value int64) (uint32, error) {
+	result := uint32(value)
+	if int64(result) != value {
+		return 0, fmt.Errorf("stored backup value %d is outside the protobuf contract", value)
+	}
+	return result, nil
 }
 
 func desiredStateFromSQLC(state sqlcdb.DesiredState) DesiredState {

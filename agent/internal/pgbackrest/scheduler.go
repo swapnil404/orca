@@ -21,8 +21,6 @@ const (
 	BackupTypeDiff BackupType = "diff"
 	// BackupTypeIncr creates an incremental backup.
 	BackupTypeIncr BackupType = "incr"
-
-	maxScheduleIntervalSeconds = uint64((1<<63 - 1) / 1_000_000_000)
 )
 
 type scheduleTicker interface {
