@@ -24,6 +24,7 @@ message ReconciliationResult {
   string cluster_id = 2;
   string status = 3;
   string error = 4;
+  string resource_id = 5;
 }
 
 // DesiredState is the desired set of clusters managed by the agent.
