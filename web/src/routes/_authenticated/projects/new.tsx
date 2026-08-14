@@ -1,8 +1,9 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight, Database, Info, Minus, Network, Plus, Server, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
-import { ApiError, createCluster, createProject, deleteProject, deleteUnusedHost, enablePgBouncer, listOrganizations, registerHost, rotateHostToken } from '../../../api'
+import { ApiError, createCluster, createProject, deleteProject, deleteUnusedHost, enablePgBouncer, registerHost, rotateHostToken } from '../../../api'
 import { defaultPgHbaRules, PgHbaRulesEditor, pgHbaRulesValid } from '../../../components/PgHbaRulesEditor'
+import type { Organization } from '../../../types/organizations'
 import type { PgBouncerPoolMode, PgHbaRule } from '../../../types/resources'
 
 const projectNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -35,12 +36,11 @@ export const Route = createFileRoute('/_authenticated/projects/new')({
   validateSearch: (search: Record<string, unknown>): NewProjectSearch => ({
     organizationId: typeof search.organizationId === 'string' ? search.organizationId : undefined,
   }),
-  loader: listOrganizations,
   component: NewProjectPage,
 })
 
 function NewProjectPage() {
-  const organizations = Route.useLoaderData()
+  const { organizations } = Route.useRouteContext()
   const search = Route.useSearch()
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
@@ -178,7 +178,7 @@ function NewProjectPage() {
 
 interface InstanceConfigProps {
   organizationID: string
-  organizations: Awaited<ReturnType<typeof listOrganizations>>
+  organizations: Organization[]
   name: string
   nameIsValid: boolean
   postgresVersion: (typeof postgresVersions)[number]

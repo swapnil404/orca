@@ -11,19 +11,15 @@ export const Route = createFileRoute('/_authenticated')({
     if (!session) {
       throw redirect({ to: '/login' })
     }
-    return { session }
-  },
-  loader: async () => {
     const [organizations, projects] = await Promise.all([listOrganizations(), listProjects()])
-    return { organizations, projects }
+    return { session, organizations, projects }
   },
   component: AuthenticatedLayout,
 })
 
 function AuthenticatedLayout() {
   const navigate = useNavigate()
-  const { session } = Route.useRouteContext()
-  const { organizations, projects } = Route.useLoaderData()
+  const { session, organizations, projects } = Route.useRouteContext()
   const [loggingOut, setLoggingOut] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
