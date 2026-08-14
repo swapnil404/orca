@@ -1067,12 +1067,13 @@ func (x *PgBackRestSpec) GetSchedule() *BackupSchedule {
 	return nil
 }
 
-// BackupSchedule describes interval-based backup scheduling.
+// BackupSchedule describes interval-based backup scheduling. The uint32 fields
+// bound intervals to values that can always be represented by Go time.Duration.
 type BackupSchedule struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	FullIntervalSeconds uint64                 `protobuf:"varint,1,opt,name=full_interval_seconds,json=fullIntervalSeconds,proto3" json:"full_interval_seconds,omitempty"`
-	DiffIntervalSeconds uint64                 `protobuf:"varint,2,opt,name=diff_interval_seconds,json=diffIntervalSeconds,proto3" json:"diff_interval_seconds,omitempty"`
-	IncrIntervalSeconds uint64                 `protobuf:"varint,3,opt,name=incr_interval_seconds,json=incrIntervalSeconds,proto3" json:"incr_interval_seconds,omitempty"`
+	FullIntervalSeconds uint32                 `protobuf:"varint,1,opt,name=full_interval_seconds,json=fullIntervalSeconds,proto3" json:"full_interval_seconds,omitempty"`
+	DiffIntervalSeconds uint32                 `protobuf:"varint,2,opt,name=diff_interval_seconds,json=diffIntervalSeconds,proto3" json:"diff_interval_seconds,omitempty"`
+	IncrIntervalSeconds uint32                 `protobuf:"varint,3,opt,name=incr_interval_seconds,json=incrIntervalSeconds,proto3" json:"incr_interval_seconds,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1107,21 +1108,21 @@ func (*BackupSchedule) Descriptor() ([]byte, []int) {
 	return file_orca_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *BackupSchedule) GetFullIntervalSeconds() uint64 {
+func (x *BackupSchedule) GetFullIntervalSeconds() uint32 {
 	if x != nil {
 		return x.FullIntervalSeconds
 	}
 	return 0
 }
 
-func (x *BackupSchedule) GetDiffIntervalSeconds() uint64 {
+func (x *BackupSchedule) GetDiffIntervalSeconds() uint32 {
 	if x != nil {
 		return x.DiffIntervalSeconds
 	}
 	return 0
 }
 
-func (x *BackupSchedule) GetIncrIntervalSeconds() uint64 {
+func (x *BackupSchedule) GetIncrIntervalSeconds() uint32 {
 	if x != nil {
 		return x.IncrIntervalSeconds
 	}
@@ -2106,9 +2107,9 @@ const file_orca_proto_rawDesc = "" +
 	"\x0eretention_diff\x18\x03 \x01(\rR\rretentionDiff\x123\n" +
 	"\bschedule\x18\x04 \x01(\v2\x17.orca.v1.BackupScheduleR\bschedule\"\xac\x01\n" +
 	"\x0eBackupSchedule\x122\n" +
-	"\x15full_interval_seconds\x18\x01 \x01(\x04R\x13fullIntervalSeconds\x122\n" +
-	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
-	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
+	"\x15full_interval_seconds\x18\x01 \x01(\rR\x13fullIntervalSeconds\x122\n" +
+	"\x15diff_interval_seconds\x18\x02 \x01(\rR\x13diffIntervalSeconds\x122\n" +
+	"\x15incr_interval_seconds\x18\x03 \x01(\rR\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
 	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xa9\f\n" +
 	"\rActualCluster\x12\x0e\n" +

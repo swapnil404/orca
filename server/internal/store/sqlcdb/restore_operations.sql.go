@@ -106,8 +106,8 @@ type CreateActivatedCloneClusterParams struct {
 	PgbouncerPublishPort          int32           `json:"pgbouncer_publish_port"`
 	PgbackrestEnabled             bool            `json:"pgbackrest_enabled"`
 	PgbackrestRepoPath            string          `json:"pgbackrest_repo_path"`
-	PgbackrestRetentionFull       int32           `json:"pgbackrest_retention_full"`
-	PgbackrestRetentionDiff       int32           `json:"pgbackrest_retention_diff"`
+	PgbackrestRetentionFull       int64           `json:"pgbackrest_retention_full"`
+	PgbackrestRetentionDiff       int64           `json:"pgbackrest_retention_diff"`
 	PgbackrestFullIntervalSeconds int64           `json:"pgbackrest_full_interval_seconds"`
 	PgbackrestDiffIntervalSeconds int64           `json:"pgbackrest_diff_interval_seconds"`
 	PgbackrestIncrIntervalSeconds int64           `json:"pgbackrest_incr_interval_seconds"`
@@ -351,8 +351,8 @@ type GetRestoreMutationContextRow struct {
 	PgbouncerPublishAddress       string           `json:"pgbouncer_publish_address"`
 	PgbouncerPublishPort          int32            `json:"pgbouncer_publish_port"`
 	PgbackrestRepoPath            string           `json:"pgbackrest_repo_path"`
-	PgbackrestRetentionFull       int32            `json:"pgbackrest_retention_full"`
-	PgbackrestRetentionDiff       int32            `json:"pgbackrest_retention_diff"`
+	PgbackrestRetentionFull       int64            `json:"pgbackrest_retention_full"`
+	PgbackrestRetentionDiff       int64            `json:"pgbackrest_retention_diff"`
 	PgbackrestFullIntervalSeconds int64            `json:"pgbackrest_full_interval_seconds"`
 	PgbackrestDiffIntervalSeconds int64            `json:"pgbackrest_diff_interval_seconds"`
 	PgbackrestIncrIntervalSeconds int64            `json:"pgbackrest_incr_interval_seconds"`

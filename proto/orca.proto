@@ -124,11 +124,12 @@ message PgBackRestSpec {
   BackupSchedule schedule = 4;
 }
 
-// BackupSchedule describes interval-based backup scheduling.
+// BackupSchedule describes interval-based backup scheduling. The uint32 fields
+// bound intervals to values that can always be represented by Go time.Duration.
 message BackupSchedule {
-  uint64 full_interval_seconds = 1;
-  uint64 diff_interval_seconds = 2;
-  uint64 incr_interval_seconds = 3;
+  uint32 full_interval_seconds = 1;
+  uint32 diff_interval_seconds = 2;
+  uint32 incr_interval_seconds = 3;
 }
 
 // ActualState is the set of clusters currently observed by the agent.

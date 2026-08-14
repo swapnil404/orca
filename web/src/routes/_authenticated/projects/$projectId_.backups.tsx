@@ -134,9 +134,11 @@ function ScheduleEditor({ cluster, disabled, onUpdated }: { cluster: Cluster | u
       repo_path: String(form.get('repo_path') ?? '').trim(),
       retention_full: Number(form.get('retention_full')),
       retention_diff: Number(form.get('retention_diff')),
-      full_interval_seconds: Number(form.get('full_interval_seconds')),
-      diff_interval_seconds: Number(form.get('diff_interval_seconds')),
-      incr_interval_seconds: Number(form.get('incr_interval_seconds')),
+      schedule: {
+        full_interval_seconds: Number(form.get('full_interval_seconds')),
+        diff_interval_seconds: Number(form.get('diff_interval_seconds')),
+        incr_interval_seconds: Number(form.get('incr_interval_seconds')),
+      },
     }
     setSaving(true)
     setMessage('')
@@ -157,7 +159,7 @@ function ScheduleEditor({ cluster, disabled, onUpdated }: { cluster: Cluster | u
       {config && cluster ? <form key={`${cluster.id}:${cluster.updated_at}`} onSubmit={handleSubmit} className="space-y-5">
         <fieldset disabled={saving || disabled} className="space-y-5"><label className="block text-xs font-medium text-[var(--text-2)]">Repository path<input required name="repo_path" defaultValue={config.repo_path} className={fieldClass} /></label>
         <div className="grid gap-4 sm:grid-cols-2"><NumberField name="retention_full" label="Full backups retained" value={config.retention_full} min={1} /><NumberField name="retention_diff" label="Differential backups retained" value={config.retention_diff} min={1} /></div>
-        <div className="grid gap-4 sm:grid-cols-3"><NumberField name="full_interval_seconds" label="Full interval (sec)" value={config.full_interval_seconds} /><NumberField name="diff_interval_seconds" label="Diff interval (sec)" value={config.diff_interval_seconds} /><NumberField name="incr_interval_seconds" label="Incremental interval (sec)" value={config.incr_interval_seconds} /></div></fieldset>
+        <div className="grid gap-4 sm:grid-cols-3"><NumberField name="full_interval_seconds" label="Full interval (sec)" value={config.schedule?.full_interval_seconds ?? 0} /><NumberField name="diff_interval_seconds" label="Diff interval (sec)" value={config.schedule?.diff_interval_seconds ?? 0} /><NumberField name="incr_interval_seconds" label="Incremental interval (sec)" value={config.schedule?.incr_interval_seconds ?? 0} /></div></fieldset>
         {disabled && <p role="status" className="rounded-[var(--radius-md)] border border-[var(--warning)]/25 bg-[var(--warning)]/5 px-3 py-2 text-xs leading-5 text-[var(--warning)]">Schedule edits are locked while this cluster has an active restore operation.</p>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5"><p role="status" className="text-xs text-[var(--text-3)]">{message || 'Zero disables that backup interval.'}</p><button type="submit" disabled={saving || disabled} className={buttonClass}>{saving ? 'Saving...' : 'Save schedule'}</button></div>
       </form> : <p className="text-sm text-[var(--text-3)]">Select a configured cluster to edit its schedule.</p>}
