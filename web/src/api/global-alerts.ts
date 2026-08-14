@@ -1,7 +1,7 @@
 import { apiRequest } from './client'
+import type { AlertComparison, AlertSeverity } from '../types/alerts'
 
-export type AlertComparison = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
-export type AlertSeverity = 'info' | 'warning' | 'critical'
+export type { AlertComparison, AlertSeverity } from '../types/alerts'
 export type AlertStatus = 'firing' | 'resolved'
 
 export interface GlobalAlertIncident {

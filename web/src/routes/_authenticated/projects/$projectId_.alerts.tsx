@@ -2,20 +2,12 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { BellRing, CircleCheck, Siren } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getProjectAlerts, getProjectTopology } from '../../../api'
-import type { AlertComparison, AlertIncident, AlertSeverity, ProjectAlerts } from '../../../types/alerts'
+import { alertRuleLabel } from '../../../lib/alerts'
+import type { AlertSeverity, ProjectAlerts } from '../../../types/alerts'
 import type { ProjectTopology } from '../../../types/resources'
 
 type HistoryStatus = 'all' | 'firing' | 'resolved'
 type SeverityFilter = 'all' | AlertSeverity
-
-const comparisons: Record<AlertComparison, string> = {
-  gt: '>',
-  gte: '>=',
-  lt: '<',
-  lte: '<=',
-  eq: '=',
-  neq: '!=',
-}
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/alerts')({
   ssr: false,
@@ -28,10 +20,6 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId_/alert
   },
   component: ProjectAlertsRoute,
 })
-
-function ruleLabel(alert: Pick<AlertIncident, 'metric_name' | 'comparison' | 'threshold'>): string {
-  return `${alert.metric_name} ${comparisons[alert.comparison]} ${alert.threshold}`
-}
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -111,7 +99,7 @@ function ProjectAlertsPage({ projectId, initial }: { projectId: string; initial:
                     <span className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${severityClass(rule.severity)}`}>{rule.severity}</span>
                     <span className={`flex items-center gap-1.5 text-xs ${rule.current_state === 'firing' ? 'text-[var(--critical)]' : 'text-[var(--healthy)]'}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{rule.current_state === 'firing' ? 'Firing' : 'OK'}</span>
                   </div>
-                  <h3 className="mt-4 break-words font-mono text-sm text-[var(--text)]">{ruleLabel(rule)}</h3>
+                  <h3 className="mt-4 break-words font-mono text-sm text-[var(--text)]">{alertRuleLabel(rule)}</h3>
                   <p className="mt-2 text-xs text-[var(--text-3)]">{rule.cluster_id ? clusterNames.get(rule.cluster_id) ?? rule.cluster_id : 'All project clusters'}</p>
                   <p className="mt-4 border-t border-[var(--border-soft)] pt-3 text-[11px] text-[var(--text-3)]">Fires after <span className="font-mono text-[var(--text-2)]">{rule.duration_before_firing_seconds}s</span></p>
                 </article>
@@ -136,7 +124,7 @@ function ProjectAlertsPage({ projectId, initial }: { projectId: string; initial:
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead className="bg-[var(--panel)] text-xs text-[var(--text-2)]"><tr><th className="px-4 py-3 font-medium">Rule</th><th className="px-4 py-3 font-medium">Severity</th><th className="px-4 py-3 font-medium">Fired at</th><th className="px-4 py-3 font-medium">Resolved at</th></tr></thead>
                 <tbody className="divide-y divide-[var(--border-soft)] bg-[var(--card)]">
-                  {filteredIncidents.map((incident) => <tr key={incident.id} className="hover:bg-[var(--card-raised)]"><td className="px-4 py-3"><div className="font-mono text-xs text-[var(--text)]">{ruleLabel(incident)}</div><div className="mt-1 font-mono text-[10px] text-[var(--text-3)]">{incident.rule_id}</div></td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${severityClass(incident.severity)}`}>{incident.severity}</span></td><td className="px-4 py-3 font-mono text-xs text-[var(--text-2)]">{formatDate(incident.fired_at)}</td><td className={`px-4 py-3 font-mono text-xs ${incident.resolved_at ? 'text-[var(--text-2)]' : 'text-[var(--critical)]'}`}>{incident.resolved_at ? formatDate(incident.resolved_at) : 'still firing'}</td></tr>)}
+                  {filteredIncidents.map((incident) => <tr key={incident.id} className="hover:bg-[var(--card-raised)]"><td className="px-4 py-3"><div className="font-mono text-xs text-[var(--text)]">{alertRuleLabel(incident)}</div><div className="mt-1 font-mono text-[10px] text-[var(--text-3)]">{incident.rule_id}</div></td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase ${severityClass(incident.severity)}`}>{incident.severity}</span></td><td className="px-4 py-3 font-mono text-xs text-[var(--text-2)]">{formatDate(incident.fired_at)}</td><td className={`px-4 py-3 font-mono text-xs ${incident.resolved_at ? 'text-[var(--text-2)]' : 'text-[var(--critical)]'}`}>{incident.resolved_at ? formatDate(incident.resolved_at) : 'still firing'}</td></tr>)}
                 </tbody>
               </table>
             </div>

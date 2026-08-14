@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -253,14 +254,9 @@ func reportIsStale(lastSeen, now time.Time, window time.Duration) bool {
 }
 
 func clusterHealthStatus(status types.ClusterStatus) string {
-	switch status {
-	case types.ClusterStatus_CLUSTER_STATUS_HEALTHY:
-		return "healthy"
-	case types.ClusterStatus_CLUSTER_STATUS_DEGRADED:
-		return "degraded"
-	case types.ClusterStatus_CLUSTER_STATUS_DOWN:
-		return "down"
-	default:
+	name, ok := types.ClusterStatus_name[int32(status)]
+	if !ok || status == types.ClusterStatus_CLUSTER_STATUS_UNSPECIFIED {
 		return unknownHealthStatus
 	}
+	return strings.ToLower(strings.TrimPrefix(name, "CLUSTER_STATUS_"))
 }

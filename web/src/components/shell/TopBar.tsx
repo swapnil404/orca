@@ -2,7 +2,7 @@ import { Link, useMatches, useNavigate, useRouterState } from '@tanstack/react-r
 import { ArchiveRestore, Bell, Building2, Check, ChevronDown, Database, LayoutGrid, Plus, Search, Settings2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Session } from '../../api'
-import { primaryStatus } from '../../canvas/status'
+import { displayStatus } from '../../canvas/status'
 import { useTopologyStore } from '../../store/topology'
 import type { Organization } from '../../types/organizations'
 import type { Project, ProjectTopology } from '../../types/resources'
@@ -52,7 +52,7 @@ function sessionInitials(userID: string): string {
 
 function projectHealth(projectID: string | undefined, snapshot: ReturnType<typeof useTopologyStore.getState>['snapshot'], now: number): HealthPillProps {
   if (!projectID || snapshot?.project_id !== projectID || snapshot.clusters.length === 0) return { label: 'Unknown', tone: 'unknown' }
-  const statuses = snapshot.clusters.map((cluster) => primaryStatus(cluster, now))
+  const statuses = snapshot.clusters.map((cluster) => displayStatus(cluster, now))
   if (statuses.includes('down')) return { label: 'Critical', tone: 'critical' }
   if (statuses.includes('degraded')) return { label: 'Degraded', tone: 'warning' }
   if (statuses.includes('stale')) return { label: 'Stale', tone: 'warning' }
