@@ -7,7 +7,7 @@ import { PgHbaRulesEditor } from '../../../components/PgHbaRulesEditor'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useTopologyStore } from '../../../store/topology'
-import type { ActualCluster, ActualPgBouncer, Cluster, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ReconciliationResult } from '../../../types/resources'
+import type { ActualCluster, ActualPgBouncer, Cluster, ParameterConvergence, PgBouncerConfig, PgHbaRule, Project, ProjectHost, ReconciliationResult } from '../../../types/resources'
 
 export const Route = createFileRoute('/_authenticated/projects/$projectId_/settings')({
   ssr: false,
@@ -80,7 +80,7 @@ function ProjectSettingsPage({ projectId, initial }: { projectId: string; initia
             <div className="divide-y divide-[var(--border-soft)]">{clusters.map((cluster) => {
               const state = snapshot?.clusters.find((item) => item.cluster_id === cluster.id)
               const stale = !state?.last_seen || isReportStale(state, now)
-              return <ParameterEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={stale ? undefined : state.actual_state ?? undefined} stale={stale} results={stale ? [] : state.reconciliation_results} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+              return <ParameterEditor key={`${cluster.id}:${cluster.updated_at}`} cluster={cluster} actual={stale ? undefined : state.actual_state ?? undefined} convergence={stale || cluster.desired_revision ? 'unknown' : state?.parameter_convergence ?? 'unknown'} stale={stale} results={stale ? [] : state.reconciliation_results} onUpdated={(updated) => setClusters((current) => current.map((item) => item.id === updated.id ? updated : item))} />
             })}</div>
           </SettingsSection>
 
@@ -152,6 +152,7 @@ interface ParameterRow {
 interface ParameterEditorProps {
   cluster: Cluster
   actual?: ActualCluster
+  convergence: ParameterConvergence
   stale: boolean
   results: ReconciliationResult[]
   onUpdated: (cluster: Cluster) => void
@@ -159,16 +160,7 @@ interface ParameterEditorProps {
 
 const parameterNamePattern = /^[a-zA-Z][a-zA-Z0-9_]*$/
 
-function parametersEqual(desired: Record<string, string>, applied: Record<string, string> | undefined, observed: boolean): boolean {
-  if (!observed) return false
-  const desiredValues = Object.fromEntries(Object.entries(desired).map(([name, value]) => [name.trim().toLowerCase(), value]))
-  const observedValues = Object.fromEntries(Object.entries(applied ?? {}).map(([name, value]) => [name.trim().toLowerCase(), value]))
-  const desiredKeys = Object.keys(desiredValues).sort()
-  const appliedKeys = Object.keys(observedValues).sort()
-  return JSON.stringify(desiredKeys) === JSON.stringify(appliedKeys) && desiredKeys.every((name) => desiredValues[name] === observedValues[name])
-}
-
-function ParameterEditor({ cluster, actual, stale, results, onUpdated }: ParameterEditorProps) {
+function ParameterEditor({ cluster, actual, convergence, stale, results, onUpdated }: ParameterEditorProps) {
   const initialRows = Object.entries(cluster.parameters).sort(([left], [right]) => left.localeCompare(right)).map(([name, value], id) => ({ id, name, value }))
   const [rows, setRows] = useState<ParameterRow[]>(initialRows)
   const [nextID, setNextID] = useState(initialRows.length)
@@ -176,11 +168,9 @@ function ParameterEditor({ cluster, actual, stale, results, onUpdated }: Paramet
   const [message, setMessage] = useState('')
   const names = rows.map((row) => row.name.trim().toLowerCase()).filter(Boolean)
   const invalid = rows.some((row) => !parameterNamePattern.test(row.name.trim()) || row.value.includes('\n') || row.value.includes('\r')) || new Set(names).size !== names.length
-  const desiredApplied = parametersEqual(cluster.parameters, actual?.applied_params, actual?.parameters_observed === true)
-  const replicasApplied = cluster.replicas.every((replica) => { const observed = actual?.replicas?.find((candidate) => candidate.id === replica.id); return parametersEqual(cluster.parameters, observed?.applied_params, observed?.parameters_observed === true) })
-  const pendingRestart = !stale && Object.values(actual?.parameter_states ?? {}).some((state) => state.pending_restart)
-  const applied = !stale && actual?.postgres_ready === true && desiredApplied && replicasApplied && !pendingRestart
-  const failure = stale ? undefined : [...results].reverse().find((result) => ['create_primary', 'update_primary', 'create_replica', 'observe_parameters'].includes(result.action) && result.status === 'failed')
+  const applied = convergence === 'converged'
+  const pendingRestart = convergence === 'restart_pending'
+  const failure = convergence === 'failed' ? { error: 'PostgreSQL did not apply the desired parameters.' } : stale ? undefined : [...results].reverse().find((result) => ['create_primary', 'update_primary', 'create_replica', 'observe_parameters'].includes(result.action) && result.status === 'failed')
 
   function updateRow(id: number, changes: Partial<ParameterRow>) {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...changes } : row))

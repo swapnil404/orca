@@ -15,7 +15,7 @@ orca/
 ├── agent/          # Go, runs on the user's host, reconciles Docker state
 ├── server/         # Go, control plane: REST API, WebSocket hub, desired state store
 ├── web/            # React, canvas UI
-├── pkg/            # shared Go types, imported by both agent and server
+├── pkg/            # shared Go types and pure policies imported by agent and server
 ├── proto/          # message definitions for agent <-> server communication
 ├── docs/           # architecture and implementation documentation
 └── scripts/        # metadata migration runner
@@ -28,7 +28,7 @@ orca/
 | `agent/` | Go | Docker reconciliation, local state cache, tunnel client |
 | `server/` | Go | Desired state store, WebSocket hub, REST API, auth |
 | `web/` | TypeScript / React | Canvas UI, real-time topology |
-| `pkg/` | Go | Shared types only, no business logic |
+| `pkg/` | Go | Shared transport types and pure cross-binary policy |
 | `proto/` | Protobuf | Agent <-> server message contracts |
 
 **Never import `agent/` from `server/` or vice versa.** Shared types live in `pkg/` only. Agent and server communicate exclusively over the WebSocket tunnel, they never share in-process state or call each other's internal packages directly.

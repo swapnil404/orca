@@ -139,6 +139,7 @@ export interface PostgresParameterState {
 }
 
 export type ClusterHealth = 'healthy' | 'degraded' | 'down' | 'unknown'
+export type ParameterConvergence = 'unknown' | 'pending' | 'failed' | 'restart_pending' | 'converged'
 
 export interface ReconciliationResult {
   action: string
@@ -156,6 +157,7 @@ export interface ProjectClusterState {
   stale: boolean
   desired_state_revision?: string
   reconciliation_results: ReconciliationResult[]
+  parameter_convergence: ParameterConvergence
 }
 
 export interface ProjectStateSnapshot {

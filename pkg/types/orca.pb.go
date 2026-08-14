@@ -1198,6 +1198,7 @@ type ActualCluster struct {
 	AppliedRestartGeneration uint64                             `protobuf:"varint,21,opt,name=applied_restart_generation,json=appliedRestartGeneration,proto3" json:"applied_restart_generation,omitempty"`
 	NetworkName              string                             `protobuf:"bytes,22,opt,name=network_name,json=networkName,proto3" json:"network_name,omitempty"`
 	PgHbaPoolCidrs           []string                           `protobuf:"bytes,23,rep,name=pg_hba_pool_cidrs,json=pgHbaPoolCidrs,proto3" json:"pg_hba_pool_cidrs,omitempty"`
+	ParameterConvergence     string                             `protobuf:"bytes,24,opt,name=parameter_convergence,json=parameterConvergence,proto3" json:"parameter_convergence,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1384,6 +1385,13 @@ func (x *ActualCluster) GetPgHbaPoolCidrs() []string {
 		return x.PgHbaPoolCidrs
 	}
 	return nil
+}
+
+func (x *ActualCluster) GetParameterConvergence() string {
+	if x != nil {
+		return x.ParameterConvergence
+	}
+	return ""
 }
 
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.
@@ -2102,7 +2110,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf4\v\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xa9\f\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -2127,7 +2135,8 @@ const file_orca_proto_rawDesc = "" +
 	"\x13parameters_observed\x18\x14 \x01(\bR\x12parametersObserved\x12<\n" +
 	"\x1aapplied_restart_generation\x18\x15 \x01(\x04R\x18appliedRestartGeneration\x12!\n" +
 	"\fnetwork_name\x18\x16 \x01(\tR\vnetworkName\x12)\n" +
-	"\x11pg_hba_pool_cidrs\x18\x17 \x03(\tR\x0epgHbaPoolCidrs\x1a@\n" +
+	"\x11pg_hba_pool_cidrs\x18\x17 \x03(\tR\x0epgHbaPoolCidrs\x123\n" +
+	"\x15parameter_convergence\x18\x18 \x01(\tR\x14parameterConvergence\x1a@\n" +
 	"\x12AppliedParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aD\n" +

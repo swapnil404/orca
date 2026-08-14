@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 	"github.com/swapnil404/orca/pkg/types"
 )
 
@@ -41,33 +42,27 @@ func DesiredHBARules(desired *types.ClusterSpec) []*types.PgHbaRule {
 
 // ValidateHBARules rejects rules that cannot be rendered safely.
 func ValidateHBARules(rules []*types.PgHbaRule) error {
-	if len(rules) > 100 {
-		return errors.New("pg_hba rules cannot exceed 100 entries")
-	}
+	_, err := normalizeHBARules(rules)
+	return err
+}
+
+func normalizeHBARules(rules []*types.PgHbaRule) ([]*types.PgHbaRule, error) {
+	values := make([]postgresconfig.HBARule, len(rules))
 	for index, rule := range rules {
 		if rule == nil {
-			return fmt.Errorf("pg_hba rule %d is nil", index+1)
+			return nil, fmt.Errorf("pg_hba rule %d is nil", index+1)
 		}
-		if rule.Type != "host" && rule.Type != "hostssl" && rule.Type != "local" {
-			return fmt.Errorf("pg_hba rule %d has invalid type %q", index+1, rule.Type)
-		}
-		if !validHBAList(rule.Database) || !validHBAList(rule.User) {
-			return fmt.Errorf("pg_hba rule %d has an invalid database or user", index+1)
-		}
-		if rule.Type == "local" {
-			if rule.Address != "" {
-				return fmt.Errorf("pg_hba rule %d: local rules cannot have an address", index+1)
-			}
-		} else if !validHBAAddress(rule.Address) {
-			return fmt.Errorf("pg_hba rule %d has invalid address %q", index+1, rule.Address)
-		}
-		switch rule.Method {
-		case "trust", "md5", "scram-sha-256", "reject":
-		default:
-			return fmt.Errorf("pg_hba rule %d has invalid method %q", index+1, rule.Method)
-		}
+		values[index] = postgresconfig.HBARule{Type: rule.Type, Database: rule.Database, User: rule.User, Address: rule.Address, Method: rule.Method}
 	}
-	return nil
+	values, err := postgresconfig.ValidateHBARules(values)
+	if err != nil {
+		return nil, err
+	}
+	normalized := make([]*types.PgHbaRule, len(values))
+	for index, rule := range values {
+		normalized[index] = &types.PgHbaRule{Type: rule.Type, Database: rule.Database, User: rule.User, Address: rule.Address, Method: rule.Method}
+	}
+	return normalized, nil
 }
 
 // RulesEqual reports whether two ordered HBA rule lists are identical.
@@ -113,8 +108,8 @@ func ApplyHBA(ctx context.Context, executor HBAExecutor, desired *types.ClusterS
 	if executor == nil || desired == nil || desired.PgHba == nil {
 		return errors.New("pg_hba executor and desired cluster are required")
 	}
-	rules := DesiredHBARules(desired)
-	if err := ValidateHBARules(rules); err != nil {
+	rules, err := normalizeHBARules(DesiredHBARules(desired))
+	if err != nil {
 		return err
 	}
 	primary, err := orcadocker.ContainerName(orcadocker.ContainerSpec{ClusterID: desired.Id, Kind: orcadocker.ContainerKindPrimary})
@@ -172,8 +167,8 @@ func ApplyReplicaHBA(ctx context.Context, executor HBAExecutor, desired *types.C
 	if executor == nil || desired == nil || desired.PgHba == nil || containerID == "" {
 		return errors.New("pg_hba executor, desired cluster, and replica container are required")
 	}
-	rules := DesiredHBARules(desired)
-	if err := ValidateHBARules(rules); err != nil {
+	rules, err := normalizeHBARules(DesiredHBARules(desired))
+	if err != nil {
 		return err
 	}
 	if err := WaitForPrimaryReady(ctx, executor, containerID); err != nil {
@@ -306,33 +301,9 @@ func parseManagedRules(content string) (HBAObservation, error) {
 		}
 		rules = append(rules, rule)
 	}
-	if err := ValidateHBARules(rules); err != nil {
+	rules, err := normalizeHBARules(rules)
+	if err != nil {
 		return HBAObservation{}, err
 	}
 	return HBAObservation{Rules: rules, ReplicationCIDRs: replicationCIDRs, PoolCIDRs: poolCIDRs}, nil
-}
-
-func validHBAAddress(value string) bool {
-	if _, err := netip.ParsePrefix(value); err == nil {
-		return true
-	}
-	_, err := netip.ParseAddr(value)
-	return err == nil
-}
-
-func validHBAList(value string) bool {
-	if value == "" || len(value) > 256 || strings.ContainsAny(value, "\x00\r\n\t ") {
-		return false
-	}
-	for _, item := range strings.Split(value, ",") {
-		if item == "" {
-			return false
-		}
-		for _, char := range item {
-			if char != '_' && char != '-' && char != '.' && (char < '0' || char > '9') && (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') {
-				return false
-			}
-		}
-	}
-	return true
 }

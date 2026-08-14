@@ -146,7 +146,7 @@ orca/
 ├── agent/    # Docker reconciliation, backup scheduling, and outbound tunnel
 ├── server/   # REST API, WebSockets, desired-state store, auth, and alert evaluation
 ├── web/      # topology, configuration, backup, and recovery UI
-├── pkg/      # shared Go types
+├── pkg/      # shared Go types and pure policy
 ├── proto/    # agent/server tunnel message definitions
 ├── docs/     # implementation architecture
 └── scripts/  # metadata migration runner
