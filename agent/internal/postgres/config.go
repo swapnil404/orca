@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 )
 
 const (
@@ -76,8 +77,6 @@ const (
 	ConfigUpdateRestart ConfigUpdateMethod = "restart"
 )
 
-var parameterNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
-
 // ParameterMetadata is PostgreSQL's live metadata for one configuration parameter.
 type ParameterMetadata struct {
 	Name           string
@@ -104,27 +103,19 @@ func RenderNodeConfig(clusterID, dataPath string, params map[string]string) (str
 		return "", fmt.Errorf("PostgreSQL data path must belong to cluster %q", clusterID)
 	}
 
-	keys := make([]string, 0, len(params))
-	values := make(map[string]string, len(params))
-	for key := range params {
-		normalized := strings.ToLower(strings.TrimSpace(key))
-		if !parameterNamePattern.MatchString(normalized) {
-			return "", fmt.Errorf("invalid PostgreSQL parameter name %q", key)
-		}
-		if _, duplicate := values[normalized]; duplicate {
-			return "", fmt.Errorf("duplicate PostgreSQL parameter name %q", normalized)
-		}
-		keys = append(keys, normalized)
-		values[normalized] = params[key]
+	values, err := postgresconfig.ValidateParameters(params)
+	if err != nil {
+		return "", err
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
 	var config strings.Builder
 	fmt.Fprintf(&config, "include = '%s/postgresql.conf'\n", dataPath)
 	for _, key := range keys {
-		if strings.ContainsAny(values[key], "\r\n") {
-			return "", fmt.Errorf("PostgreSQL parameter %q contains a newline", key)
-		}
 		fmt.Fprintf(&config, "%s = '%s'\n", key, strings.ReplaceAll(values[key], "'", "''"))
 	}
 	return config.String(), nil
@@ -145,7 +136,7 @@ func ParseConfig(config string) (map[string]string, error) {
 		key, value, found := strings.Cut(line, "=")
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if !found || !parameterNamePattern.MatchString(key) || len(value) < 2 || value[0] != '\'' || value[len(value)-1] != '\'' {
+		if !found || !postgresconfig.ValidParameterName(key) || len(value) < 2 || value[0] != '\'' || value[len(value)-1] != '\'' {
 			return nil, fmt.Errorf("invalid generated PostgreSQL config line %d", lineNumber)
 		}
 		params[key] = strings.ReplaceAll(value[1:len(value)-1], "''", "'")
@@ -158,41 +149,15 @@ func ParseConfig(config string) (map[string]string, error) {
 
 // ChangedParameters returns parameter names whose desired and applied values differ.
 func ChangedParameters(desired, applied map[string]string) []string {
-	desired = normalizedParameters(desired)
-	applied = normalizedParameters(applied)
-	changed := make(map[string]struct{})
-	for key, value := range desired {
-		if appliedValue, exists := applied[key]; !exists || appliedValue != value {
-			changed[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
-		}
-	}
-	for key := range applied {
-		if _, exists := desired[key]; !exists {
-			changed[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
-		}
-	}
-
-	result := make([]string, 0, len(changed))
-	for key := range changed {
-		result = append(result, key)
-	}
-	sort.Strings(result)
-	return result
-}
-
-func normalizedParameters(params map[string]string) map[string]string {
-	normalized := make(map[string]string, len(params))
-	for name, value := range params {
-		normalized[strings.ToLower(strings.TrimSpace(name))] = value
-	}
-	return normalized
+	return postgresconfig.ChangedParameters(desired, applied)
 }
 
 // ClassifyConfigUpdate determines whether changed parameters can be reloaded
 // or require a PostgreSQL process restart using pg_settings metadata.
 func ClassifyConfigUpdate(changed []string, metadata map[string]ParameterMetadata) (ConfigUpdateMethod, error) {
+	method := ConfigUpdateReload
 	for _, parameter := range changed {
-		name := strings.ToLower(strings.TrimSpace(parameter))
+		name := postgresconfig.NormalizeParameterName(parameter)
 		setting, exists := metadata[name]
 		if !exists {
 			return "", fmt.Errorf("unknown PostgreSQL parameter %q", name)
@@ -201,10 +166,10 @@ func ClassifyConfigUpdate(changed []string, metadata map[string]ParameterMetadat
 			return "", fmt.Errorf("PostgreSQL parameter %q is internal and cannot be configured", name)
 		}
 		if setting.Context == "postmaster" {
-			return ConfigUpdateRestart, nil
+			method = ConfigUpdateRestart
 		}
 	}
-	return ConfigUpdateReload, nil
+	return method, nil
 }
 
 // InspectParameters reads version-specific parameter metadata from pg_settings.
@@ -214,8 +179,8 @@ func InspectParameters(ctx context.Context, executor ConfigExecutor, containerID
 	}
 	requested := make(map[string]struct{}, len(names))
 	for _, name := range names {
-		name = strings.ToLower(strings.TrimSpace(name))
-		if !parameterNamePattern.MatchString(name) {
+		name = postgresconfig.NormalizeParameterName(name)
+		if !postgresconfig.ValidParameterName(name) {
 			return nil, fmt.Errorf("invalid PostgreSQL parameter name %q", name)
 		}
 		requested[name] = struct{}{}
@@ -273,7 +238,10 @@ func parseParameterMetadata(output string) (map[string]ParameterMetadata, error)
 
 // ValidateParameterValues asks the target PostgreSQL binary to parse the complete candidate without starting another server.
 func ValidateParameterValues(ctx context.Context, executor ConfigExecutor, containerID, dataPath string, params map[string]string) error {
-	params = normalizedParameters(params)
+	params, err := postgresconfig.ValidateParameters(params)
+	if err != nil {
+		return err
+	}
 	keys := make([]string, 0, len(params))
 	for name := range params {
 		keys = append(keys, name)

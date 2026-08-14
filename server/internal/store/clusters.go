@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 	orcatypes "github.com/swapnil404/orca/pkg/types"
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
 )
@@ -52,13 +53,7 @@ type PgBouncerConfig struct {
 }
 
 // PgHbaRule contains one ordered PostgreSQL client authentication rule.
-type PgHbaRule struct {
-	Type     string `json:"type"`
-	Database string `json:"database"`
-	User     string `json:"user"`
-	Address  string `json:"address"`
-	Method   string `json:"method"`
-}
+type PgHbaRule = postgresconfig.HBARule
 
 // DefaultPgHbaRules returns the deny-by-default client authentication rules.
 func DefaultPgHbaRules() []PgHbaRule {

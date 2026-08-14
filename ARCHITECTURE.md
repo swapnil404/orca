@@ -15,6 +15,7 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - PITR supports in-place recovery and clone-to-new-cluster recovery on the source host. Physical restore requires the PostgreSQL major version recorded by the repository.
 - Agent-managed database containers use one user-defined bridge per cluster. This gives cluster-local DNS and prevents unrelated clusters on one host from sharing the replication-trusted network CIDR.
 - PgBouncer is the sole published database endpoint. PostgreSQL remains private, and agent-owned stable credentials authenticate both PgBouncer clients and its PostgreSQL backend with SCRAM.
+- Pure PostgreSQL configuration policy shared by the server and agent lives in `pkg/postgresconfig`; version-specific validation and convergence remain agent-owned because they depend on the running PostgreSQL instance.
 
 ## Known Limitations
 

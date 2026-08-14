@@ -9,12 +9,11 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
 )
@@ -662,119 +661,27 @@ func requestedPgHbaRules(requested *[]store.PgHbaRule, current []store.PgHbaRule
 }
 
 func normalizePgHbaRules(rules []store.PgHbaRule) []store.PgHbaRule {
-	normalized := make([]store.PgHbaRule, len(rules))
-	for index, rule := range rules {
-		normalized[index] = store.PgHbaRule{
-			Type: strings.TrimSpace(rule.Type), Database: strings.TrimSpace(rule.Database),
-			User: strings.TrimSpace(rule.User), Address: strings.TrimSpace(rule.Address), Method: strings.TrimSpace(rule.Method),
-		}
-	}
+	normalized, _ := postgresconfig.ValidateHBARules(rules)
 	return normalized
 }
 
 func validatePgHbaRules(w http.ResponseWriter, rules []store.PgHbaRule) bool {
-	if len(rules) > 100 {
-		writeError(w, http.StatusBadRequest, "pg_hba_rules cannot exceed 100 rules")
+	if _, err := postgresconfig.ValidateHBARules(rules); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return false
-	}
-	for _, rule := range rules {
-		if rule.Type != "host" && rule.Type != "hostssl" && rule.Type != "local" {
-			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid type")
-			return false
-		}
-		if !validPgHbaList(rule.Database) || !validPgHbaList(rule.User) {
-			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid database or user")
-			return false
-		}
-		if rule.Type == "local" {
-			if strings.TrimSpace(rule.Address) != "" {
-				writeError(w, http.StatusBadRequest, "local pg_hba_rules must not include an address")
-				return false
-			}
-		} else if !validPgHbaAddress(rule.Address) {
-			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid IP address or CIDR")
-			return false
-		}
-		switch rule.Method {
-		case "trust", "md5", "scram-sha-256", "reject":
-		default:
-			writeError(w, http.StatusBadRequest, "pg_hba_rules contains an invalid authentication method")
-			return false
-		}
-	}
-	return true
-}
-
-func validPgHbaAddress(value string) bool {
-	value = strings.TrimSpace(value)
-	if _, err := netip.ParsePrefix(value); err == nil {
-		return true
-	}
-	_, err := netip.ParseAddr(value)
-	return err == nil
-}
-
-func validPgHbaList(value string) bool {
-	if value == "" || len(value) > 256 || strings.ContainsAny(value, "\x00\r\n\t ") {
-		return false
-	}
-	for _, item := range strings.Split(value, ",") {
-		if item == "" {
-			return false
-		}
-		for _, char := range item {
-			if char != '_' && char != '-' && char != '.' && (char < '0' || char > '9') && (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') {
-				return false
-			}
-		}
 	}
 	return true
 }
 
 func normalizeParameters(parameters map[string]string) map[string]string {
-	normalized := make(map[string]string, len(parameters))
-	for name, value := range parameters {
-		normalized[strings.ToLower(strings.TrimSpace(name))] = value
-	}
+	normalized, _ := postgresconfig.ValidateParameters(parameters)
 	return normalized
 }
 
-var postgresParameterNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
-
-var orcaManagedPostgresParameters = map[string]struct{}{
-	"archive_command": {}, "archive_mode": {}, "config_file": {}, "data_directory": {},
-	"hba_file": {}, "hot_standby": {}, "ident_file": {}, "listen_addresses": {}, "port": {},
-	"primary_conninfo": {}, "primary_slot_name": {}, "recovery_target": {}, "recovery_target_action": {},
-	"recovery_target_inclusive": {}, "recovery_target_lsn": {}, "recovery_target_name": {},
-	"recovery_target_time": {}, "recovery_target_timeline": {}, "recovery_target_xid": {},
-	"shared_preload_libraries": {}, "unix_socket_directories": {}, "wal_level": {},
-}
-
 func validateParameters(w http.ResponseWriter, parameters map[string]string) bool {
-	if len(parameters) > 100 {
-		writeError(w, http.StatusBadRequest, "parameters cannot exceed 100 entries")
+	if _, err := postgresconfig.ValidateParameters(parameters); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return false
-	}
-	seen := make(map[string]struct{}, len(parameters))
-	for name, value := range parameters {
-		normalized := strings.ToLower(strings.TrimSpace(name))
-		if !postgresParameterNamePattern.MatchString(normalized) {
-			writeError(w, http.StatusBadRequest, "parameters contains an invalid PostgreSQL parameter name")
-			return false
-		}
-		if _, duplicate := seen[normalized]; duplicate {
-			writeError(w, http.StatusBadRequest, "parameters contains duplicate names")
-			return false
-		}
-		seen[normalized] = struct{}{}
-		if _, managed := orcaManagedPostgresParameters[normalized]; managed {
-			writeError(w, http.StatusBadRequest, "parameters."+normalized+" is managed by Orca")
-			return false
-		}
-		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
-			writeError(w, http.StatusBadRequest, "parameter values must be single-line and at most 4096 bytes")
-			return false
-		}
 	}
 	return true
 }

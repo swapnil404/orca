@@ -15,6 +15,7 @@ import (
 	"github.com/swapnil404/orca/agent/internal/pgbouncer"
 	"github.com/swapnil404/orca/agent/internal/postgres"
 	"github.com/swapnil404/orca/agent/internal/state"
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 	"github.com/swapnil404/orca/pkg/types"
 )
 
@@ -514,6 +515,7 @@ func reportFor(desired *DesiredState, actual *ActualState, results []ApplyResult
 		}
 		observed := actualByID[cluster.Id]
 		if observed != nil {
+			observed.ParameterConvergence = parameterConvergence(cluster, observed)
 			reportedActual.Clusters = append(reportedActual.Clusters, observed)
 		}
 		var backupObservationFailed bool
@@ -567,14 +569,8 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 		if cluster.EnabledExtensions == nil || err != nil || len(extensionActions) > 0 {
 			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
 		}
-		if !cluster.ParametersObserved || len(postgres.ChangedParameters(desired.Params, cluster.AppliedParams)) > 0 {
+		if cluster.ParameterConvergence != postgresconfig.ConvergenceConverged {
 			return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
-		}
-		for name := range desired.Params {
-			state := cluster.ParameterStates[strings.ToLower(strings.TrimSpace(name))]
-			if state == nil || state.Error != "" || !state.Applied || state.PendingRestart {
-				return types.ClusterStatus_CLUSTER_STATUS_DEGRADED
-			}
 		}
 		if desired.PgHba != nil {
 			expectedReplicationCIDRs := []string(nil)
@@ -613,6 +609,44 @@ func clusterStatus(desired *ClusterSpec, cluster *ActualCluster, backupObservati
 		}
 	}
 	return types.ClusterStatus_CLUSTER_STATUS_HEALTHY
+}
+
+func parameterConvergence(desired *ClusterSpec, cluster *ActualCluster) string {
+	if desired == nil || cluster == nil || cluster.ContainerId == "" || cluster.Status != "running" || cluster.PostgresReady == nil || !cluster.GetPostgresReady() || !cluster.ParametersObserved {
+		return postgresconfig.ConvergenceUnknown
+	}
+	restartPending := false
+	for name := range desired.Params {
+		state := cluster.ParameterStates[postgresconfig.NormalizeParameterName(name)]
+		if state == nil || state.Error != "" || !state.Applied {
+			return postgresconfig.ConvergenceFailed
+		}
+		if state.PendingRestart {
+			restartPending = true
+		}
+	}
+	if restartPending {
+		return postgresconfig.ConvergenceRestartPending
+	}
+	if !postgresconfig.ParametersEqual(desired.Params, cluster.AppliedParams) {
+		return postgresconfig.ConvergencePending
+	}
+	replicas := make(map[string]*ActualReplica, len(cluster.Replicas))
+	for _, replica := range cluster.Replicas {
+		if replica != nil {
+			replicas[replica.Id] = replica
+		}
+	}
+	for _, desiredReplica := range desired.Replicas {
+		if desiredReplica == nil {
+			return postgresconfig.ConvergenceFailed
+		}
+		replica := replicas[desiredReplica.Id]
+		if replica == nil || !replica.ParametersObserved || !postgresconfig.ParametersEqual(desired.Params, replica.AppliedParams) {
+			return postgresconfig.ConvergencePending
+		}
+	}
+	return postgresconfig.ConvergenceConverged
 }
 
 func postgresVersionFromImage(image string) string {

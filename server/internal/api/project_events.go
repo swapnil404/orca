@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"github.com/swapnil404/orca/pkg/postgresconfig"
 	"github.com/swapnil404/orca/pkg/types"
 	"github.com/swapnil404/orca/server/internal/auth"
 	"github.com/swapnil404/orca/server/internal/store"
@@ -27,6 +29,7 @@ type projectEventStore interface {
 	GetProject(context.Context, string, string) (store.Project, error)
 	ListClusters(context.Context, string, string) ([]store.Cluster, error)
 	ListClusterReportsForHost(context.Context, string, time.Time) ([]store.ClusterReport, error)
+	GetDesiredStateRevisionForHost(context.Context, string) (int64, error)
 	ListProjectIDsForHost(context.Context, string) ([]string, error)
 	ListRestoreOperations(context.Context, string, string) ([]store.RestoreOperation, error)
 }
@@ -50,6 +53,7 @@ type ProjectClusterState struct {
 	Stale                 bool                          `json:"stale"`
 	DesiredStateRevision  string                        `json:"desired_state_revision,omitempty"`
 	ReconciliationResults []*types.ReconciliationResult `json:"reconciliation_results"`
+	ParameterConvergence  string                        `json:"parameter_convergence"`
 }
 
 type projectClient struct {
@@ -237,11 +241,17 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 		return ProjectStateSnapshot{}, err
 	}
 	reportsByCluster := make(map[string]store.ClusterReport)
+	desiredRevisions := make(map[string]int64)
 	hosts := make(map[string]struct{})
 	for _, cluster := range clusters {
 		hosts[cluster.HostID] = struct{}{}
 	}
 	for hostID := range hosts {
+		desiredRevision, err := h.store.GetDesiredStateRevisionForHost(ctx, hostID)
+		if err != nil {
+			return ProjectStateSnapshot{}, err
+		}
+		desiredRevisions[hostID] = desiredRevision
 		reports, err := h.store.ListClusterReportsForHost(ctx, hostID, h.now().UTC())
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return ProjectStateSnapshot{}, err
@@ -256,7 +266,7 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 		Clusters: make([]ProjectClusterState, 0, len(clusters)), RestoreOperations: restoreOperations,
 	}
 	for _, cluster := range clusters {
-		state := ProjectClusterState{ClusterID: cluster.ID, HostID: cluster.HostID, Health: "unknown"}
+		state := ProjectClusterState{ClusterID: cluster.ID, HostID: cluster.HostID, Health: "unknown", ParameterConvergence: postgresconfig.ConvergenceUnknown}
 		if report, ok := reportsByCluster[cluster.ID]; ok {
 			state.ActualState = report.ActualState
 			state.Health = report.Health
@@ -264,6 +274,14 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 			state.Stale = report.Stale
 			state.DesiredStateRevision = report.DesiredStateRevision
 			state.ReconciliationResults = report.ReconciliationResults
+			if !report.Stale && reportReachedRevision(report.DesiredStateRevision, desiredRevisions[cluster.HostID]) {
+				convergence := report.ActualState.GetParameterConvergence()
+				if postgresconfig.ValidConvergence(convergence) {
+					state.ParameterConvergence = convergence
+				}
+			} else if !report.Stale {
+				state.ParameterConvergence = postgresconfig.ConvergencePending
+			}
 		}
 		if state.ReconciliationResults == nil {
 			state.ReconciliationResults = []*types.ReconciliationResult{}
@@ -271,4 +289,10 @@ func (h *ProjectEventHandler) snapshot(ctx context.Context, userID, projectID st
 		snapshot.Clusters = append(snapshot.Clusters, state)
 	}
 	return snapshot, nil
+}
+
+func reportReachedRevision(reported string, desired int64) bool {
+	revision, _, _ := strings.Cut(reported, ":")
+	value, err := strconv.ParseInt(revision, 10, 64)
+	return err == nil && value >= desired
 }

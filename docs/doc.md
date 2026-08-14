@@ -88,4 +88,4 @@ Use the documented build, vet, and test commands for the current checkout. Inspe
 
 ## Protocol Boundary
 
-`proto/` defines binary messages only for the agent-server tunnel. REST request/response and browser event shapes remain in `server/internal/api`. Agent and server share types through `pkg/` and do not import each other's internal packages.
+`proto/` defines binary messages only for the agent-server tunnel. REST request/response and browser event shapes remain in `server/internal/api`. Agent and server share transport types and pure cross-binary policy through `pkg/` and do not import each other's internal packages.

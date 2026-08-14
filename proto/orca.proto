@@ -162,6 +162,7 @@ message ActualCluster {
   uint64 applied_restart_generation = 21;
   string network_name = 22;
   repeated string pg_hba_pool_cidrs = 23;
+  string parameter_convergence = 24;
 }
 
 // PostgresParameterState describes PostgreSQL's live view of one managed parameter.
