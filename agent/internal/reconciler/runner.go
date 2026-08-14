@@ -446,11 +446,6 @@ func withoutBlockedActions(actions []Action, blocked map[string]struct{}) []Acti
 	return filtered
 }
 
-// ActualStateFromContainers converts Docker observations into the reconciler's actual state.
-func ActualStateFromContainers(containers []orcadocker.ContainerInfo) *ActualState {
-	return ActualStateFromDocker(containers, nil)
-}
-
 // ActualStateFromDocker converts Docker container and volume observations into actual state.
 func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orcadocker.VolumeInfo) *ActualState {
 	clusters := make(map[string]*ActualCluster)
@@ -496,7 +491,6 @@ func ActualStateFromDocker(containers []orcadocker.ContainerInfo, volumes []orca
 			clusters[volume.ClusterID] = cluster
 			order = append(order, volume.ClusterID)
 		}
-		cluster.VolumeExists = true
 	}
 
 	actual := ActualState{Clusters: make([]*ActualCluster, 0, len(order))}

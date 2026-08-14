@@ -10,7 +10,7 @@ The detailed implementation description is in [`docs/doc.md`](docs/doc.md). This
 - Email/password and optional GitHub/Google OAuth issue the same 24-hour HS256 JWT. Non-browser clients use bearer tokens; the browser uses an httpOnly same-origin cookie for REST, SSR guards, and project WebSockets. Every new authentication verifies that the subject is still active.
 - OAuth identities are keyed by provider and provider user ID. Provider email is metadata and is not trusted for implicit account linking.
 - Agent/server tunnel messages use protobuf; frontend REST and WebSocket shapes do not.
-- Alert evaluation is separate from report ingestion, metrics exposition, and future notification delivery.
+- Alert evaluation is separate from report ingestion and future notification delivery.
 - Restore operations are durable host-level state included with each complete desired-state snapshot. Agent journals make destructive phases resumable without relying on event replay.
 - PITR supports in-place recovery and clone-to-new-cluster recovery on the source host. Physical restore requires the PostgreSQL major version recorded by the repository.
 - Agent-managed database containers use one user-defined bridge per cluster. This gives cluster-local DNS and prevents unrelated clusters on one host from sharing the replication-trusted network CIDR.

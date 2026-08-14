@@ -548,21 +548,6 @@ func lockProjectClusterMutations(ctx context.Context, queries *sqlcdb.Queries, u
 	return nil
 }
 
-// ListDesiredStateHistory returns all desired versions for an owned cluster.
-func (s *Postgres) ListDesiredStateHistory(ctx context.Context, userID, clusterID string) ([]DesiredState, error) {
-	rows, err := s.queries.ListDesiredStateHistory(ctx, sqlcdb.ListDesiredStateHistoryParams{
-		ClusterID: clusterID, UserID: userID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	states := make([]DesiredState, 0, len(rows))
-	for _, row := range rows {
-		states = append(states, desiredStateFromSQLC(row))
-	}
-	return states, nil
-}
-
 // ListCurrentDesiredStatesForHost returns only the latest active cluster states for a host.
 func (s *Postgres) ListCurrentDesiredStatesForHost(ctx context.Context, hostID string) ([]DesiredState, error) {
 	rows, err := s.queries.ListCurrentDesiredStatesForHost(ctx, hostID)

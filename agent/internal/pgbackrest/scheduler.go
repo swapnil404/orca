@@ -80,10 +80,9 @@ type Scheduler struct {
 	root      context.Context
 	cancel    context.CancelFunc
 
-	mu          sync.Mutex
-	clusters    map[string]*scheduledCluster
-	results     []Result
-	lastSuccess map[string]time.Time
+	mu       sync.Mutex
+	clusters map[string]*scheduledCluster
+	results  []Result
 }
 
 // NewScheduler creates a backup scheduler.
@@ -91,9 +90,8 @@ func NewScheduler(executor PrimaryExecutor) *Scheduler {
 	root, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
 		executor: executor, logger: slog.Default(), root: root, cancel: cancel,
-		newTicker:   func(interval time.Duration) scheduleTicker { return realTicker{time.NewTicker(interval)} },
-		clusters:    make(map[string]*scheduledCluster),
-		lastSuccess: make(map[string]time.Time),
+		newTicker: func(interval time.Duration) scheduleTicker { return realTicker{time.NewTicker(interval)} },
+		clusters:  make(map[string]*scheduledCluster),
 	}
 }
 
@@ -121,7 +119,6 @@ func (s *Scheduler) SetSchedule(cluster *orcatypes.ClusterSpec) {
 	scheduled := &scheduledCluster{spec: copy, ctx: clusterCtx, cancel: cancel}
 	scheduled.wg.Add(len(intervals))
 	s.clusters[cluster.Id] = scheduled
-	delete(s.lastSuccess, cluster.Id)
 	for backupType, interval := range intervals {
 		go func() {
 			defer scheduled.wg.Done()
@@ -139,7 +136,6 @@ func (s *Scheduler) RemoveSchedule(clusterID string) {
 	s.mu.Lock()
 	cluster := s.clusters[clusterID]
 	delete(s.clusters, clusterID)
-	delete(s.lastSuccess, clusterID)
 	s.mu.Unlock()
 	if cluster != nil {
 		stopSchedule(cluster)
@@ -180,14 +176,6 @@ func (s *Scheduler) AcknowledgeResults(count int) {
 		return
 	}
 	s.results = append([]Result(nil), s.results[count:]...)
-}
-
-// LastSuccess returns the latest successful backup observed by this scheduler process.
-func (s *Scheduler) LastSuccess(clusterID string) (time.Time, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	completedAt, ok := s.lastSuccess[clusterID]
-	return completedAt, ok
 }
 
 func (s *Scheduler) runTicker(cluster *scheduledCluster, backupType BackupType, interval time.Duration) {
@@ -246,9 +234,6 @@ func (s *Scheduler) release() {
 func (s *Scheduler) record(result Result) {
 	s.mu.Lock()
 	s.results = append(s.results, result)
-	if result.Err == nil {
-		s.lastSuccess[result.ClusterID] = time.Now().UTC()
-	}
 	s.mu.Unlock()
 }
 

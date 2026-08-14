@@ -259,7 +259,7 @@ func validateAgentReport(report *types.AgentReportMessage) error {
 		if health.GetClusterId() == "" {
 			return fmt.Errorf("health cluster ID is required")
 		}
-		if health.GetStatus() < types.ClusterStatus_CLUSTER_STATUS_PENDING || health.GetStatus() > types.ClusterStatus_CLUSTER_STATUS_DOWN {
+		if health.GetStatus() < types.ClusterStatus_CLUSTER_STATUS_HEALTHY || health.GetStatus() > types.ClusterStatus_CLUSTER_STATUS_DOWN {
 			return fmt.Errorf("health status for cluster %q is invalid", health.GetClusterId())
 		}
 		if _, exists := healthIDs[health.GetClusterId()]; exists {

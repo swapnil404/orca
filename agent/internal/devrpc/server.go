@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-
-	orcadocker "github.com/swapnil404/orca/agent/internal/docker"
 	"github.com/swapnil404/orca/agent/internal/reconciler"
 	"github.com/swapnil404/orca/agent/internal/state"
+	"io"
+	"net/http"
 )
 
 const desiredStatePath = "/dev/desired-state"
@@ -17,11 +15,6 @@ const desiredStatePath = "/dev/desired-state"
 // Server exposes the local development reconciliation endpoint.
 type Server struct {
 	runner *reconciler.Runner
-}
-
-// NewServer creates a dev RPC server with explicit state and Docker dependencies.
-func NewServer(cache state.StateCache, docker orcadocker.DockerClient) *Server {
-	return NewServerWithRunner(reconciler.NewRunner(cache, docker))
 }
 
 // NewServerWithRunner creates a dev RPC server using the shared reconciliation path.
@@ -84,8 +77,4 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 	}
 
 	return errors.New("decode desired state: request body must contain one JSON value")
-}
-
-func actualState(containers []orcadocker.ContainerInfo) *reconciler.ActualState {
-	return reconciler.ActualStateFromContainers(containers)
 }

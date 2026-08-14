@@ -26,13 +26,6 @@ type RecoveryExecutor interface {
 	RemoveContainer(ctx context.Context, containerID string) error
 }
 
-// RestoreToTime rejects the legacy unjournaled restore path. RestoreManager is
-// required so destructive recovery can be resumed or rolled back after a crash.
-// Deprecated: submit a RestoreOperation through the reconciliation runner.
-func RestoreToTime(ctx context.Context, executor RecoveryExecutor, desired *ClusterDesiredState, target time.Time) error {
-	return errors.New("unjournaled restore is disabled; use RestoreManager through the reconciliation runner")
-}
-
 func validateRecoveryRepository(desired *ClusterDesiredState) error {
 	volumePath := filepath.Clean(orcadocker.VolumeMountPath(desired.Id))
 	repositoryPath := filepath.Clean(desired.PgBackRest.RepoPath)

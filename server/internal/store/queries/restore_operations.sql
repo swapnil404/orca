@@ -80,13 +80,6 @@ JOIN organization_memberships om ON om.organization_id = p.organization_id
 WHERE ro.id = sqlc.arg(id) AND om.user_id = sqlc.arg(user_id)
 FOR UPDATE OF ro;
 
--- name: GetRestoreOperation :one
-SELECT ro.*
-FROM restore_operations ro
-JOIN projects p ON p.id = ro.project_id AND p.deleted_at IS NULL
-JOIN organization_memberships om ON om.organization_id = p.organization_id
-WHERE ro.id = sqlc.arg(id) AND om.user_id = sqlc.arg(user_id);
-
 -- name: ListRestoreOperations :many
 SELECT ro.*
 FROM restore_operations ro

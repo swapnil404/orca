@@ -15,7 +15,6 @@ type organizationStore interface {
 	CreateOrganization(context.Context, string, string) (store.Organization, error)
 	UpdateOrganization(context.Context, string, string, string) (store.Organization, error)
 	DeleteOrganization(context.Context, string, string) error
-	GetOrganizationByID(context.Context, string, string) (store.Organization, error)
 	ListOrganizationsForUser(context.Context, string) ([]store.Organization, error)
 	ListMembersForOrganization(context.Context, string, string) ([]store.OrganizationMembership, error)
 	ListProjectsForOrganization(context.Context, string, string) ([]store.Project, error)
@@ -36,7 +35,6 @@ func NewOrganizationHandler(organizations organizationStore) *OrganizationHandle
 func (h *OrganizationHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /orgs", h.listOrganizations)
 	mux.HandleFunc("POST /orgs", h.createOrganization)
-	mux.HandleFunc("GET /orgs/{organizationID}", h.getOrganization)
 	mux.HandleFunc("PUT /orgs/{organizationID}", h.updateOrganization)
 	mux.HandleFunc("DELETE /orgs/{organizationID}", h.deleteOrganization)
 	mux.HandleFunc("GET /orgs/{organizationID}/members", h.listMembers)
@@ -114,19 +112,6 @@ func (h *OrganizationHandler) createOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusCreated, organization)
-}
-
-func (h *OrganizationHandler) getOrganization(w http.ResponseWriter, r *http.Request) {
-	userID, organizationID, ok := organizationRequestIDs(w, r)
-	if !ok {
-		return
-	}
-	organization, err := h.store.GetOrganizationByID(r.Context(), userID, organizationID)
-	if err != nil {
-		h.writeReadError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, organization)
 }
 
 func (h *OrganizationHandler) listMembers(w http.ResponseWriter, r *http.Request) {

@@ -8,11 +8,6 @@ SET actual_state = EXCLUDED.actual_state,
     desired_state_revision = EXCLUDED.desired_state_revision,
     reported_at = EXCLUDED.reported_at;
 
--- name: GetAgentReport :one
-SELECT host_id, actual_state, health_report, reconciliation_results, desired_state_revision, reported_at
-FROM agent_reports
-WHERE host_id = $1;
-
 -- name: DeleteClusterReportsForHost :exec
 DELETE FROM cluster_reports
 WHERE host_id = $1;

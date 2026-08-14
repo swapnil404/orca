@@ -26,20 +26,6 @@ type Result struct {
 	Err    error
 }
 
-// Installed queries the managed extensions currently installed in a primary.
-func Installed(ctx context.Context, executor PrimaryExecutor, containerID string) ([]string, error) {
-	details, err := InstalledDetails(ctx, executor, containerID)
-	if err != nil {
-		return nil, err
-	}
-	installed := make([]string, 0, len(details))
-	for extension := range details {
-		installed = append(installed, extension)
-	}
-	sort.Strings(installed)
-	return installed, nil
-}
-
 // InstalledDetails queries managed extension names and their observed versions.
 func InstalledDetails(ctx context.Context, executor PrimaryExecutor, containerID string) (map[string]string, error) {
 	if executor == nil {
@@ -50,19 +36,6 @@ func InstalledDetails(ctx context.Context, executor PrimaryExecutor, containerID
 		return nil, fmt.Errorf("query installed extensions: %w", err)
 	}
 	return parseInstalledDetails(output)
-}
-
-// Reconcile queries installed extensions and applies the desired changes.
-func Reconcile(ctx context.Context, executor PrimaryExecutor, containerID string, desired []string) ([]Result, error) {
-	actual, err := Installed(ctx, executor, containerID)
-	if err != nil {
-		return nil, err
-	}
-	actions, err := Diff(desired, actual)
-	if err != nil {
-		return nil, err
-	}
-	return Apply(ctx, executor, containerID, desired, actions), nil
 }
 
 // Apply executes extension actions, batching preload changes into one restart.
@@ -173,19 +146,6 @@ func preloadLibrarySet(output string) map[string]struct{} {
 		}
 	}
 	return libraries
-}
-
-func parseInstalled(output string) ([]string, error) {
-	details, err := parseInstalledDetails(output)
-	if err != nil {
-		return nil, err
-	}
-	installed := make([]string, 0, len(details))
-	for extension := range details {
-		installed = append(installed, extension)
-	}
-	sort.Strings(installed)
-	return installed, nil
 }
 
 func parseInstalledDetails(output string) (map[string]string, error) {

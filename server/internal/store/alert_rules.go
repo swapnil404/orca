@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/swapnil404/orca/server/internal/store/sqlcdb"
@@ -80,36 +79,6 @@ type AlertIncident struct {
 type GlobalAlertIncident struct {
 	AlertIncident
 	ProjectName string `json:"project_name"`
-}
-
-// CreateAlertRuleParams contains the values needed to create an alert rule.
-type CreateAlertRuleParams struct {
-	ID                   string
-	UserID               string
-	ProjectID            string
-	ClusterID            string
-	MetricName           string
-	Comparison           AlertComparison
-	Threshold            float64
-	DurationBeforeFiring time.Duration
-}
-
-// CreateAlertRule persists an alert rule in an active project owned by the user.
-func (s *Postgres) CreateAlertRule(ctx context.Context, params CreateAlertRuleParams) (AlertRule, error) {
-	rule, err := s.queries.CreateAlertRule(ctx, sqlcdb.CreateAlertRuleParams{
-		RuleID:                      params.ID,
-		UserID:                      params.UserID,
-		ProjectID:                   params.ProjectID,
-		ClusterID:                   params.ClusterID,
-		MetricName:                  params.MetricName,
-		Comparison:                  string(params.Comparison),
-		Threshold:                   params.Threshold,
-		DurationBeforeFiringSeconds: int64(params.DurationBeforeFiring / time.Second),
-	})
-	if err != nil {
-		return AlertRule{}, err
-	}
-	return alertRuleFromSQLC(rule), nil
 }
 
 // ListAlertRulesForProject returns rules for an active project owned by the user.
@@ -197,18 +166,6 @@ func (s *Postgres) UpdateAlertRuleState(ctx context.Context, ruleID string, stat
 		DurationSeconds:      rule.DurationBeforeFiringSeconds, CurrentState: AlertRuleState(rule.CurrentState),
 		LastTransitionAt: rule.LastTransitionAt, Severity: AlertSeverity(rule.Severity),
 	}, nil
-}
-
-// DeleteAlertRule deletes an alert rule owned by the user.
-func (s *Postgres) DeleteAlertRule(ctx context.Context, userID, ruleID string) error {
-	rows, err := s.queries.DeleteAlertRule(ctx, sqlcdb.DeleteAlertRuleParams{RuleID: ruleID, UserID: userID})
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
 }
 
 func alertRulesFromSQLC(rows []sqlcdb.AlertRule) []AlertRule {

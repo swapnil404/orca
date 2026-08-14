@@ -210,15 +210,6 @@ func (s *Postgres) ListRestoreOperations(ctx context.Context, userID, projectID 
 	return operations, nil
 }
 
-// GetRestoreOperation returns an operation visible to an organization member.
-func (s *Postgres) GetRestoreOperation(ctx context.Context, userID, operationID string) (RestoreOperation, error) {
-	row, err := s.queries.GetRestoreOperation(ctx, sqlcdb.GetRestoreOperationParams{ID: operationID, UserID: userID})
-	if err != nil {
-		return RestoreOperation{}, err
-	}
-	return restoreOperationFromSQLC(row)
-}
-
 // ConfirmRestoreOperation changes an operation's intent to execute after validating typed confirmation.
 func (s *Postgres) ConfirmRestoreOperation(ctx context.Context, userID, operationID, confirmation string) (RestoreOperation, error) {
 	return s.changeRestoreIntent(ctx, userID, operationID, sqlcdb.RestoreOperationIntentExecute, confirmation)

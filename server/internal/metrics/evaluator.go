@@ -13,6 +13,10 @@ import (
 
 const defaultEvaluationInterval = 15 * time.Second
 
+type reportStore interface {
+	ListMetricClusterReports(context.Context, string, time.Time) ([]store.MetricClusterReport, error)
+}
+
 type alertRuleStore interface {
 	ListAlertRulesForEvaluation(context.Context) ([]store.AlertRule, error)
 	UpdateAlertRuleState(context.Context, string, store.AlertRuleState, time.Time) (store.AlertRule, error)

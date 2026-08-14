@@ -29,7 +29,8 @@ message ReconciliationResult {
 
 // DesiredState is the desired set of clusters managed by the agent.
 message DesiredState {
-  string cluster_id = 1;
+  reserved 1;
+  reserved "cluster_id";
   repeated ClusterSpec clusters = 2;
   string revision = 3;
   repeated RestoreOperation restore_operations = 4;
@@ -109,8 +110,8 @@ message DatabaseSpec {
 message PgBouncerSpec {
   string pool_mode = 1;
   uint32 max_connections = 2;
-  uint32 reserve_pool_size = 3;
-  uint32 reserve_pool_timeout_seconds = 4;
+  reserved 3, 4;
+  reserved "reserve_pool_size", "reserve_pool_timeout_seconds";
   string publish_address = 5;
   uint32 publish_port = 6;
 }
@@ -146,7 +147,8 @@ message ActualCluster {
   optional ActualBackup backup = 7;
   repeated string enabled_extensions = 8;
   map<string, string> applied_params = 9;
-  bool volume_exists = 10;
+  reserved 10;
+  reserved "volume_exists";
   string image = 11;
   optional bool postgres_ready = 12;
   map<string, string> extension_versions = 13;
@@ -237,7 +239,8 @@ message ClusterHealth {
 // ClusterStatus is the health state reported for a cluster.
 enum ClusterStatus {
   CLUSTER_STATUS_UNSPECIFIED = 0;
-  CLUSTER_STATUS_PENDING = 1;
+  reserved 1;
+  reserved "CLUSTER_STATUS_PENDING";
   CLUSTER_STATUS_HEALTHY = 2;
   CLUSTER_STATUS_DEGRADED = 3;
   CLUSTER_STATUS_DOWN = 4;

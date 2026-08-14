@@ -9,7 +9,7 @@ Implemented in the backend and agent:
 - Full desired-state snapshots over an agent-initiated WebSocket, including a fresh full snapshot after reconnecting.
 - Local desired-state caching and periodic reconciliation while the control plane is unavailable.
 - Postgres primary lifecycle, real streaming-replica provisioning, PgBouncer, pgBackRest schedules, and a limited set of Postgres extensions.
-- Persisted agent reports, reconciliation results, Prometheus-compatible metrics, and server-side alert-rule evaluation.
+- Persisted agent reports, reconciliation results, and server-side alert-rule evaluation.
 - Authenticated project and cluster CRUD plus host registration through the REST API.
 - Email/password authentication, optional GitHub and Google OAuth through Goth, 24-hour HS256 JWTs, JWT middleware, and JWT-authenticated project event WebSockets.
 - Agent tunnel authentication using the token issued during host registration.
@@ -144,7 +144,7 @@ The Docker SDK also honors its standard `DOCKER_*` environment variables through
 ```text
 orca/
 ├── agent/    # Docker reconciliation, backup scheduling, and outbound tunnel
-├── server/   # REST API, WebSockets, desired-state store, auth, and metrics
+├── server/   # REST API, WebSockets, desired-state store, auth, and alert evaluation
 ├── web/      # topology, configuration, backup, and recovery UI
 ├── pkg/      # shared Go types
 ├── proto/    # agent/server tunnel message definitions

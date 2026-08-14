@@ -87,14 +87,12 @@ function ProjectCanvasPage() {
       setCommandState({ hostID: awaitingHost.id, command })
       return
     }
-    window.sessionStorage.removeItem(`orca.host-command-mask.${awaitingHost.id}`)
     setCommandState(null)
   }, [awaitingHost?.id])
 
   function storeCommand(command: string) {
     if (!awaitingHost) return
     window.sessionStorage.setItem(commandKey(awaitingHost.id), command)
-    window.sessionStorage.removeItem(`orca.host-command-mask.${awaitingHost.id}`)
     setCommandState({ hostID: awaitingHost.id, command })
   }
 

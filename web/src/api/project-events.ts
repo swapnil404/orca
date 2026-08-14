@@ -5,7 +5,6 @@ export type ProjectSocketFactory = (url: string) => WebSocket
 interface ProjectEventClientOptions {
   projectID: string
   onSnapshot: (snapshot: ProjectStateSnapshot) => void
-  onConnectionChange?: (connected: boolean) => void
   socketFactory?: ProjectSocketFactory
 }
 
@@ -52,10 +51,8 @@ export function connectProjectEvents(options: ProjectEventClientOptions): Projec
     socket = socketFactory(projectEventsURL(options.projectID))
     socket.addEventListener('open', () => {
       reconnectDelay = 1_000
-      options.onConnectionChange?.(true)
     })
     socket.addEventListener('close', () => {
-      options.onConnectionChange?.(false)
       if (!closed) {
         reconnectTimer = setTimeout(connect, reconnectDelay)
         reconnectDelay = Math.min(reconnectDelay * 2, 30_000)

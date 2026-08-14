@@ -20,7 +20,6 @@ const maxIdempotencyKeyBytes = 200
 type restoreStore interface {
 	CreateRestoreOperation(context.Context, store.CreateRestoreOperationParams) (store.RestoreOperation, bool, error)
 	ListRestoreOperations(context.Context, string, string) ([]store.RestoreOperation, error)
-	GetRestoreOperation(context.Context, string, string) (store.RestoreOperation, error)
 	ConfirmRestoreOperation(context.Context, string, string, string) (store.RestoreOperation, error)
 	CancelRestoreOperation(context.Context, string, string) (store.RestoreOperation, error)
 	RollbackRestoreOperation(context.Context, string, string, string) (store.RestoreOperation, error)
@@ -44,7 +43,6 @@ func NewRestoreHandler(restores restoreStore, pusher desiredStatePusher, notifie
 func (h *RestoreHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /clusters/{clusterID}/restore-operations", h.create)
 	mux.HandleFunc("GET /projects/{projectID}/restore-operations", h.list)
-	mux.HandleFunc("GET /restore-operations/{operationID}", h.get)
 	mux.HandleFunc("POST /restore-operations/{operationID}/confirm", h.confirm)
 	mux.HandleFunc("POST /restore-operations/{operationID}/cancel", h.cancel)
 	mux.HandleFunc("POST /restore-operations/{operationID}/rollback", h.rollback)
@@ -141,19 +139,6 @@ func (h *RestoreHandler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, operations)
-}
-
-func (h *RestoreHandler) get(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requireUserID(w, r)
-	if !ok {
-		return
-	}
-	operation, err := h.store.GetRestoreOperation(r.Context(), userID, r.PathValue("operationID"))
-	if err != nil {
-		writeRestoreError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, operation)
 }
 
 func (h *RestoreHandler) confirm(w http.ResponseWriter, r *http.Request) {

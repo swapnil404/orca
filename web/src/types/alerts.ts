@@ -11,7 +11,6 @@ export interface AlertRule {
   threshold: number
   duration_before_firing_seconds: number
   current_state: AlertRuleState
-  last_transition_at: string
   severity: AlertSeverity
 }
 

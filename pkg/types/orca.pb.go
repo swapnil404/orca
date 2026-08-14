@@ -26,7 +26,6 @@ type ClusterStatus int32
 
 const (
 	ClusterStatus_CLUSTER_STATUS_UNSPECIFIED ClusterStatus = 0
-	ClusterStatus_CLUSTER_STATUS_PENDING     ClusterStatus = 1
 	ClusterStatus_CLUSTER_STATUS_HEALTHY     ClusterStatus = 2
 	ClusterStatus_CLUSTER_STATUS_DEGRADED    ClusterStatus = 3
 	ClusterStatus_CLUSTER_STATUS_DOWN        ClusterStatus = 4
@@ -36,14 +35,12 @@ const (
 var (
 	ClusterStatus_name = map[int32]string{
 		0: "CLUSTER_STATUS_UNSPECIFIED",
-		1: "CLUSTER_STATUS_PENDING",
 		2: "CLUSTER_STATUS_HEALTHY",
 		3: "CLUSTER_STATUS_DEGRADED",
 		4: "CLUSTER_STATUS_DOWN",
 	}
 	ClusterStatus_value = map[string]int32{
 		"CLUSTER_STATUS_UNSPECIFIED": 0,
-		"CLUSTER_STATUS_PENDING":     1,
 		"CLUSTER_STATUS_HEALTHY":     2,
 		"CLUSTER_STATUS_DEGRADED":    3,
 		"CLUSTER_STATUS_DOWN":        4,
@@ -279,7 +276,6 @@ func (x *ReconciliationResult) GetResourceId() string {
 // DesiredState is the desired set of clusters managed by the agent.
 type DesiredState struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	ClusterId         string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	Clusters          []*ClusterSpec         `protobuf:"bytes,2,rep,name=clusters,proto3" json:"clusters,omitempty"`
 	Revision          string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	RestoreOperations []*RestoreOperation    `protobuf:"bytes,4,rep,name=restore_operations,json=restoreOperations,proto3" json:"restore_operations,omitempty"`
@@ -315,13 +311,6 @@ func (x *DesiredState) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DesiredState.ProtoReflect.Descriptor instead.
 func (*DesiredState) Descriptor() ([]byte, []int) {
 	return file_orca_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *DesiredState) GetClusterId() string {
-	if x != nil {
-		return x.ClusterId
-	}
-	return ""
 }
 
 func (x *DesiredState) GetClusters() []*ClusterSpec {
@@ -942,15 +931,13 @@ func (x *DatabaseSpec) GetName() string {
 
 // PgBouncerSpec describes a desired PgBouncer sidecar.
 type PgBouncerSpec struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	PoolMode                  string                 `protobuf:"bytes,1,opt,name=pool_mode,json=poolMode,proto3" json:"pool_mode,omitempty"`
-	MaxConnections            uint32                 `protobuf:"varint,2,opt,name=max_connections,json=maxConnections,proto3" json:"max_connections,omitempty"`
-	ReservePoolSize           uint32                 `protobuf:"varint,3,opt,name=reserve_pool_size,json=reservePoolSize,proto3" json:"reserve_pool_size,omitempty"`
-	ReservePoolTimeoutSeconds uint32                 `protobuf:"varint,4,opt,name=reserve_pool_timeout_seconds,json=reservePoolTimeoutSeconds,proto3" json:"reserve_pool_timeout_seconds,omitempty"`
-	PublishAddress            string                 `protobuf:"bytes,5,opt,name=publish_address,json=publishAddress,proto3" json:"publish_address,omitempty"`
-	PublishPort               uint32                 `protobuf:"varint,6,opt,name=publish_port,json=publishPort,proto3" json:"publish_port,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PoolMode       string                 `protobuf:"bytes,1,opt,name=pool_mode,json=poolMode,proto3" json:"pool_mode,omitempty"`
+	MaxConnections uint32                 `protobuf:"varint,2,opt,name=max_connections,json=maxConnections,proto3" json:"max_connections,omitempty"`
+	PublishAddress string                 `protobuf:"bytes,5,opt,name=publish_address,json=publishAddress,proto3" json:"publish_address,omitempty"`
+	PublishPort    uint32                 `protobuf:"varint,6,opt,name=publish_port,json=publishPort,proto3" json:"publish_port,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *PgBouncerSpec) Reset() {
@@ -993,20 +980,6 @@ func (x *PgBouncerSpec) GetPoolMode() string {
 func (x *PgBouncerSpec) GetMaxConnections() uint32 {
 	if x != nil {
 		return x.MaxConnections
-	}
-	return 0
-}
-
-func (x *PgBouncerSpec) GetReservePoolSize() uint32 {
-	if x != nil {
-		return x.ReservePoolSize
-	}
-	return 0
-}
-
-func (x *PgBouncerSpec) GetReservePoolTimeoutSeconds() uint32 {
-	if x != nil {
-		return x.ReservePoolTimeoutSeconds
 	}
 	return 0
 }
@@ -1212,7 +1185,6 @@ type ActualCluster struct {
 	Backup                   *ActualBackup                      `protobuf:"bytes,7,opt,name=backup,proto3,oneof" json:"backup,omitempty"`
 	EnabledExtensions        []string                           `protobuf:"bytes,8,rep,name=enabled_extensions,json=enabledExtensions,proto3" json:"enabled_extensions,omitempty"`
 	AppliedParams            map[string]string                  `protobuf:"bytes,9,rep,name=applied_params,json=appliedParams,proto3" json:"applied_params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	VolumeExists             bool                               `protobuf:"varint,10,opt,name=volume_exists,json=volumeExists,proto3" json:"volume_exists,omitempty"`
 	Image                    string                             `protobuf:"bytes,11,opt,name=image,proto3" json:"image,omitempty"`
 	PostgresReady            *bool                              `protobuf:"varint,12,opt,name=postgres_ready,json=postgresReady,proto3,oneof" json:"postgres_ready,omitempty"`
 	ExtensionVersions        map[string]string                  `protobuf:"bytes,13,rep,name=extension_versions,json=extensionVersions,proto3" json:"extension_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -1321,13 +1293,6 @@ func (x *ActualCluster) GetAppliedParams() map[string]string {
 		return x.AppliedParams
 	}
 	return nil
-}
-
-func (x *ActualCluster) GetVolumeExists() bool {
-	if x != nil {
-		return x.VolumeExists
-	}
-	return false
 }
 
 func (x *ActualCluster) GetImage() string {
@@ -2053,13 +2018,12 @@ const file_orca_proto_rawDesc = "" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x1f\n" +
 	"\vresource_id\x18\x05 \x01(\tR\n" +
-	"resourceId\"\xc5\x01\n" +
-	"\fDesiredState\x12\x1d\n" +
-	"\n" +
-	"cluster_id\x18\x01 \x01(\tR\tclusterId\x120\n" +
+	"resourceId\"\xb8\x01\n" +
+	"\fDesiredState\x120\n" +
 	"\bclusters\x18\x02 \x03(\v2\x14.orca.v1.ClusterSpecR\bclusters\x12\x1a\n" +
 	"\brevision\x18\x03 \x01(\tR\brevision\x12H\n" +
-	"\x12restore_operations\x18\x04 \x03(\v2\x19.orca.v1.RestoreOperationR\x11restoreOperations\"\xa1\x02\n" +
+	"\x12restore_operations\x18\x04 \x03(\v2\x19.orca.v1.RestoreOperationR\x11restoreOperationsJ\x04\b\x01\x10\x02R\n" +
+	"cluster_id\"\xa1\x02\n" +
 	"\x10RestoreOperation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x16\n" +
@@ -2122,14 +2086,12 @@ const file_orca_proto_rawDesc = "" +
 	"\vReplicaSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\"\n" +
 	"\fDatabaseSpec\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x8e\x02\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\xde\x01\n" +
 	"\rPgBouncerSpec\x12\x1b\n" +
 	"\tpool_mode\x18\x01 \x01(\tR\bpoolMode\x12'\n" +
-	"\x0fmax_connections\x18\x02 \x01(\rR\x0emaxConnections\x12*\n" +
-	"\x11reserve_pool_size\x18\x03 \x01(\rR\x0freservePoolSize\x12?\n" +
-	"\x1creserve_pool_timeout_seconds\x18\x04 \x01(\rR\x19reservePoolTimeoutSeconds\x12'\n" +
+	"\x0fmax_connections\x18\x02 \x01(\rR\x0emaxConnections\x12'\n" +
 	"\x0fpublish_address\x18\x05 \x01(\tR\x0epublishAddress\x12!\n" +
-	"\fpublish_port\x18\x06 \x01(\rR\vpublishPort\"\xb0\x01\n" +
+	"\fpublish_port\x18\x06 \x01(\rR\vpublishPortJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\x11reserve_pool_sizeR\x1creserve_pool_timeout_seconds\"\xb0\x01\n" +
 	"\x0ePgBackRestSpec\x12\x1b\n" +
 	"\trepo_path\x18\x01 \x01(\tR\brepoPath\x12%\n" +
 	"\x0eretention_full\x18\x02 \x01(\rR\rretentionFull\x12%\n" +
@@ -2140,7 +2102,7 @@ const file_orca_proto_rawDesc = "" +
 	"\x15diff_interval_seconds\x18\x02 \x01(\x04R\x13diffIntervalSeconds\x122\n" +
 	"\x15incr_interval_seconds\x18\x03 \x01(\x04R\x13incrIntervalSeconds\"A\n" +
 	"\vActualState\x122\n" +
-	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\x84\f\n" +
+	"\bclusters\x18\x01 \x03(\v2\x16.orca.v1.ActualClusterR\bclusters\"\xf4\v\n" +
 	"\rActualCluster\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
@@ -2151,9 +2113,7 @@ const file_orca_proto_rawDesc = "" +
 	"pg_bouncer\x18\x06 \x01(\v2\x18.orca.v1.ActualPgBouncerH\x00R\tpgBouncer\x88\x01\x01\x122\n" +
 	"\x06backup\x18\a \x01(\v2\x15.orca.v1.ActualBackupH\x01R\x06backup\x88\x01\x01\x12-\n" +
 	"\x12enabled_extensions\x18\b \x03(\tR\x11enabledExtensions\x12P\n" +
-	"\x0eapplied_params\x18\t \x03(\v2).orca.v1.ActualCluster.AppliedParamsEntryR\rappliedParams\x12#\n" +
-	"\rvolume_exists\x18\n" +
-	" \x01(\bR\fvolumeExists\x12\x14\n" +
+	"\x0eapplied_params\x18\t \x03(\v2).orca.v1.ActualCluster.AppliedParamsEntryR\rappliedParams\x12\x14\n" +
 	"\x05image\x18\v \x01(\tR\x05image\x12*\n" +
 	"\x0epostgres_ready\x18\f \x01(\bH\x02R\rpostgresReady\x88\x01\x01\x12\\\n" +
 	"\x12extension_versions\x18\r \x03(\v2-.orca.v1.ActualCluster.ExtensionVersionsEntryR\x11extensionVersions\x12l\n" +
@@ -2182,7 +2142,8 @@ const file_orca_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x1f.orca.v1.PostgresParameterStateR\x05value:\x028\x01B\r\n" +
 	"\v_pg_bouncerB\t\n" +
 	"\a_backupB\x11\n" +
-	"\x0f_postgres_ready\"\xde\x01\n" +
+	"\x0f_postgres_readyJ\x04\b\n" +
+	"\x10\vR\rvolume_exists\"\xde\x01\n" +
 	"\x16PostgresParameterState\x12\x18\n" +
 	"\asetting\x18\x01 \x01(\tR\asetting\x12\x12\n" +
 	"\x04unit\x18\x02 \x01(\tR\x04unit\x12\x18\n" +
@@ -2247,13 +2208,12 @@ const file_orca_proto_rawDesc = "" +
 	"\rClusterHealth\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12.\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x16.orca.v1.ClusterStatusR\x06status*\x9d\x01\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x16.orca.v1.ClusterStatusR\x06status*\x9f\x01\n" +
 	"\rClusterStatus\x12\x1e\n" +
 	"\x1aCLUSTER_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
-	"\x16CLUSTER_STATUS_PENDING\x10\x01\x12\x1a\n" +
 	"\x16CLUSTER_STATUS_HEALTHY\x10\x02\x12\x1b\n" +
 	"\x17CLUSTER_STATUS_DEGRADED\x10\x03\x12\x17\n" +
-	"\x13CLUSTER_STATUS_DOWN\x10\x04B&Z$github.com/swapnil404/orca/pkg/typesb\x06proto3"
+	"\x13CLUSTER_STATUS_DOWN\x10\x04\"\x04\b\x01\x10\x01*\x16CLUSTER_STATUS_PENDINGB&Z$github.com/swapnil404/orca/pkg/typesb\x06proto3"
 
 var (
 	file_orca_proto_rawDescOnce sync.Once

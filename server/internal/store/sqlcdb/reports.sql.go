@@ -21,35 +21,6 @@ func (q *Queries) DeleteClusterReportsForHost(ctx context.Context, hostID string
 	return err
 }
 
-const getAgentReport = `-- name: GetAgentReport :one
-SELECT host_id, actual_state, health_report, reconciliation_results, desired_state_revision, reported_at
-FROM agent_reports
-WHERE host_id = $1
-`
-
-type GetAgentReportRow struct {
-	HostID                string          `json:"host_id"`
-	ActualState           json.RawMessage `json:"actual_state"`
-	HealthReport          json.RawMessage `json:"health_report"`
-	ReconciliationResults json.RawMessage `json:"reconciliation_results"`
-	DesiredStateRevision  string          `json:"desired_state_revision"`
-	ReportedAt            time.Time       `json:"reported_at"`
-}
-
-func (q *Queries) GetAgentReport(ctx context.Context, hostID string) (GetAgentReportRow, error) {
-	row := q.db.QueryRowContext(ctx, getAgentReport, hostID)
-	var i GetAgentReportRow
-	err := row.Scan(
-		&i.HostID,
-		&i.ActualState,
-		&i.HealthReport,
-		&i.ReconciliationResults,
-		&i.DesiredStateRevision,
-		&i.ReportedAt,
-	)
-	return i, err
-}
-
 const listBackupJobs = `-- name: ListBackupJobs :many
 SELECT p.id AS project_id, p.name AS project_name,
        c.id AS cluster_id, c.name AS cluster_name, c.pgbackrest_enabled,

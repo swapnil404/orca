@@ -55,7 +55,6 @@ function projectHealth(projectID: string | undefined, snapshot: ReturnType<typeo
   const statuses = snapshot.clusters.map((cluster) => primaryStatus(cluster, now))
   if (statuses.includes('down')) return { label: 'Critical', tone: 'critical' }
   if (statuses.includes('degraded')) return { label: 'Degraded', tone: 'warning' }
-  if (statuses.includes('pending')) return { label: 'Pending', tone: 'warning' }
   if (statuses.includes('stale')) return { label: 'Stale', tone: 'warning' }
   if (statuses.includes('unknown')) return { label: 'Unknown', tone: 'unknown' }
   return { label: 'Healthy', tone: 'healthy' }
