@@ -1,9 +1,9 @@
-import { useNavigate } from '@tanstack/react-router'
+import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { ArrowDown, ArrowUp, CornerDownLeft, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { listProjects } from '../../api'
 import { filterCommands, projectCommands, staticCommands, type Command } from '../../lib/commands'
-import type { Project } from '../../types/resources'
+
+const authenticatedRoute = getRouteApi('/_authenticated')
 
 function isMacPlatform(): boolean {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) || /Macintosh|Mac OS X|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -27,12 +27,10 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate()
+  const { projects } = authenticatedRoute.useRouteContext()
   const inputRef = useRef<HTMLInputElement>(null)
   const [mounted, setMounted] = useState(false)
   const [query, setQuery] = useState('')
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loadingProjects, setLoadingProjects] = useState(false)
-  const [projectsError, setProjectsError] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const commands = filterCommands([...staticCommands, ...projectCommands(projects)], query)
 
@@ -58,27 +56,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   useEffect(() => {
     if (!open) return
 
-    let active = true
     setQuery('')
     setSelectedIndex(0)
-    setLoadingProjects(true)
-    setProjectsError(false)
     requestAnimationFrame(() => inputRef.current?.focus())
-
-    void listProjects()
-      .then((nextProjects) => {
-        if (active) setProjects(nextProjects)
-      })
-      .catch(() => {
-        if (active) setProjectsError(true)
-      })
-      .finally(() => {
-        if (active) setLoadingProjects(false)
-      })
-
-    return () => {
-      active = false
-    }
   }, [open])
 
   useEffect(() => {
@@ -173,8 +153,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             </button>
           ))}
           {commands.length === 0 ? <p className="px-3 py-8 text-center text-sm text-[var(--text-3)]">No matching commands</p> : null}
-          {loadingProjects ? <p className="px-3 py-2 text-xs text-[var(--text-3)]">Loading projects...</p> : null}
-          {projectsError ? <p className="px-3 py-2 text-xs text-[var(--warning)]">Projects could not be loaded.</p> : null}
         </div>
 
         <footer className="flex items-center gap-3 border-t border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-[10px] text-[var(--text-3)]">

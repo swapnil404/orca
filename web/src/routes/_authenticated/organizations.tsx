@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { ArrowUpRight, Building2, FolderKanban, Plus, Users, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
-import { ApiError, createOrganization, listOrganizationMembers, listOrganizationProjects, listOrganizations } from '../../api'
+import { ApiError, createOrganization, listOrganizationMembers } from '../../api'
 import type { Organization, OrganizationMember } from '../../types/organizations'
 import type { Project } from '../../types/resources'
 
@@ -15,12 +15,11 @@ interface OrganizationsSearch {
   create?: boolean
 }
 
-async function loadOrganizations(): Promise<OrganizationSummary[]> {
-  const organizations = await listOrganizations()
+async function loadOrganizations(organizations: Organization[], projects: Project[]): Promise<OrganizationSummary[]> {
   return Promise.all(organizations.map(async (organization) => ({
     organization,
     members: await listOrganizationMembers(organization.id),
-    projects: await listOrganizationProjects(organization.id),
+    projects: projects.filter((project) => project.organization_id === organization.id),
   })))
 }
 
@@ -29,7 +28,7 @@ export const Route = createFileRoute('/_authenticated/organizations')({
   validateSearch: (search: Record<string, unknown>): OrganizationsSearch => ({
     create: search.create === true || search.create === 'true' ? true : undefined,
   }),
-  loader: loadOrganizations,
+  loader: ({ context }) => loadOrganizations(context.organizations, context.projects),
   component: OrganizationsPage,
 })
 

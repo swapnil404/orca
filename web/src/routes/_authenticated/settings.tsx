@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { AlertTriangle, Trash2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { ApiError, deleteOrganization, getSession, listOrganizationMembers, listOrganizations, updateOrganization } from '../../api'
+import { ApiError, deleteOrganization, listOrganizationMembers, updateOrganization } from '../../api'
 import type { Organization, OrganizationMember, OrganizationRole } from '../../types/organizations'
 
 const tabs = ['Profile', 'Members', 'Secrets', 'Certificates', 'Tokens'] as const
@@ -17,12 +17,11 @@ interface SettingsSearch {
   organizationId?: string
 }
 
-async function loadSettings(): Promise<SettingsData> {
-  const [organizations, session] = await Promise.all([listOrganizations(), getSession()])
+async function loadSettings(organizations: Organization[], userID: string): Promise<SettingsData> {
   const memberLists = await Promise.all(organizations.map(async (organization) => (
     [organization.id, await listOrganizationMembers(organization.id)] as const
   )))
-  return { organizations, members: Object.fromEntries(memberLists), userID: session?.user_id ?? '' }
+  return { organizations, members: Object.fromEntries(memberLists), userID }
 }
 
 export const Route = createFileRoute('/_authenticated/settings')({
@@ -30,7 +29,7 @@ export const Route = createFileRoute('/_authenticated/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
     organizationId: typeof search.organizationId === 'string' ? search.organizationId : undefined,
   }),
-  loader: loadSettings,
+  loader: ({ context }) => loadSettings(context.organizations, context.session.user_id),
   component: SettingsPage,
 })
 

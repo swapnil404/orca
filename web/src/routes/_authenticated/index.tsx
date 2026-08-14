@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowUpRight, Boxes, Clock3, Database, Network, Plus, Server } from 'lucide-react'
-import { listClusters, listOrganizations, listProjects } from '../../api'
+import { listClusters } from '../../api'
 import { ConnectHostEmptyState } from '../../components/ConnectHostEmptyState'
 import type { Organization } from '../../types/organizations'
 import type { Cluster, Project } from '../../types/resources'
@@ -24,8 +24,7 @@ function countNodes(clusters: Cluster[]): number {
   return clusters.reduce((count, cluster) => count + 1 + cluster.replicas.length + (cluster.pgbouncer_enabled ? 1 : 0), 0)
 }
 
-async function loadProjects() {
-  const [projects, organizations] = await Promise.all([listProjects(), listOrganizations()])
+async function loadProjects(projects: Project[], organizations: Organization[]) {
   const summaries = await Promise.all(projects.map(async (project) => {
     const clusters = await listClusters(project.id)
     return { project, clusters, nodeCount: countNodes(clusters) }
@@ -42,7 +41,7 @@ export const Route = createFileRoute('/_authenticated/')({
   validateSearch: (search: Record<string, unknown>): ProjectsSearch => ({
     organizationId: typeof search.organizationId === 'string' ? search.organizationId : undefined,
   }),
-  loader: loadProjects,
+  loader: ({ context }) => loadProjects(context.projects, context.organizations),
   component: ProjectsPage,
 })
 
