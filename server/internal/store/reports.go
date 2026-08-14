@@ -16,20 +16,7 @@ const (
 	// DefaultReportStalenessWindow is the maximum age of a report considered current.
 	DefaultReportStalenessWindow = 2 * time.Minute
 	unknownHealthStatus          = "unknown"
-	currentReportStatus          = "current"
 )
-
-// HostReport is the latest actual state and health reported by one host.
-type HostReport struct {
-	HostID                string
-	ActualState           *types.ActualState
-	HealthReport          *types.HealthReport
-	ReconciliationResults []*types.ReconciliationResult
-	DesiredStateRevision  string
-	LastSeen              time.Time
-	Status                string
-	Stale                 bool
-}
 
 // ClusterReport is the latest actual state and health reported for one cluster.
 type ClusterReport struct {
@@ -43,7 +30,7 @@ type ClusterReport struct {
 	ReconciliationResults []*types.ReconciliationResult
 }
 
-// MetricClusterReport is the latest persisted observation used for metrics exposition.
+// MetricClusterReport is the latest persisted observation used for alert evaluation.
 type MetricClusterReport struct {
 	ProjectID         string
 	ClusterID         string
@@ -151,32 +138,6 @@ func (s *Postgres) StoreAgentReport(ctx context.Context, hostID string, report *
 		}
 	}
 	return tx.Commit()
-}
-
-// GetHostReport returns the latest host report and marks it stale at read time.
-func (s *Postgres) GetHostReport(ctx context.Context, hostID string, now time.Time) (HostReport, error) {
-	row, err := s.queries.GetAgentReport(ctx, hostID)
-	if err != nil {
-		return HostReport{}, err
-	}
-	report := HostReport{
-		HostID: hostID, ActualState: &types.ActualState{}, HealthReport: &types.HealthReport{},
-		LastSeen: row.ReportedAt, Status: currentReportStatus, DesiredStateRevision: row.DesiredStateRevision,
-	}
-	if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
-		return HostReport{}, fmt.Errorf("decode actual state: %w", err)
-	}
-	if err := protojson.Unmarshal(row.HealthReport, report.HealthReport); err != nil {
-		return HostReport{}, fmt.Errorf("decode health report: %w", err)
-	}
-	if err := json.Unmarshal(row.ReconciliationResults, &report.ReconciliationResults); err != nil {
-		return HostReport{}, fmt.Errorf("decode reconciliation results: %w", err)
-	}
-	report.Stale = reportIsStale(report.LastSeen, now, DefaultReportStalenessWindow)
-	if report.Stale {
-		report.Status = unknownHealthStatus
-	}
-	return report, nil
 }
 
 // ListClusterReportsForHost returns the latest cluster reports, with stale health set to unknown.
@@ -293,8 +254,6 @@ func reportIsStale(lastSeen, now time.Time, window time.Duration) bool {
 
 func clusterHealthStatus(status types.ClusterStatus) string {
 	switch status {
-	case types.ClusterStatus_CLUSTER_STATUS_PENDING:
-		return "pending"
 	case types.ClusterStatus_CLUSTER_STATUS_HEALTHY:
 		return "healthy"
 	case types.ClusterStatus_CLUSTER_STATUS_DEGRADED:

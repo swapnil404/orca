@@ -88,8 +88,6 @@ func GeneratePgBouncerConfig(desired *ClusterDesiredState) (string, error) {
 	config.WriteString("stats_users = pgbouncer\n")
 	fmt.Fprintf(&config, "pool_mode = %s\n", settings.PoolMode)
 	fmt.Fprintf(&config, "max_client_conn = %d\n", settings.MaxConnections)
-	fmt.Fprintf(&config, "reserve_pool_size = %d\n", settings.ReservePoolSize)
-	fmt.Fprintf(&config, "reserve_pool_timeout = %d\n", settings.ReservePoolTimeoutSeconds)
 
 	return config.String(), nil
 }
@@ -108,9 +106,6 @@ func validatePgBouncerSpec(spec *orcatypes.PgBouncerSpec) error {
 	}
 	if spec.PublishPort == 0 {
 		return errors.New("publish port is required")
-	}
-	if spec.ReservePoolSize > 0 && spec.ReservePoolTimeoutSeconds == 0 {
-		return errors.New("reserve pool timeout must be greater than zero when reserve pool is enabled")
 	}
 	return nil
 }

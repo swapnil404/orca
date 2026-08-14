@@ -28,11 +28,6 @@ const (
 
 const maxRequestBodyBytes = 1 << 20
 
-// WithUserID associates an authenticated user ID with a request context.
-func WithUserID(ctx context.Context, userID string) context.Context {
-	return auth.WithUserID(ctx, userID)
-}
-
 type resourceStore interface {
 	CreateProject(context.Context, store.CreateProjectParams) (store.Project, error)
 	ListProjects(context.Context, string) ([]store.Project, error)
@@ -95,7 +90,6 @@ func NewResourceHandler(resources resourceStore, pushers ...desiredStatePusher) 
 func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects", h.listProjects)
 	mux.HandleFunc("POST /projects", h.createProject)
-	mux.HandleFunc("POST /orgs/{organizationID}/projects", h.createProject)
 	mux.HandleFunc("GET /projects/{projectID}", h.getProject)
 	mux.HandleFunc("PUT /projects/{projectID}", h.updateProject)
 	mux.HandleFunc("DELETE /projects/{projectID}", h.deleteProject)

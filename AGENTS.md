@@ -82,7 +82,7 @@ server/internal/
 ├── orchestrator/  # desired state diffing and pushing to the correct agent session
 ├── store/         # database layer, built with sqlc
 ├── auth/          # token issuance and validation, JWT
-└── metrics/       # health report ingestion, Prometheus-compatible exposition, alert rules
+└── metrics/       # alert rule evaluation
 ```
 
 The WebSocket hub must be safe for concurrent access, sessions are added and removed from multiple goroutines. Use a mutex or equivalent.
@@ -99,7 +99,7 @@ Email/password and optional GitHub/Google OAuth through Goth issue JWTs. Protect
 
 ### Metrics and alerts
 
-Health reports ingested from agents are exposed in a Prometheus-compatible format so users can scrape their own infrastructure's metrics if they choose to, in addition to what's shown in the canvas. Alert rules are evaluated server side against ingested health data. Do not couple alerting logic to the WebSocket ingestion handler directly, keep ingestion, storage, and rule evaluation as separate concerns so one can be tested without the others.
+Alert rules are evaluated server side against ingested health data. Do not couple alerting logic to the WebSocket ingestion handler directly; keep ingestion, storage, and rule evaluation as separate concerns so one can be tested without the others.
 
 ## Frontend (`web/`)
 

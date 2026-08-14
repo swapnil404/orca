@@ -103,50 +103,6 @@ func (q *Queries) GetMembershipForUserAndOrg(ctx context.Context, arg GetMembers
 	return i, err
 }
 
-const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT o.id, o.name, o.slug, o.created_at
-FROM organizations o
-JOIN organization_memberships requester
-  ON requester.organization_id = o.id
- AND requester.user_id = $1
-WHERE o.id = $2
-`
-
-type GetOrganizationByIDParams struct {
-	UserID         string `json:"user_id"`
-	OrganizationID string `json:"organization_id"`
-}
-
-func (q *Queries) GetOrganizationByID(ctx context.Context, arg GetOrganizationByIDParams) (Organization, error) {
-	row := q.db.QueryRowContext(ctx, getOrganizationByID, arg.UserID, arg.OrganizationID)
-	var i Organization
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Slug,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getOrganizationBySlug = `-- name: GetOrganizationBySlug :one
-SELECT id, name, slug, created_at
-FROM organizations
-WHERE slug = $1
-`
-
-func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error) {
-	row := q.db.QueryRowContext(ctx, getOrganizationBySlug, slug)
-	var i Organization
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Slug,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getOrganizationDeletionState = `-- name: GetOrganizationDeletionState :one
 SELECT om.role,
        EXISTS (SELECT 1 FROM projects p WHERE p.organization_id = o.id) AS has_projects

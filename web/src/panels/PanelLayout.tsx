@@ -37,7 +37,3 @@ export function StateRow({ label, value }: StateRowProps) {
     </div>
   )
 }
-
-export function ContractUnavailable() {
-  return <p className="rounded-[var(--radius-md)] border border-amber-300/15 bg-amber-300/[0.04] p-4 text-sm leading-6 text-amber-100/80">Not available in the current server desired-state or actual-state contract.</p>
-}

@@ -392,46 +392,6 @@ func (q *Queries) GetRestoreMutationContext(ctx context.Context, arg GetRestoreM
 	return i, err
 }
 
-const getRestoreOperation = `-- name: GetRestoreOperation :one
-SELECT ro.id, ro.project_id, ro.host_id, ro.source_cluster_id, ro.target_cluster_id, ro.target_cluster_name, ro.target_spec, ro.mode, ro.intent, ro.status, ro.target_time, ro.request_fingerprint, ro.idempotency_key, ro.requested_by_user_id, ro.report_sequence, ro.report, ro.created_at, ro.updated_at, ro.finalized_at
-FROM restore_operations ro
-JOIN projects p ON p.id = ro.project_id AND p.deleted_at IS NULL
-JOIN organization_memberships om ON om.organization_id = p.organization_id
-WHERE ro.id = $1 AND om.user_id = $2
-`
-
-type GetRestoreOperationParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
-}
-
-func (q *Queries) GetRestoreOperation(ctx context.Context, arg GetRestoreOperationParams) (RestoreOperation, error) {
-	row := q.db.QueryRowContext(ctx, getRestoreOperation, arg.ID, arg.UserID)
-	var i RestoreOperation
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.HostID,
-		&i.SourceClusterID,
-		&i.TargetClusterID,
-		&i.TargetClusterName,
-		&i.TargetSpec,
-		&i.Mode,
-		&i.Intent,
-		&i.Status,
-		&i.TargetTime,
-		&i.RequestFingerprint,
-		&i.IdempotencyKey,
-		&i.RequestedByUserID,
-		&i.ReportSequence,
-		&i.Report,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinalizedAt,
-	)
-	return i, err
-}
-
 const getRestoreOperationForUpdate = `-- name: GetRestoreOperationForUpdate :one
 SELECT ro.id, ro.project_id, ro.host_id, ro.source_cluster_id, ro.target_cluster_id, ro.target_cluster_name, ro.target_spec, ro.mode, ro.intent, ro.status, ro.target_time, ro.request_fingerprint, ro.idempotency_key, ro.requested_by_user_id, ro.report_sequence, ro.report, ro.created_at, ro.updated_at, ro.finalized_at, om.role
 FROM restore_operations ro

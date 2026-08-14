@@ -45,13 +45,6 @@ func (h *Hub) withCurrentSession(hostID string, session *Session, fn func()) boo
 	return true
 }
 
-// Unregister removes the active session for hostID.
-func (h *Hub) Unregister(hostID string) {
-	h.mu.Lock()
-	delete(h.sessions, hostID)
-	h.mu.Unlock()
-}
-
 // Get returns the active session for hostID, if one is registered.
 func (h *Hub) Get(hostID string) (*Session, bool) {
 	h.mu.RLock()

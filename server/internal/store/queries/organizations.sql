@@ -20,19 +20,6 @@ INSERT INTO organization_memberships (organization_id, user_id, role)
 VALUES (sqlc.arg(organization_id), sqlc.arg(user_id), sqlc.arg(role))
 RETURNING id, organization_id, user_id, role, created_at;
 
--- name: GetOrganizationByID :one
-SELECT o.id, o.name, o.slug, o.created_at
-FROM organizations o
-JOIN organization_memberships requester
-  ON requester.organization_id = o.id
- AND requester.user_id = sqlc.arg(user_id)
-WHERE o.id = sqlc.arg(organization_id);
-
--- name: GetOrganizationBySlug :one
-SELECT id, name, slug, created_at
-FROM organizations
-WHERE slug = $1;
-
 -- name: UpdateOrganization :one
 UPDATE organizations o
 SET name = sqlc.arg(name)::text

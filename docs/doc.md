@@ -9,7 +9,7 @@ Orca's server stores control-plane users, projects, hosts, desired cluster state
 | Component | Current responsibility |
 |---|---|
 | Agent | Cache desired state, observe Docker, reconcile resources, schedule backups, and report actual state |
-| Server | Authenticate users and agents, persist metadata and reports, expose REST/metrics, and route WebSocket snapshots |
+| Server | Authenticate users and agents, persist metadata and reports, expose REST, and route WebSocket snapshots |
 | Web UI | Read-only project topology and latest persisted status view |
 
 ## Authentication

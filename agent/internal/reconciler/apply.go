@@ -17,7 +17,7 @@ import (
 	"github.com/swapnil404/orca/agent/internal/postgres"
 )
 
-// DockerClient is the Docker wrapper interface used by Apply.
+// DockerClient is the Docker wrapper interface used by reconciliation.
 type DockerClient = orcadocker.DockerClient
 
 // ApplyStatus identifies the outcome of an apply action.
@@ -56,15 +56,6 @@ func (r ApplyResult) MarshalJSON() ([]byte, error) {
 		Status: r.Status,
 		Err:    applyError,
 	})
-}
-
-// Apply executes every action against Docker and reports each result.
-func Apply(ctx context.Context, docker DockerClient, actions []Action, desiredStates ...*DesiredState) []ApplyResult {
-	desired := &DesiredState{}
-	if len(desiredStates) > 0 && desiredStates[0] != nil {
-		desired = desiredStates[0]
-	}
-	return apply(ctx, docker, nil, actions, desired)
 }
 
 func apply(ctx context.Context, docker DockerClient, backups *pgbackrest.Scheduler, actions []Action, desired *DesiredState) []ApplyResult {
@@ -898,41 +889,6 @@ func pgBouncerDesiredCluster(spec any) (*ClusterSpec, bool) {
 		return update.Desired, true
 	}
 	return nil, false
-}
-
-func replicaContainerSpec(action Action) (orcadocker.ContainerSpec, error) {
-	if spec, ok := action.Spec.(orcadocker.ContainerSpec); ok {
-		return spec, nil
-	}
-
-	replica, ok := action.Spec.(*ReplicaSpec)
-	if !ok {
-		return orcadocker.ContainerSpec{}, errors.New("create_replica action requires ReplicaSpec")
-	}
-
-	identity, err := postgres.DeriveReplicaIdentity(action.ClusterID, replica.Id)
-	if err != nil {
-		return orcadocker.ContainerSpec{}, err
-	}
-	containerSpec := orcadocker.ContainerSpec{
-		ClusterID: action.ClusterID,
-		Kind:      orcadocker.ContainerKindReplica,
-		ReplicaID: replica.Id,
-		Image:     postgresImage(""),
-		Env: []string{
-			"POSTGRES_HOST_AUTH_METHOD=reject",
-			"PGDATA=" + identity.DataPath,
-		},
-		UseVolume: true,
-	}
-	name, err := orcadocker.ContainerName(containerSpec)
-	if err != nil {
-		return orcadocker.ContainerSpec{}, err
-	}
-	if name != identity.ContainerName {
-		return orcadocker.ContainerSpec{}, errors.New("replica container identity is inconsistent")
-	}
-	return containerSpec, nil
 }
 
 func pgBouncerContainerSpec(action Action) (orcadocker.ContainerSpec, error) {

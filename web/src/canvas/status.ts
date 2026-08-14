@@ -19,7 +19,7 @@ export function replicaStatus(
 ): NodeStatus {
   if (!state || !replica) return 'unknown'
   if (isReportStale(state, now)) return 'stale'
-  if (state.health === 'down' || state.health === 'pending') return state.health
+  if (state.health === 'down') return state.health
   const replicationHealthy =
     replica.standby_connected === true &&
     replica.streaming_state === 'streaming' &&
@@ -35,7 +35,7 @@ export function pgBouncerStatus(
 ): NodeStatus {
   if (!state) return 'unknown'
   if (isReportStale(state, now)) return 'stale'
-  if (state.health === 'down' || state.health === 'pending') return state.health
+  if (state.health === 'down') return state.health
   if (!pgBouncer) return 'unknown'
   return isRunning(pgBouncer.status) && pgBouncer.admin_console_reachable === true ? 'healthy' : 'degraded'
 }

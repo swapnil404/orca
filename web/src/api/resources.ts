@@ -15,10 +15,6 @@ export function getProject(projectID: string): Promise<Project> {
   return apiRequest(`/projects/${encode(projectID)}`)
 }
 
-export function updateProject(projectID: string, name: string): Promise<Project> {
-  return apiRequest(`/projects/${encode(projectID)}`, { method: 'PUT', body: JSON.stringify({ name }) })
-}
-
 export function deleteProject(projectID: string): Promise<void> {
   return apiRequest(`/projects/${encode(projectID)}`, { method: 'DELETE' })
 }
@@ -128,10 +124,6 @@ export function updateParameters(clusterID: string, parameters: Record<string, s
   })
 }
 
-export function deleteCluster(clusterID: string): Promise<void> {
-  return apiRequest(`/clusters/${encode(clusterID)}`, { method: 'DELETE' })
-}
-
 export async function getProjectTopology(projectID: string): Promise<ProjectTopology> {
   const [project, clusters] = await Promise.all([getProject(projectID), listClusters(projectID)])
   return { project, clusters }
@@ -152,10 +144,6 @@ export function createRestoreOperation(clusterID: string, input: CreateRestoreOp
 
 export function listRestoreOperations(projectID: string): Promise<RestoreOperation[]> {
   return apiRequest(`/projects/${encode(projectID)}/restore-operations`)
-}
-
-export function getRestoreOperation(operationID: string): Promise<RestoreOperation> {
-  return apiRequest(`/restore-operations/${encode(operationID)}`)
 }
 
 export function confirmRestoreOperation(operationID: string, confirmation: string): Promise<RestoreOperation> {

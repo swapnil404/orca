@@ -82,26 +82,6 @@ func (s *Postgres) CreateOrganization(ctx context.Context, userID, name string) 
 	return organizationFromSQLC(organization), nil
 }
 
-// GetOrganizationByID returns an organization when userID is a member.
-func (s *Postgres) GetOrganizationByID(ctx context.Context, userID, organizationID string) (Organization, error) {
-	organization, err := s.queries.GetOrganizationByID(ctx, sqlcdb.GetOrganizationByIDParams{
-		UserID: userID, OrganizationID: organizationID,
-	})
-	if err != nil {
-		return Organization{}, err
-	}
-	return organizationFromSQLC(organization), nil
-}
-
-// GetOrganizationBySlug returns an organization by slug.
-func (s *Postgres) GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error) {
-	organization, err := s.queries.GetOrganizationBySlug(ctx, slug)
-	if err != nil {
-		return Organization{}, err
-	}
-	return organizationFromSQLC(organization), nil
-}
-
 // UpdateOrganization renames an organization when userID is an owner.
 func (s *Postgres) UpdateOrganization(ctx context.Context, userID, organizationID, name string) (Organization, error) {
 	organization, err := s.queries.UpdateOrganization(ctx, sqlcdb.UpdateOrganizationParams{
