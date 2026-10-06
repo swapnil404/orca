@@ -5,6 +5,7 @@ import { getProjectTopology, listProjectHosts, rotateHostToken } from '../../../
 import { CanvasView } from '../../../canvas/CanvasView'
 import { areReportsFresh } from '../../../canvas/status'
 import { ConnectHostEmptyState } from '../../../components/ConnectHostEmptyState'
+import { RestartProgress } from '../../../components/RestartProgress'
 import { RestartProjectDialog } from '../../../components/RestartProjectDialog'
 import { useProjectEvents } from '../../../hooks/useProjectEvents'
 import { useRestartProject } from '../../../hooks/useRestartProject'
@@ -106,7 +107,7 @@ function ProjectCanvasPage() {
           <h1 className="mt-1.5 text-xl font-semibold">Project topology</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" disabled={restart.restarting || clusters.length === 0} onClick={restart.openDialog} className="inline-flex items-center gap-2 rounded-full border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3.5 py-2 text-[11px] font-medium text-[var(--warning)] hover:bg-[var(--warning)]/15 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${restart.restarting ? 'animate-spin' : ''}`} />{restart.restarting ? 'Requesting...' : 'Restart'}</button>
+          <button type="button" disabled={restart.restarting || clusters.length === 0} onClick={restart.openDialog} className="inline-flex items-center gap-2 rounded-full border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3.5 py-2 text-[11px] font-medium text-[var(--warning)] hover:bg-[var(--warning)]/15 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${restart.restarting ? 'animate-spin' : ''}`} />{restart.restarting ? 'Restarting...' : 'Restart'}</button>
           <Link to="/projects/$projectId/settings" params={{ projectId }} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]"><Settings2 className="h-3.5 w-3.5" />Settings</Link>
           <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--panel)] px-3.5 py-2 text-[11px] font-medium text-[var(--text-2)] shadow-[inset_0_1px_rgba(255,255,255,0.03)]">
             <span className={`h-1.5 w-1.5 rounded-full ${fresh ? 'bg-[var(--healthy)]' : 'bg-[var(--text-3)]'}`} />
@@ -114,13 +115,13 @@ function ProjectCanvasPage() {
           </div>
         </div>
       </header>
-      {restart.message && <p role={restart.failed ? 'alert' : 'status'} className={`mb-3 rounded-[var(--radius-md)] border px-3 py-2 text-xs ${restart.failed ? 'border-[var(--critical)]/30 bg-[var(--critical)]/5 text-[var(--critical)]' : 'border-[var(--warning)]/30 bg-[var(--warning)]/5 text-[var(--warning)]'}`}>{restart.message}</p>}
-      <RestartProjectDialog open={restart.dialogOpen} clusterCount={clusters.length} restarting={restart.restarting} onCancel={restart.closeDialog} onConfirm={restart.requestRestart} />
+      <RestartProgress {...restart} onDismiss={restart.dismiss} />
+      <RestartProjectDialog open={restart.dialogOpen} clusterCount={clusters.length} restarting={restart.submitting} onCancel={restart.closeDialog} onConfirm={restart.requestRestart} />
       {awaitingHost && <HostConnection hostID={awaitingHost.id} commandState={commandState?.hostID === awaitingHost.id ? commandState : null} onCommand={storeCommand} />}
       {clusters.length === 0 ? (
         <ConnectHostEmptyState className="flex-1" title="Connect a host to get started" description="Register an Orca agent on the infrastructure that will run PostgreSQL. Once the host connects, you can configure this project's topology." />
       ) : (
-        <CanvasView key={projectId} clusters={clusters} snapshot={projectSnapshot} onClusterUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
+        <CanvasView key={projectId} clusters={clusters} snapshot={projectSnapshot} restartRows={restart.rows} onClusterUpdated={(updated) => setClusters((current) => current.map((cluster) => cluster.id === updated.id ? updated : cluster))} />
       )}
     </main>
   )

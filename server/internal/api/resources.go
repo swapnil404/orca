@@ -226,7 +226,7 @@ func (h *ResourceHandler) restartProject(w http.ResponseWriter, r *http.Request)
 	}
 	h.pushHosts(r.Context(), clusterHostIDs(clusters)...)
 	h.notifyProject(r.Context(), projectID)
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, clusters)
 }
 
 type clusterRequest struct {

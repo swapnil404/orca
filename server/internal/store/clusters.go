@@ -38,7 +38,7 @@ type Cluster struct {
 	PgBouncerEnabled  bool              `json:"pgbouncer_enabled"`
 	PgBouncer         PgBouncerConfig   `json:"pg_bouncer"`
 	PgBackRest        *PgBackRestConfig `json:"pg_back_rest,omitempty"`
-	RestartGeneration int64             `json:"-"`
+	RestartGeneration int64             `json:"restart_generation"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
 	DesiredRevision   string            `json:"desired_revision,omitempty"`

@@ -20,6 +20,7 @@ export interface Cluster {
   pg_bouncer: PgBouncerConfig
   pg_back_rest?: PgBackRestConfig
   updated_at: string
+  restart_generation?: number | string
   desired_revision?: string
 }
 
@@ -112,6 +113,7 @@ export interface ActualBackup {
 }
 
 export interface ActualCluster {
+  applied_restart_generation?: number | string
   id: string
   container_id?: string
   status?: string

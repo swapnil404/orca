@@ -1,5 +1,6 @@
 import { applyNodeChanges, Background, Controls, ReactFlow, type NodeChange, type NodeMouseHandler, type OnNodeDrag, type ReactFlowInstance, type XYPosition } from '@xyflow/react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import type { RestartProgressRow } from '../lib/restart'
 import { ApiError, addReplica, configurePgBackRest, enablePgBouncer, installExtension } from '../api'
 import { NodePalette } from '../components/topology/NodePalette'
 import { PALETTE_DRAG_TYPE, type PaletteNodeType, type ProvisionDraft, type ProvisionRequest } from '../components/topology/types'
@@ -18,6 +19,7 @@ import { ReplicaNode } from './nodes/ReplicaNode'
 import type { InfrastructureNode } from './nodes/types'
 import { buildCanvasTopology, extensionNodeID } from './topology'
 
+const emptyRestartRows: RestartProgressRow[] = []
 const nodeTypes = { primary: PrimaryNode, replica: ReplicaNode, pgbouncer: PgBouncerNode, pgbackrest: PgBackRestNode, extension: ExtensionNode, pending: PendingNode }
 const edgeTypes = { topology: TopologyEdge }
 
@@ -31,12 +33,13 @@ const draftLabels: Record<PaletteNodeType, { label: string; eyebrow: string; det
 interface CanvasViewProps {
   clusters: Cluster[]
   snapshot: ProjectStateSnapshot | null
+  restartRows?: RestartProgressRow[]
   onClusterUpdated: (cluster: Cluster) => void
 }
 
 type SelectionTarget = { kind: 'node'; id: string } | { kind: ServiceKind; clusterID: string }
 
-export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewProps) {
+export function CanvasView({ clusters, snapshot, restartRows = emptyRestartRows, onClusterUpdated }: CanvasViewProps) {
   const [selection, setSelection] = useState<SelectionTarget | null>(null)
   const [drafts, setDrafts] = useState<ProvisionDraft[]>([])
   const [activeDraftID, setActiveDraftID] = useState<string | null>(null)
@@ -72,7 +75,12 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
   const hiddenResourceIDs = new Set(drafts.flatMap((draft) => draft.stage === 'awaiting' && draft.resourceID ? [draft.resourceID] : []))
   const realNodes = baseTopology.nodes
     .filter((node) => !hiddenResourceIDs.has(node.id))
-    .map((node) => promotedPositions[node.id] ? { ...node, position: promotedPositions[node.id] } : node)
+    .map((node) => {
+      const clusterID = node.data.kind !== 'pending' ? node.data.cluster.id : undefined
+      const row = restartRows.find((row) => row.id === clusterID)
+      const affected = node.data.kind === 'cluster' || node.data.kind === 'replica' || node.data.kind === 'pgbouncer'
+      return { ...node, position: promotedPositions[node.id] ?? node.position, data: { ...node.data, restartPhase: affected && row?.phase !== 'complete' ? row?.phase : undefined } }
+    })
   const draftNodes: InfrastructureNode[] = drafts.map((draft) => ({
     id: draft.id,
     type: 'pending',
@@ -95,7 +103,7 @@ export function CanvasView({ clusters, snapshot, onClusterUpdated }: CanvasViewP
         return existing ? { ...existing, ...node, position: existing.position } : node
       })
     })
-  }, [clusters, snapshot, now, drafts, promotedPositions])
+  }, [clusters, snapshot, now, drafts, promotedPositions, restartRows])
 
   const topology = { nodes, edges: generatedTopology.edges }
 
