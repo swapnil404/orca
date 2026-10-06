@@ -155,7 +155,7 @@ func (s *Postgres) ListClusterReportsForHost(ctx context.Context, hostID string,
 		}
 		if string(row.ActualState) != "null" {
 			report.ActualState = &types.ActualCluster{}
-			if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
+			if err := decodeActualCluster(row.ActualState, report.ActualState); err != nil {
 				return nil, fmt.Errorf("decode actual cluster %q: %w", row.ClusterID, err)
 			}
 		}
@@ -190,7 +190,7 @@ func (s *Postgres) ListMetricClusterReports(ctx context.Context, projectID strin
 		}
 		if string(row.ActualState) != "null" {
 			report.ActualState = &types.ActualCluster{}
-			if err := protojson.Unmarshal(row.ActualState, report.ActualState); err != nil {
+			if err := decodeActualCluster(row.ActualState, report.ActualState); err != nil {
 				return nil, fmt.Errorf("decode actual cluster %q: %w", row.ClusterID, err)
 			}
 		}
@@ -223,7 +223,7 @@ func (s *Postgres) ListBackupJobs(ctx context.Context, userID, projectID string,
 		}
 		if row.PgbackrestEnabled && string(row.ActualState) != "null" {
 			actual := &types.ActualCluster{}
-			if err := protojson.Unmarshal(row.ActualState, actual); err != nil {
+			if err := decodeActualCluster(row.ActualState, actual); err != nil {
 				return nil, fmt.Errorf("decode backup state for cluster %q: %w", row.ClusterID, err)
 			}
 			if backup := actual.GetBackup(); backup != nil {
@@ -259,4 +259,25 @@ func clusterHealthStatus(status types.ClusterStatus) string {
 		return unknownHealthStatus
 	}
 	return strings.ToLower(strings.TrimPrefix(name, "CLUSTER_STATUS_"))
+}
+
+// decodeActualCluster accepts reports persisted before volume_exists was removed.
+// Only that retired field is removed; malformed or other unknown fields still fail.
+func decodeActualCluster(payload []byte, actual *types.ActualCluster) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return err
+	}
+	_, camelCase := fields["volumeExists"]
+	_, snakeCase := fields["volume_exists"]
+	if camelCase || snakeCase {
+		delete(fields, "volumeExists")
+		delete(fields, "volume_exists")
+		var err error
+		payload, err = json.Marshal(fields)
+		if err != nil {
+			return err
+		}
+	}
+	return protojson.Unmarshal(payload, actual)
 }
