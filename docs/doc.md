@@ -93,3 +93,7 @@ Replica bootstrap failure and retry, the extension second pass, image building, 
 ## Protocol Boundary
 
 `proto/` defines binary messages only for the agent-server tunnel. REST request/response and browser event shapes remain in `server/internal/api`. Agent and server share transport types and pure cross-binary policy through `pkg/` and do not import each other's internal packages.
+
+### Replica removal
+
+Selecting a replica in the topology opens a confirmation control for that replica. `DELETE /clusters/{clusterID}/replicas/{replicaID}` removes the selected ID from the desired replica list under the cluster mutation lock, preserving other IDs and settings. The mutation enforces organization roles and restore-operation conflicts, and commits the updated cluster and full desired snapshot together. The response includes the desired revision. Agents perform the existing replica container, volume, and replication-slot cleanup. The canvas confirms removal only after a fresh report at or beyond that revision shows the replica absent and no reported deletion failure.

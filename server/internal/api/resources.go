@@ -27,6 +27,7 @@ const (
 const maxRequestBodyBytes = 1 << 20
 
 type resourceStore interface {
+	RemoveReplica(context.Context, string, string, string) (store.Cluster, error)
 	CreateProject(context.Context, store.CreateProjectParams) (store.Project, error)
 	ListProjects(context.Context, string) ([]store.Project, error)
 	GetProject(context.Context, string, string) (store.Project, error)
@@ -101,6 +102,7 @@ func (h *ResourceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /clusters/{clusterID}/pg-hba", h.updatePgHba)
 	mux.HandleFunc("PUT /clusters/{clusterID}/parameters", h.updateParameters)
 	mux.HandleFunc("DELETE /clusters/{clusterID}", h.deleteCluster)
+	mux.HandleFunc("DELETE /clusters/{clusterID}/replicas/{replicaID}", h.removeReplica)
 }
 
 func (h *ResourceHandler) createProject(w http.ResponseWriter, r *http.Request) {
@@ -718,4 +720,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (h *ResourceHandler) removeReplica(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	cluster, err := h.store.RemoveReplica(r.Context(), userID, r.PathValue("clusterID"), r.PathValue("replicaID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.pushHosts(r.Context(), cluster.HostID)
+	h.notifyProject(r.Context(), cluster.ProjectID)
+	writeJSON(w, http.StatusOK, cluster)
 }

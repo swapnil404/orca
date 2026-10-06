@@ -735,6 +735,24 @@ func (q *Queries) UpdateClusterPgHba(ctx context.Context, arg UpdateClusterPgHba
 	return i, err
 }
 
+const updateClusterReplicaIDs = `-- name: UpdateClusterReplicaIDs :exec
+UPDATE clusters
+SET replica_ids = $1::jsonb,
+    replica_count = jsonb_array_length($1::jsonb),
+    updated_at = NOW()
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type UpdateClusterReplicaIDsParams struct {
+	ReplicaIds json.RawMessage `json:"replica_ids"`
+	ClusterID  string          `json:"cluster_id"`
+}
+
+func (q *Queries) UpdateClusterReplicaIDs(ctx context.Context, arg UpdateClusterReplicaIDsParams) error {
+	_, err := q.db.ExecContext(ctx, updateClusterReplicaIDs, arg.ReplicaIds, arg.ClusterID)
+	return err
+}
+
 const updateClusterRestart = `-- name: UpdateClusterRestart :one
 UPDATE clusters c
 SET restart_generation = restart_generation + 1,

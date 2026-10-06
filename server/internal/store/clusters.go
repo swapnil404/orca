@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -762,4 +763,69 @@ func desiredStateFromSQLC(state sqlcdb.DesiredState) DesiredState {
 		ID: state.ID, HostID: state.HostID, ClusterID: state.ClusterID,
 		Operation: state.Operation, State: state.State, CreatedAt: state.CreatedAt,
 	}
+}
+
+// RemoveReplica removes the selected replica and records the desired snapshot atomically.
+func (s *Postgres) RemoveReplica(ctx context.Context, userID, clusterID, replicaID string) (Cluster, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Cluster{}, err
+	}
+	defer tx.Rollback()
+	queries := s.queries.WithTx(tx)
+	if err := lockClusterMutation(ctx, queries, userID, clusterID); err != nil {
+		return Cluster{}, err
+	}
+	row, err := queries.GetCluster(ctx, sqlcdb.GetClusterParams{ID: clusterID, UserID: userID})
+	if err != nil {
+		return Cluster{}, err
+	}
+	current, err := clusterFromSQLC(row)
+	if err != nil {
+		return Cluster{}, err
+	}
+	remaining, err := replicasWithout(current.Replicas, replicaID)
+	if err != nil {
+		return Cluster{}, err
+	}
+	ids, err := json.Marshal(replicaIDStrings(remaining))
+	if err != nil {
+		return Cluster{}, err
+	}
+	if err := queries.UpdateClusterReplicaIDs(ctx, sqlcdb.UpdateClusterReplicaIDsParams{ClusterID: clusterID, ReplicaIds: ids}); err != nil {
+		return Cluster{}, err
+	}
+	row, err = queries.GetCluster(ctx, sqlcdb.GetClusterParams{ID: clusterID, UserID: userID})
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster, err := clusterFromSQLC(row)
+	if err != nil {
+		return Cluster{}, err
+	}
+	desired, err := createClusterUpsertState(ctx, queries, cluster)
+	if err != nil {
+		return Cluster{}, err
+	}
+	cluster.DesiredRevision = fmt.Sprint(desired.ID)
+	if err := tx.Commit(); err != nil {
+		return Cluster{}, err
+	}
+	return cluster, nil
+}
+
+func replicasWithout(replicas []Replica, replicaID string) ([]Replica, error) {
+	remaining := make([]Replica, 0, len(replicas))
+	found := false
+	for _, replica := range replicas {
+		if replica.ID == replicaID {
+			found = true
+			continue
+		}
+		remaining = append(remaining, replica)
+	}
+	if !found {
+		return nil, sql.ErrNoRows
+	}
+	return remaining, nil
 }

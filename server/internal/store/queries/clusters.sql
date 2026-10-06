@@ -214,3 +214,10 @@ FROM projects p, organization_memberships om
 WHERE c.project_id = $1 AND c.project_id = p.id
   AND om.organization_id = p.organization_id AND om.user_id = $2
   AND c.deleted_at IS NULL AND p.deleted_at IS NULL;
+
+-- name: UpdateClusterReplicaIDs :exec
+UPDATE clusters
+SET replica_ids = sqlc.arg(replica_ids)::jsonb,
+    replica_count = jsonb_array_length(sqlc.arg(replica_ids)::jsonb),
+    updated_at = NOW()
+WHERE id = sqlc.arg(cluster_id) AND deleted_at IS NULL;

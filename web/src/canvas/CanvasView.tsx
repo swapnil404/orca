@@ -1,5 +1,6 @@
 import { applyNodeChanges, Background, Controls, ReactFlow, type NodeChange, type NodeMouseHandler, type OnNodeDrag, type ReactFlowInstance, type XYPosition } from '@xyflow/react'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { replicaRemovalProgress } from '../lib/replica-removal'
 import type { RestartProgressRow } from '../lib/restart'
 import { ApiError, addReplica, configurePgBackRest, enablePgBouncer, installExtension } from '../api'
 import { NodePalette } from '../components/topology/NodePalette'
@@ -40,6 +41,7 @@ interface CanvasViewProps {
 type SelectionTarget = { kind: 'node'; id: string } | { kind: ServiceKind; clusterID: string }
 
 export function CanvasView({ clusters, snapshot, restartRows = emptyRestartRows, onClusterUpdated }: CanvasViewProps) {
+  const [removal, setRemoval] = useState<{ clusterID: string; replicaID: string; revision?: string; confirmed?: boolean } | null>(null)
   const [selection, setSelection] = useState<SelectionTarget | null>(null)
   const [drafts, setDrafts] = useState<ProvisionDraft[]>([])
   const [activeDraftID, setActiveDraftID] = useState<string | null>(null)
@@ -194,12 +196,18 @@ export function CanvasView({ clusters, snapshot, restartRows = emptyRestartRows,
       setSelection({ kind: 'node', id: node.id })
     }
   }
+  const removalState = removal ? snapshot?.clusters.find((state) => state.cluster_id === removal.clusterID) : undefined
+  const removalProgress = removal?.confirmed ? { phase: 'complete', message: 'Replica removed · confirmed by agent' } : removal ? replicaRemovalProgress(removal.replicaID, removal.revision, removalState, now) : null
+  useEffect(() => {
+    if (removalProgress?.phase === 'complete' && removal && !removal.confirmed) setRemoval({ ...removal, confirmed: true })
+  }, [removalProgress?.phase, removal])
   const selectService = (kind: ServiceKind, clusterID: string) => { setActiveDraftID(null); setSelection({ kind, clusterID }) }
 
   return (
     <div className="flex flex-1 flex-col gap-3 lg:flex-row">
       <NodePalette onActivate={activatePaletteItem} />
       <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {removalProgress && <div role={removalProgress.phase === 'failed' ? 'alert' : 'status'} className={`flex items-center justify-between gap-3 rounded-[var(--radius-md)] border px-4 py-3 text-xs ${removalProgress.phase === 'failed' ? 'border-[var(--critical)]/40 text-[var(--critical)]' : removalProgress.phase === 'complete' ? 'border-[var(--healthy)]/40 text-[var(--healthy)]' : 'border-[var(--warning)]/40 text-[var(--warning)]'}`}><span>{removalProgress.message}</span><button type="button" onClick={() => setRemoval(null)} aria-label="Dismiss replica removal status">×</button></div>}
         <section ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDrop={dropPaletteItem} className="relative min-h-[520px] flex-1 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[#0c0c0d] shadow-[0_24px_80px_rgba(0,0,0,0.2)]">
           <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2 font-mono text-[10px] text-[var(--text-2)] sm:left-5 sm:top-5"><span className="h-1 w-1 rounded-full bg-[var(--accent)]" />Topology · {topology.nodes.length} nodes</div>
           <p className="pointer-events-none absolute right-5 top-5 z-10 hidden text-[11px] text-[var(--text-3)] sm:block">Drop a resource or select a node</p>
@@ -210,7 +218,7 @@ export function CanvasView({ clusters, snapshot, restartRows = emptyRestartRows,
         </section>
         <ServiceCards clusters={clusters} states={snapshot?.clusters ?? []} now={now} onSelect={selectService} />
       </div>
-      <PanelHost selected={selected} onClose={() => setSelection(null)} />
+      <PanelHost selected={selected} onClose={() => setSelection(null)} onReplicaRemoved={(cluster, replicaID) => { onClusterUpdated(cluster); setRemoval({ clusterID: cluster.id, replicaID, revision: cluster.desired_revision }) }} />
       <ProvisionPanel key={activeDraft?.id ?? 'closed'} type={activeDraft?.type ?? null} clusters={clusters} snapshot={snapshot} busy={activeDraft?.stage === 'submitting'} error={activeDraft?.error} onCancel={() => activeDraft && dismissDraft(activeDraft.id)} onClose={() => { if (activeDraft?.stage === 'configuring') dismissDraft(activeDraft.id); else setActiveDraftID(null) }} onConfirm={(request) => void confirmProvision(request)} />
     </div>
   )

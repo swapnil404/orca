@@ -1,3 +1,4 @@
+import type { Cluster } from '../types/resources'
 import { Drawer } from '../components/shell/Drawer'
 import { AlertsPanel } from './AlertsPanel'
 import { ClusterPanel } from './ClusterPanel'
@@ -10,12 +11,13 @@ import type { DetailSelection } from './types'
 interface PanelHostProps {
   selected: DetailSelection | null
   onClose: () => void
+  onReplicaRemoved: (cluster: Cluster, replicaID: string) => void
 }
 
-export function PanelHost({ selected, onClose }: PanelHostProps) {
+export function PanelHost({ selected, onClose, onReplicaRemoved }: PanelHostProps) {
   let content = null
   if (selected?.kind === 'cluster') content = <ClusterPanel resource={selected} onClose={onClose} />
-  if (selected?.kind === 'replica') content = <ReplicaPanel resource={selected} onClose={onClose} />
+  if (selected?.kind === 'replica') content = <ReplicaPanel key={selected.replicaID} resource={selected} onClose={onClose} onRemoved={onReplicaRemoved} />
   if (selected?.kind === 'pgbouncer') content = <PgBouncerPanel resource={selected} onClose={onClose} />
   if (selected?.kind === 'pgbackrest') content = <PgBackRestPanel cluster={selected.cluster} actual={selected.state?.actual_state?.backup} onClose={onClose} />
   if (selected?.kind === 'extension') content = <ExtensionsPanel cluster={selected.cluster} extension={selected} onClose={onClose} />

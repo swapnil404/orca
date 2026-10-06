@@ -165,3 +165,7 @@ export function requestRestoreOperationAction(operationID: string, action: Confi
     body: JSON.stringify({ confirmation }),
   })
 }
+
+export function removeReplica(clusterID: string, replicaID: string): Promise<Cluster> {
+  return apiRequest(`/clusters/${encode(clusterID)}/replicas/${encode(replicaID)}`, { method: 'DELETE' })
+}
