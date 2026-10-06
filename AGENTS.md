@@ -4,7 +4,7 @@ This describes the Orca codebase for AI coding agents (opencode, Claude, Copilot
 
 ## What Orca is
 
-Orca is a self-hosted Postgres orchestration and control platform. Users run an agent on their own infrastructure. The agent connects outbound to Orca's control plane over a persistent WebSocket connection. The backend API and agent manage Postgres clusters, replicas, connection pooling, backups, and extensions, all of which run on the user's own host. The current web UI is a read-only topology and status viewer.
+Orca is a self-hosted Postgres orchestration and control platform. Users run an agent on their own infrastructure. The agent connects outbound to Orca's control plane over a persistent WebSocket connection. The backend API and agent manage Postgres clusters, replicas, connection pooling, backups, and extensions, all of which run on the user's own host. The current web UI provides topology, observed status, and configuration management.
 
 Orca owns no servers running user data. All Postgres infrastructure runs on the user's own host. Orca's server only stores desired state and reported health, and pushes desired state down to agents.
 
@@ -145,9 +145,9 @@ If a new environment variable is introduced, add it to this table and to `.env.e
 
 ## Testing
 
-- Commit meaningful behavioral tests for reconciliation, persistence, transport, and recovery changes.
-- Keep unit tests independent of external services and use disposable data for integration verification.
-- Run the relevant build, vet, test, and race checks. Check actual package coverage; compilation alone does not verify behavior.
+- Commit meaningful behavioral tests with changes to reconciliation, persistence, transport, and recovery. Cover success, failure, dependency ordering, and reconnect/offline behavior where relevant.
+- Use `go test -race ./...` for changes to concurrent paths. Keep unit tests independent of Docker and external services; integration tests must use disposable data and explicit setup.
+- Verify Go changes from the repository root with `go build ./...`, `go vet ./...`, and `go test ./...`.
 
 ## Coding conventions
 

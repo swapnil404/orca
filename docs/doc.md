@@ -78,13 +78,17 @@ The frontend provides email/password registration and login plus GitHub/Google O
 
 Durable data lives in Postgres through sqlc-generated queries and plain SQL migrations. Run `./scripts/migrate.sh` before server startup; neither the server nor sqlc applies migrations automatically.
 
-The active agent hub uses an `RWMutex`, sessions serialize desired-state writes, the orchestrator serializes pushes per host, and frontend project subscriptions use their own mutex. These synchronization boundaries apply within one process; verify concurrent behavior with race checks.
+The active agent hub uses an `RWMutex`, sessions serialize desired-state writes, the orchestrator serializes pushes per host, and frontend project subscriptions use their own mutex. Hub replacement and concurrent registration, together with serialized session writes, have automated race-tested coverage. This does not establish cross-process coordination.
 
 The hub, frontend subscription map, desired-state push routing, and alert debounce windows are process-local. If an API request reaches one server while its target agent is connected to another, the first process persists the mutation but cannot push it through the second process's hub. Frontend report notifications have the same limitation. The current deployment model is therefore one server instance; horizontal scaling requires cross-instance session routing/pub-sub and coordinated alert evaluation.
 
 ## Tests
 
-Use the documented build, vet, and test commands for the current checkout. Inspect the test output and verify the relevant behavior; compilation alone is not behavioral evidence. Live infrastructure checks must use disposable data.
+Committed Go tests cover reconciliation planning and dependency failure ordering; cache persistence; extension changes; restore journal, backup selection, and capacity calculations; active-user JWT validation and cookie origin checks; and full-snapshot routing plus hub/session concurrency. Run `go test ./...` and `go test -race ./...` from the root.
+
+The opt-in Docker test provisions a uniquely named Postgres/PgBouncer cluster, reads and writes through the authenticated pool endpoint, resumes using cached state in a fresh runner, verifies streaming data on a standby, applies a parameter on both nodes, acknowledges a requested restart, removes the replica and its slot, and verifies final deletion. It scopes container and volume observation to its own cluster so the runner cannot reconcile unrelated deployments. Run it with `ORCA_INTEGRATION_TESTS=1 go test -v ./agent/internal/reconciler -run '^TestIntegrationClusterLifecycleAndOfflineCache$' -count=1 -timeout=5m`. Docker access and the required images are prerequisites.
+
+Replica bootstrap failure and retry, the extension second pass, image building, scheduled backups and full PITR execution, metadata migrations, API/store ownership, OAuth, and browser project events still require further verification. The frontend currently has typecheck/build verification but no behavioral test framework.
 
 ## Protocol Boundary
 

@@ -154,7 +154,25 @@ orca/
 
 ## Verification And Tests
 
-Use the documented build, vet, and test commands for the current checkout. Inspect the test output and verify the relevant behavior; compilation alone is not behavioral evidence. Live infrastructure checks must use disposable data.
+Run Go verification from the repository root:
+
+```sh
+go build ./...
+go vet ./...
+go test ./...
+```
+
+Committed Go tests cover reconciliation planning and failure ordering, cache persistence, extension changes, restore journal/metadata, JWT policy, and full-snapshot routing and session concurrency. Run `go test -race ./...` to check concurrent paths. Unit tests use temporary files and in-memory fakes; they do not require Docker. An opt-in Docker lifecycle test verifies primary/PgBouncer provisioning, authenticated SQL, cached-state restart, streaming replication, parameter updates, requested restart, replica/slot removal, and deletion using disposable resources:
+
+```sh
+ORCA_INTEGRATION_TESTS=1 go test -v ./agent/internal/reconciler -run '^TestIntegrationClusterLifecycleAndOfflineCache$' -count=1 -timeout=5m
+```
+
+The test requires Docker access and Postgres/PgBouncer images. Replica failure/retry and backup/recovery still need integration verification.
+
+Check the frontend with `npm --prefix web run typecheck` and `npm --prefix web run build`.
+
+Architecture details and current limitations are in [`docs/doc.md`](docs/doc.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## License
 
